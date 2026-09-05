@@ -10,7 +10,7 @@ var active_ply: int = -1
 var max_eval_cp: float = 600.0 # Plafond visuel à ±6 pions
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(300, 100)
+	custom_minimum_size = Vector2(250, 60)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	GameController.move_navigated.connect(_on_move_navigated)
 

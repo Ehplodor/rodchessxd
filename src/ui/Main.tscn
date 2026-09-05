@@ -84,18 +84,18 @@ size_flags_horizontal = 3
 
 [node name="BtnImportPNG" type="Button" parent="VBox/TopBar"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 11
-text = "📷 PNG"
+theme_override_font_sizes/font_size = 10
+text = "PNG"
 
 [node name="BtnImportPGN" type="Button" parent="VBox/TopBar"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 11
-text = "📋 PGN"
+theme_override_font_sizes/font_size = 10
+text = "PGN"
 
 [node name="BtnChessCom" type="Button" parent="VBox/TopBar"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 11
-text = "🌐 Chess.com"
+theme_override_font_sizes/font_size = 10
+text = "Chess.com"
 
 [node name="BtnFlip" type="Button" parent="VBox/TopBar"]
 layout_mode = 2
@@ -130,39 +130,39 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 
 [node name="ChessBoard" type="Control" parent="VBox/CenterArea/BoardContainer"]
-custom_minimum_size = Vector2(380, 380)
+custom_minimum_size = Vector2(350, 350)
 layout_mode = 2
 script = ExtResource("3_board")
 
 [node name="NavRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
 alignment = 1
-theme_override_constants/separation = 8
+theme_override_constants/separation = 6
 
 [node name="BtnFirst" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(40, 32)
+custom_minimum_size = Vector2(36, 30)
 layout_mode = 2
 text = "⏮"
 
 [node name="BtnPrev" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(48, 32)
+custom_minimum_size = Vector2(40, 30)
 layout_mode = 2
 text = "◀"
 
 [node name="BtnNext" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(48, 32)
+custom_minimum_size = Vector2(40, 30)
 layout_mode = 2
 text = "▶"
 
 [node name="BtnLast" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(40, 32)
+custom_minimum_size = Vector2(36, 30)
 layout_mode = 2
 text = "⏭"
 
 [node name="BtnAnalyzeGame" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(130, 32)
+custom_minimum_size = Vector2(120, 30)
 layout_mode = 2
-theme_override_font_sizes/font_size = 12
+theme_override_font_sizes/font_size = 11
 text = "🔍 Analyser Partie"
 
 [node name="BottomTabs" type="TabContainer" parent="VBox"]
@@ -172,7 +172,7 @@ current_tab = 0
 
 [node name="Bilan" type="VBoxContainer" parent="VBox/BottomTabs"]
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 3
 metadata/_tab_index = 0
 
 [node name="StatsLabel" type="Label" parent="VBox/BottomTabs/Bilan"]
@@ -183,7 +183,7 @@ text = "Position de départ prête pour l'analyse."
 horizontal_alignment = 1
 
 [node name="GraphContainer" type="PanelContainer" parent="VBox/BottomTabs/Bilan"]
-custom_minimum_size = Vector2(0, 75)
+custom_minimum_size = Vector2(0, 60)
 layout_mode = 2
 
 [node name="AdvantageGraph" type="Control" parent="VBox/BottomTabs/Bilan/GraphContainer"]

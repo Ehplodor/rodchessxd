@@ -34,11 +34,12 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 		is_analyzing = false
 		return _build_final_report()
 
-	# Analyse de la position de départ
+	# Analyse de la position de départ (une seule fois)
 	var sim_game = ChessGame.new()
 	sim_game.load_fen(ChessGame.INITIAL_FEN)
 
-	var prev_score_cp = 20 # Léger avantage Blancs au départ (~0.2 pion)
+	var start_eval = _evaluate_fen_sync(ChessGame.INITIAL_FEN, depth)
+	var prev_score_cp = start_eval.get("score_cp", 20)
 	var white_loss_sum = 0
 	var black_loss_sum = 0
 	var white_moves_count = 0
@@ -50,19 +51,16 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 		
 		var move = moves[i]
 		var is_white = (i % 2 == 0)
-		var fen_before = sim_game.get_fen()
-
-		# Évaluation de la position par Stockfish
-		var eval_data = _evaluate_fen_sync(fen_before, depth)
-		var best_move_uci = eval_data.get("best_move", "")
-		var score_before = eval_data.get("score_cp", prev_score_cp)
+		var score_before = prev_score_cp
 
 		# Exécution du coup
 		sim_game.make_move(move)
 		var fen_after = sim_game.get_fen()
 
+		# Évaluation de la position résultante
 		var eval_after_data = _evaluate_fen_sync(fen_after, depth)
 		var score_after = eval_after_data.get("score_cp", score_before)
+		var best_move_uci = eval_after_data.get("best_move", "")
 
 		# Calcul de la perte en centipions (du point de vue du joueur actif)
 		var cp_loss = 0
@@ -191,8 +189,10 @@ func _evaluate_fen_sync(fen: String, depth: int) -> Dictionary:
 	if engine == null or not engine.is_engine_running:
 		return {"score_cp": 0, "best_move": ""}
 
+	if engine.has_method("evaluate_position_sync"):
+		return engine.evaluate_position_sync(fen, depth, 1500)
+
 	engine.evaluate_position(fen, depth)
-	
 	var max_wait = 20
 	while engine.is_evaluating and max_wait > 0:
 		OS.delay_msec(50)

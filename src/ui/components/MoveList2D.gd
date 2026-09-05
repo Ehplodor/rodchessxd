@@ -6,7 +6,7 @@ var container: VBoxContainer
 var move_buttons: Array[Button] = []
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(240, 140)
+	custom_minimum_size = Vector2(200, 90)
 	horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	
 	container = VBoxContainer.new()

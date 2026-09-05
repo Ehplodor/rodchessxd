@@ -27,10 +27,14 @@ const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 @onready var sfx_check: AudioStreamPlayer = $Sounds/SfxCheck
 
 var analyzer: GameAnalyzer
+var analysis_thread: Thread = null
 
 func _ready() -> void:
 	analyzer = GameAnalyzer.new()
 	analyzer.analysis_finished.connect(_on_analysis_finished)
+	analyzer.progress_updated.connect(func(cur, tot):
+		call_deferred("_on_analysis_progress", cur, tot)
+	)
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
 	
@@ -105,24 +109,35 @@ func _on_btn_settings_pressed() -> void:
 
 # --- ANALYSE DE PARTIE ---
 
+func _on_analysis_progress(cur: int, tot: int) -> void:
+	stats_label.text = "⏳ Analyse par Stockfish (%d/%d)..." % [cur, tot]
+
 func _on_btn_analyze_game_pressed() -> void:
+	if analyzer.is_analyzing:
+		analyzer.cancel_analysis()
+		stats_label.text = "Analyse interrompue par l'utilisateur."
+		return
+
 	var moves_count = GameController.game.move_history.size()
 	if moves_count == 0:
 		stats_label.text = "Jouez ou importez des coups avant de lancer l'analyse globale."
 		return
 	
-	stats_label.text = "⏳ Analyse globale par Stockfish en cours (0/%d)..." % moves_count
-	analyzer.progress_updated.connect(func(cur, tot):
-		stats_label.text = "⏳ Analyse par Stockfish (%d/%d)..." % [cur, tot]
-	, CONNECT_ONE_SHOT)
+	stats_label.text = "⏳ Démarrage de l'analyse Stockfish (0/%d)..." % moves_count
 	
-	var thread = Thread.new()
-	thread.start(func():
-		var report = analyzer.start_game_analysis(GameController.game, 12)
+	if analysis_thread and analysis_thread.is_started():
+		analysis_thread.wait_to_finish()
+	
+	analysis_thread = Thread.new()
+	analysis_thread.start(func():
+		var report = analyzer.start_game_analysis(GameController.game, 10)
 		call_deferred("_on_analysis_finished", report)
 	)
 
 func _on_analysis_finished(report: Dictionary) -> void:
+	if analysis_thread and analysis_thread.is_started():
+		analysis_thread.wait_to_finish()
+
 	var evals = report.get("evaluations", [])
 	advantage_graph.set_evaluations(evals)
 

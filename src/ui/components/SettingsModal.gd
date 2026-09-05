@@ -4,7 +4,7 @@ extends Window
 
 func _ready() -> void:
 	title = "Paramètres & Clés IA"
-	size = Vector2i(420, 620)
+	size = Vector2i(410, 620)
 	exclusive = true
 	close_requested.connect(queue_free)
 	_setup_ui()
@@ -12,10 +12,10 @@ func _ready() -> void:
 func _setup_ui() -> void:
 	var scroll = ScrollContainer.new()
 	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scroll.offset_left = 16
-	scroll.offset_top = 16
-	scroll.offset_right = -16
-	scroll.offset_bottom = -16
+	scroll.offset_left = 10
+	scroll.offset_top = 10
+	scroll.offset_right = -10
+	scroll.offset_bottom = -10
 	add_child(scroll)
 
 	var vbox = VBoxContainer.new()

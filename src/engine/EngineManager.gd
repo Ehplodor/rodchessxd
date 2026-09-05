@@ -144,6 +144,41 @@ func stop_evaluation() -> void:
 		send_command("stop")
 		is_evaluating = false
 
+## Évaluation synchrone robuste pour l'analyse globale de partie (GameAnalyzer)
+func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500) -> Dictionary:
+	if not is_engine_running or not process_pipe.has("stdio"):
+		return {"score_cp": 0, "best_move": "", "depth": 0}
+
+	# Si une évaluation était déjà en cours, on l'interrompt proprement
+	if is_evaluating:
+		send_command("stop")
+		var stop_wait = 10
+		while is_evaluating and stop_wait > 0:
+			OS.delay_msec(10)
+			stop_wait -= 1
+
+	current_fen = fen
+	is_evaluating = true
+	best_move_uci = ""
+
+	send_command("position fen " + fen)
+	send_command("go depth %d" % depth)
+
+	var elapsed = 0
+	while is_evaluating and elapsed < timeout_ms:
+		OS.delay_msec(15)
+		elapsed += 15
+
+	if is_evaluating:
+		send_command("stop")
+		is_evaluating = false
+
+	return {
+		"score_cp": eval_score_cp,
+		"best_move": best_move_uci,
+		"depth": eval_depth
+	}
+
 func _engine_reader_loop() -> void:
 	var stdio: FileAccess = process_pipe.get("stdio", null)
 	if not stdio:

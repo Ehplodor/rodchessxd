@@ -11,7 +11,7 @@ var status_label: Label
 var model_badge_btn: Button
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(300, 230)
+	custom_minimum_size = Vector2(280, 160)
 	_setup_ui()
 	
 	AICoach.coach_thinking_started.connect(_on_thinking_started)
@@ -76,7 +76,7 @@ func _setup_ui() -> void:
 	response_label = RichTextLabel.new()
 	response_label.bbcode_enabled = true
 	response_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	response_label.custom_minimum_size = Vector2(0, 100)
+	response_label.custom_minimum_size = Vector2(0, 70)
 	response_label.text = "[color=#94a3b8]Posez une question ou cliquez sur une action rapide pour recevoir les conseils du coach sur la position active.[/color]"
 	vbox.add_child(response_label)
 

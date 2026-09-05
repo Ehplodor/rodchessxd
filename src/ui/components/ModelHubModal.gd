@@ -43,7 +43,7 @@ func _get_coach() -> Node:
 
 func _ready() -> void:
 	title = "⚡ Hub des Modèles IA & Coach Grand-Maître"
-	size = Vector2i(460, 680)
+	size = Vector2i(410, 640)
 	exclusive = true
 	close_requested.connect(queue_free)
 
@@ -65,10 +65,10 @@ func _setup_ui() -> void:
 	root_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var panel_style = StyleBoxFlat.new()
 	panel_style.bg_color = Color("#090d16")
-	panel_style.content_margin_left = 14
-	panel_style.content_margin_top = 14
-	panel_style.content_margin_right = 14
-	panel_style.content_margin_bottom = 14
+	panel_style.content_margin_left = 8
+	panel_style.content_margin_top = 8
+	panel_style.content_margin_right = 8
+	panel_style.content_margin_bottom = 8
 	root_panel.add_theme_stylebox_override("panel", panel_style)
 	add_child(root_panel)
 
@@ -333,7 +333,8 @@ func _add_model_card(parent: Control, model_dict: Dictionary) -> void:
 	var name_lbl = Label.new()
 	name_lbl.text = ("⭐ " if model_dict.get("recommended", false) else "") + m_name
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_lbl.add_theme_font_size_override("font_size", 12)
+	name_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_lbl.add_theme_font_size_override("font_size", 11)
 	name_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
 	top_row.add_child(name_lbl)
 

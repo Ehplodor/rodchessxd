@@ -21,7 +21,7 @@ var square_buttons: Array[Button] = []
 
 func _ready() -> void:
 	title = "Importer et Vérifier une Position"
-	size = Vector2i(420, 680)
+	size = Vector2i(410, 640)
 	exclusive = true
 	unresizable = false
 	close_requested.connect(queue_free)
@@ -31,12 +31,12 @@ func _ready() -> void:
 
 func _setup_ui() -> void:
 	var main_vbox = VBoxContainer.new()
-	main_vbox.add_theme_constant_override("separation", 10)
+	main_vbox.add_theme_constant_override("separation", 8)
 	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	main_vbox.offset_left = 12
-	main_vbox.offset_top = 12
-	main_vbox.offset_right = -12
-	main_vbox.offset_bottom = -12
+	main_vbox.offset_left = 8
+	main_vbox.offset_top = 8
+	main_vbox.offset_right = -8
+	main_vbox.offset_bottom = -8
 	add_child(main_vbox)
 
 	# 1. Bouton Sélectionner Image

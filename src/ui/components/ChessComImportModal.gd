@@ -15,7 +15,7 @@ var active_filter: String = "all"
 
 func _ready() -> void:
 	title = "Importer depuis Chess.com"
-	size = Vector2i(440, 640)
+	size = Vector2i(410, 640)
 	exclusive = true
 	close_requested.connect(queue_free)
 
@@ -29,11 +29,11 @@ func _ready() -> void:
 func _setup_ui() -> void:
 	var vbox = VBoxContainer.new()
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	vbox.offset_left = 14
-	vbox.offset_top = 14
-	vbox.offset_right = -14
-	vbox.offset_bottom = -14
-	vbox.add_theme_constant_override("separation", 10)
+	vbox.offset_left = 8
+	vbox.offset_top = 8
+	vbox.offset_right = -8
+	vbox.offset_bottom = -8
+	vbox.add_theme_constant_override("separation", 8)
 	add_child(vbox)
 
 	# 1. En-tête & Saisie du pseudo

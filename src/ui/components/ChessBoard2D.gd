@@ -54,7 +54,7 @@ var best_move_arrow_from: int = -1
 var best_move_arrow_to: int = -1
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(360, 360)
+	custom_minimum_size = Vector2(350, 350)
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	_preload_piece_textures()
 	_update_dimensions()
@@ -77,7 +77,7 @@ func _notification(what: int) -> void:
 func _update_dimensions() -> void:
 	var side = min(size.x, size.y)
 	if side < 100:
-		side = 360
+		side = 350
 	board_size = side
 	square_size = board_size / 8.0
 

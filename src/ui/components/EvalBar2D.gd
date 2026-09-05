@@ -10,7 +10,7 @@ var score_label: Label
 var tween: Tween
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(28, 120)
+	custom_minimum_size = Vector2(16, 80)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	
 	score_label = Label.new()

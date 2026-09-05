@@ -14,6 +14,7 @@ var active_query_model_id: String = ""
 # Métriques de session
 var session_queries_count: int = 0
 var session_estimated_cost_usd: float = 0.0
+var last_query_context: Dictionary = {}
 
 func _ready() -> void:
 	http_client = HTTPRequest.new()
@@ -289,6 +290,15 @@ func ask_coach(
 	user_question: String = "",
 	extra_context: Dictionary = {}
 ) -> void:
+	last_query_context = {
+		"fen": fen,
+		"last_move_san": last_move_san,
+		"eval_cp": eval_cp,
+		"best_move": best_move,
+		"pv_line": pv_line,
+		"user_question": user_question,
+		"extra_context": extra_context
+	}
 	var prompt_data = build_prompt_data(fen, last_move_san, eval_cp, best_move, pv_line, user_question, extra_context)
 	current_query_start_time = Time.get_ticks_msec() / 1000.0
 	coach_thinking_started.emit()
@@ -337,7 +347,7 @@ func _request_local_ollama(prompt_data: Dictionary, model_info: Dictionary) -> v
 
 func _request_groq(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_groq", "")
-	if key == "":
+	if key.strip_edges() == "":
 		_fallback_offline_explanation("Groq")
 		return
 
@@ -360,7 +370,7 @@ func _request_groq(prompt_data: Dictionary, model_info: Dictionary) -> void:
 
 func _request_gemini(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_gemini", "")
-	if key == "":
+	if key.strip_edges() == "":
 		_fallback_offline_explanation("Google Gemini")
 		return
 
@@ -383,6 +393,10 @@ func _request_gemini(prompt_data: Dictionary, model_info: Dictionary) -> void:
 
 func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_openrouter", "")
+	if key.strip_edges() == "":
+		_fallback_offline_explanation("OpenRouter")
+		return
+
 	var model_id = model_info.get("id", "z-ai/glm-5.3-flash:free")
 	
 	var url = "https://openrouter.ai/api/v1/chat/completions"
@@ -395,11 +409,10 @@ func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> voi
 	})
 	var headers = [
 		"Content-Type: application/json",
+		"Authorization: Bearer " + key,
 		"HTTP-Referer: https://rodchessxd.app",
 		"X-Title: RodChessXD"
 	]
-	if key != "":
-		headers.append("Authorization: Bearer " + key)
 		
 	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
 	if err != OK:
@@ -407,8 +420,8 @@ func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> voi
 
 func _request_deepseek(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_deepseek", "")
-	if key == "":
-		coach_error.emit("Clé API DeepSeek manquante. Rendez-vous dans le Hub IA pour l'ajouter.")
+	if key.strip_edges() == "":
+		_fallback_offline_explanation("DeepSeek")
 		return
 
 	var raw_id = model_info.get("id", "deepseek-chat").replace("deepseek/", "")
@@ -430,8 +443,8 @@ func _request_deepseek(prompt_data: Dictionary, model_info: Dictionary) -> void:
 
 func _request_openai(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_openai", "")
-	if key == "":
-		coach_error.emit("Clé API OpenAI manquante. Rendez-vous dans le Hub IA pour l'ajouter.")
+	if key.strip_edges() == "":
+		_fallback_offline_explanation("OpenAI")
 		return
 
 	var raw_id = model_info.get("id", "gpt-4o-mini").replace("openai/", "")
@@ -453,8 +466,8 @@ func _request_openai(prompt_data: Dictionary, model_info: Dictionary) -> void:
 
 func _request_anthropic(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_anthropic", "")
-	if key == "":
-		coach_error.emit("Clé API Anthropic manquante. Rendez-vous dans le Hub IA pour l'ajouter.")
+	if key.strip_edges() == "":
+		_fallback_offline_explanation("Anthropic")
 		return
 
 	var raw_id = model_info.get("id", "claude-3-5-haiku-20241022").replace("anthropic/", "")
@@ -477,17 +490,77 @@ func _request_anthropic(prompt_data: Dictionary, model_info: Dictionary) -> void
 		coach_error.emit("Erreur de connexion à Anthropic.")
 
 func _fallback_offline_explanation(provider_name: String) -> void:
-	var reply = "🎓 **Coach RodChessXD (Mode Découverte)** :\n\n"
-	reply += "Stockfish a analysé la position avec succès. "
-	reply += "Pour débloquer les explications complètes en langage naturel avec %s (100%% gratuit), configurez simplement votre clé gratuite dans le **Hub IA** (cliquez sur le badge en haut à droite)." % provider_name
+	var last_move = last_query_context.get("last_move_san", "")
+	var eval_cp = last_query_context.get("eval_cp", 0)
+	var best_move = last_query_context.get("best_move", "")
+	var pv = last_query_context.get("pv_line", [])
+
+	var reply = "🎓 **Coach RodChessXD (Mode Découverte & Stockfish)** :\n\n"
+	if last_move != "":
+		reply += "• **Dernier coup analysé** : [b]`%s`[/b]\n" % last_move
+	if best_move != "":
+		reply += "• **Calcul Stockfish** : Meilleur coup recommandé [b]`%s`[/b] (%s)\n" % [best_move, _format_eval_description(eval_cp)]
+	if pv.size() > 1:
+		var pv_str = ""
+		for i in range(mini(pv.size(), 4)):
+			pv_str += str(pv[i]) + " "
+		reply += "• **Ligne principale** : `%s`\n" % pv_str.strip_edges()
+
+	reply += "\n---\n"
+	reply += "🔑 **Pour activer les explications complètes en langage naturel** avec [b]%s[/b] (100%% gratuit, 0 € sans carte bancaire) :\n\n" % provider_name
+	reply += "1. Cliquez sur le badge [b]⚡[/b] du Coach en haut (ou sur ⚙️ Paramètres).\n"
+	if provider_name == "OpenRouter":
+		reply += "2. Obtenez une clé gratuite en 30s sur [b]https://openrouter.ai/keys[/b]\n"
+		reply += "3. Collez-la dans le champ [i]Clé OpenRouter[/i] et validez.\n\n"
+	elif provider_name == "Google Gemini":
+		reply += "2. Obtenez une clé gratuite en 30s sur [b]https://aistudio.google.com[/b]\n"
+		reply += "3. Collez-la dans le champ [i]Clé Google Gemini[/i] et validez.\n\n"
+	elif provider_name == "Groq":
+		reply += "2. Obtenez une clé gratuite en 30s sur [b]https://console.groq.com/keys[/b]\n"
+		reply += "3. Collez-la dans le champ [i]Clé Groq[/i] et validez.\n\n"
+	else:
+		reply += "2. Renseignez votre clé API dans le champ correspondant et validez.\n\n"
+	reply += "💡 *Astuce : Vous pouvez aussi lancer un modèle local 100% hors-ligne (ex: Ollama) sans aucune clé requise !*"
+
 	coach_response_received.emit(reply)
-	coach_response_with_meta.emit(reply, "Gratuit (0,00 €)", 0.05)
+	coach_response_with_meta.emit(reply, "Mode Stockfish Local", 0.05)
 
 func _on_request_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	var elapsed = (Time.get_ticks_msec() / 1000.0) - current_query_start_time
 
 	if response_code != 200:
-		coach_error.emit("Le serveur a répondu avec l'erreur HTTP %d." % response_code)
+		var text = body.get_string_from_utf8()
+		var err_detail = ""
+		var json = JSON.parse_string(text)
+		if json is Dictionary and json.has("error"):
+			var err_obj = json["error"]
+			if err_obj is Dictionary and err_obj.has("message"):
+				err_detail = String(err_obj["message"])
+			elif err_obj is String:
+				err_detail = err_obj
+
+		if response_code == 401:
+			var msg = "Erreur HTTP 401 (Authentification requise) :\nClé API manquante ou invalide."
+			if err_detail != "":
+				msg += "\nMessage du fournisseur : " + err_detail
+			msg += "\n\n👉 Cliquez sur le badge '⚡' du Coach (ou ⚙️ Paramètres) pour renseigner votre clé API valide."
+			coach_error.emit(msg)
+		elif response_code == 429:
+			var msg = "Erreur HTTP 429 (Limite de requêtes atteinte / Quota)."
+			if err_detail != "":
+				msg += "\nMessage du fournisseur : " + err_detail
+			msg += "\n\nPatientez quelques instants ou choisissez un autre modèle dans le sélecteur."
+			coach_error.emit(msg)
+		elif response_code == 403:
+			var msg = "Erreur HTTP 403 (Accès refusé)."
+			if err_detail != "":
+				msg += "\nMessage du fournisseur : " + err_detail
+			coach_error.emit(msg)
+		else:
+			var msg = "Le serveur a répondu avec l'erreur HTTP %d." % response_code
+			if err_detail != "":
+				msg += " (%s)" % err_detail
+			coach_error.emit(msg)
 		return
 
 	var text = body.get_string_from_utf8()
