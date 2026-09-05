@@ -7,6 +7,7 @@ signal engine_error(error_msg: String)
 signal download_progress(engine_name: String, percentage: float)
 signal download_completed(engine_name: String)
 signal download_failed(engine_name: String, error_msg: String)
+signal engine_profile_changed(profile_id: String)
 
 var is_engine_running: bool = false
 var is_evaluating: bool = false
@@ -52,6 +53,9 @@ const DOWNLOADABLE_ENGINES = {
 # Source de téléchargement officielle du binaire Stockfish (URL vérifiée le 06/09/2026).
 const STOCKFISH_RELEASE_URL = "https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-android-arm64-universal.tar.gz"
 
+# Fichiers de réseau Maia téléchargeables (moteur lc0 requis pour les exécuter).
+const MAIA_NET_FILES: Array[String] = ["maia-1100.pb.gz", "maia-1500.pb.gz", "maia-1900.pb.gz"]
+
 var install_http: HTTPRequest = null
 var _installing_engine := false
 var _install_display := ""
@@ -85,19 +89,71 @@ func _ensure_engine_directories() -> void:
 	if dir and not dir.dir_exists("engines"):
 		dir.make_dir("engines")
 
+func get_engine_profile() -> String:
+	var p: String = SettingsManager.get_setting("engine_profile", "stockfish")
+	if p != "stockfish" and p != "maia_lc0":
+		p = "stockfish"
+	return p
+
+func get_maia_net_filename() -> String:
+	var fn: String = SettingsManager.get_setting("maia_net", "maia-1500.pb.gz")
+	if not MAIA_NET_FILES.has(fn):
+		fn = "maia-1500.pb.gz"
+	return fn
+
+func is_lc0_profile() -> bool:
+	return get_engine_profile() == "maia_lc0"
+
+func get_active_maia_net_path() -> String:
+	var p := OS.get_user_data_dir() + "/engines/" + get_maia_net_filename()
+	if not FileAccess.file_exists(p):
+		return ""
+	return p
+
+func is_maia_net_installed(fn: String) -> bool:
+	return FileAccess.file_exists(OS.get_user_data_dir() + "/engines/" + fn)
+
+func is_lc0_binary_present() -> bool:
+	var custom: String = SettingsManager.get_setting("lc0_path", "")
+	if custom != "" and FileAccess.file_exists(custom):
+		return true
+	var names: PackedStringArray
+	if OS.has_feature("android"):
+		names = PackedStringArray(["lc0"])
+	elif OS.get_name() == "Windows":
+		names = PackedStringArray(["lc0.exe"])
+	else:
+		names = PackedStringArray(["lc0"])
+	for n in names:
+		if FileAccess.file_exists(OS.get_user_data_dir() + "/engines/" + n):
+			return true
+		if FileAccess.file_exists("res://bin/" + n):
+			return true
+	return false
+
 func _engine_binary_names() -> PackedStringArray:
+	if is_lc0_profile():
+		if OS.has_feature("android"):
+			return PackedStringArray(["lc0"])
+		if OS.get_name() == "Windows":
+			return PackedStringArray(["lc0.exe"])
+		return PackedStringArray(["lc0"])
 	if OS.has_feature("android"):
 		return PackedStringArray(["stockfish", "libstockfish.so"])
 	if OS.get_name() == "Windows":
 		return PackedStringArray(["stockfish.exe"])
 	return PackedStringArray(["stockfish", "libstockfish.so"])
 
+func _custom_engine_path() -> String:
+	var key := "lc0_path" if is_lc0_profile() else "engine_path"
+	return SettingsManager.get_setting(key, "")
+
 func _get_engine_executable_path() -> String:
 	var is_android = OS.has_feature("android")
 	var names = _engine_binary_names()
 
 	# 1. Vérifier si un chemin personnalisé est configuré
-	var custom_path = SettingsManager.get_setting("engine_path", "")
+	var custom_path = _custom_engine_path()
 	if custom_path != "" and FileAccess.file_exists(custom_path):
 		return custom_path
 
@@ -309,7 +365,14 @@ func _extract_tar_gz_engine(gz_path: String, out_path: String, inner_match: Stri
 		pos = data_start + padded
 	return ""
 
+func _engine_display_name() -> String:
+	if is_lc0_profile():
+		return "lc0 + Maia (%s)" % get_maia_net_filename()
+	return "Stockfish"
+
 func _engine_missing_hint() -> String:
+	if is_lc0_profile():
+		return "Placez un binaire lc0 (\"lc0\" ou \"lc0.exe\") dans user://engines/ ou res://bin/."
 	if OS.has_feature("android"):
 		return "Placez un binaire Stockfish arm64 nommé \"stockfish\" dans user://engines/ (ou libstockfish.so dans bin/)."
 	return "Placez \"stockfish.exe\" dans bin/ ou user://engines/."
@@ -320,6 +383,7 @@ func start_engine() -> bool:
 	if _booting:
 		return false
 
+	var is_lc0 = is_lc0_profile()
 	var exe_path = _get_engine_executable_path()
 	if exe_path == "":
 		var hint = _engine_missing_hint()
@@ -327,10 +391,20 @@ func start_engine() -> bool:
 		engine_error.emit("Moteur d'échecs non trouvé. %s" % hint)
 		return false
 
-	print("EngineManager: Lancement de Stockfish depuis ", exe_path)
+	var launch_args: PackedStringArray = []
+	if is_lc0:
+		var net_path = get_active_maia_net_path()
+		if net_path == "":
+			var msg = "Réseau Maia introuvable. Téléchargez d'abord le réseau %s dans l'Engine Hub." % get_maia_net_filename()
+			engine_error.emit(msg)
+			return false
+		launch_args.append("--threads=%d" % SettingsManager.get_setting("engine_threads", 2))
+		launch_args.append("--weights=" + net_path)
+
+	print("EngineManager: Lancement de ", _engine_display_name(), " depuis ", exe_path)
 	
 	# Utilisation de OS.execute_with_pipe pour communication bidirectionnelle non bloquante
-	process_pipe = OS.execute_with_pipe(exe_path, [])
+	process_pipe = OS.execute_with_pipe(exe_path, launch_args)
 	if process_pipe.is_empty() or not process_pipe.has("stdio"):
 		var exec_hint = " Vérifiez que le binaire est un exécutable arm64 valide pour Android." if OS.has_feature("android") else " Vérifiez le chemin du moteur."
 		print("EngineManager: Échec d'exécution du sous-processus moteur (", exe_path, ").", exec_hint)
@@ -348,15 +422,30 @@ func start_engine() -> bool:
 
 	# Initialisation UCI
 	send_command("uci")
-	var threads = SettingsManager.get_setting("engine_threads", 2)
-	var hash_mb = SettingsManager.get_setting("engine_hash_mb", 32)
-	send_command("setoption name Threads value %d" % threads)
-	send_command("setoption name Hash value %d" % hash_mb)
+	if not is_lc0:
+		send_command("setoption name Threads value %d" % SettingsManager.get_setting("engine_threads", 2))
+		send_command("setoption name Hash value %d" % SettingsManager.get_setting("engine_hash_mb", 32))
 	send_command("isready")
 	send_command("ucinewgame")
 
 	engine_ready.emit()
 	return true
+
+func set_engine_profile(profile_id: String, maia_filename: String = "") -> bool:
+	if profile_id != "stockfish" and profile_id != "maia_lc0":
+		return false
+	if profile_id == "maia_lc0":
+		if maia_filename == "" or not MAIA_NET_FILES.has(maia_filename):
+			maia_filename = get_maia_net_filename()
+		SettingsManager.set_setting("maia_net", maia_filename)
+	SettingsManager.set_setting("engine_profile", profile_id)
+	if is_engine_running:
+		stop_engine()
+	engine_profile_changed.emit(profile_id)
+	return start_engine()
+
+func is_engine_profile_active(profile_id: String) -> bool:
+	return get_engine_profile() == profile_id
 
 func send_command(cmd: String) -> void:
 	if not is_engine_running or not process_pipe.has("stdio"):

@@ -24,6 +24,61 @@ func _ready() -> void:
 	
 	_setup_ui()
 
+func _add_engine_selector(parent: Node) -> void:
+	var title := Label.new()
+	title.text = "Moteur d'analyse (Maia via lc0)"
+	title.add_theme_font_size_override("font_size", 11)
+	title.add_theme_color_override("font_color", Color("#cbd5e1"))
+	parent.add_child(title)
+
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 6)
+	flow.add_theme_constant_override("v_separation", 6)
+	parent.add_child(flow)
+
+	var stock_btn := _make_choice_button("Stockfish")
+	stock_btn.pressed.connect(_pick_engine.bind("stockfish", ""))
+	flow.add_child(stock_btn)
+
+	if not EngineManager.is_lc0_binary_present():
+		var note := Label.new()
+		note.text = "⚠ Pour analyser avec Maia : placez le binaire lc0 (\"lc0\" ou \"lc0.exe\") dans user://engines/ ou res://bin/."
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		note.add_theme_font_size_override("font_size", 10)
+		note.add_theme_color_override("font_color", Color("#fbbf24"))
+		parent.add_child(note)
+		return
+
+	for fn in EngineManager.MAIA_NET_FILES:
+		if not EngineManager.is_maia_net_installed(fn):
+			continue
+		var elo := fn.trim_prefix("maia-").trim_suffix(".pb.gz")
+		var btn := _make_choice_button("Maia " + elo)
+		btn.pressed.connect(_pick_engine.bind("maia_lc0", fn))
+		flow.add_child(btn)
+
+func _make_choice_button(label_text: String) -> Button:
+	var btn := Button.new()
+	btn.text = label_text
+	btn.custom_minimum_size = Vector2(0, 30)
+	var st := StyleBoxFlat.new()
+	st.bg_color = Color("#1e293b")
+	st.set_corner_radius_all(6)
+	st.content_margin_left = 10
+	st.content_margin_right = 10
+	btn.add_theme_stylebox_override("normal", st)
+	btn.add_theme_font_size_override("font_size", 11)
+	return btn
+
+func _pick_engine(profile: String, maia_fn: String) -> void:
+	var ok = EngineManager.set_engine_profile(profile, maia_fn)
+	if profile == "maia_lc0" and ok:
+		status_lbl.text = "Moteur Maia (%s) sélectionné et démarré." % maia_fn
+	elif profile == "stockfish" and ok:
+		status_lbl.text = "Moteur Stockfish sélectionné."
+	else:
+		status_lbl.text = "⚠ Moteur indisponible : vérifiez lc0 / le réseau Maia."
+
 func _setup_ui() -> void:
 	var vbox = VBoxContainer.new()
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -54,6 +109,8 @@ func _setup_ui() -> void:
 	status_lbl.add_theme_font_size_override("font_size", 11)
 	status_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
 	vbox.add_child(status_lbl)
+
+	_add_engine_selector(vbox)
 
 	# Liste des moteurs dans un ScrollContainer sécurisé
 	var scroll = ScrollContainer.new()
