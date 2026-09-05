@@ -87,6 +87,7 @@ class CaptureBurstFX extends Control:
 		ring_color = p_color
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		z_index = 25
+		set_process(true)
 		
 		var spark_colors = [
 			Color("#fbbf24"), # Or brillant
@@ -140,7 +141,8 @@ class CaptureBurstFX extends Control:
 var active_tweens: Array[Tween] = []
 var ghost_sprites: Array[TextureRect] = []
 var fx_layer: Control = null
-var move_anim_duration: float = 0.26
+var flying_piece: TextureRect = null
+var move_anim_duration: float = 0.28
 var is_animating_move: bool = false
 var pending_drag_move: bool = false
 var drag_release_pos: Vector2 = Vector2.ZERO
@@ -176,12 +178,12 @@ func _ready() -> void:
 	var gc = _get_game_controller()
 	if gc:
 		displayed_ply_index = gc.current_ply_index
+		gc.move_navigated.connect(_on_move_navigated)
+		gc.move_made.connect(_on_move_made)
 		gc.position_changed.connect(_on_position_changed)
 		gc.game_reset.connect(_on_game_reset)
-		gc.move_navigated.connect(_on_move_navigated)
 		gc.square_selected.connect(_on_square_selected)
 		gc.square_deselected.connect(_on_square_deselected)
-		gc.move_made.connect(_on_move_made)
 	
 	var eng = _get_engine_manager()
 	if eng != null:
@@ -195,7 +197,8 @@ func _process(delta: float) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_update_dimensions()
-		reset_board_visuals()
+		if not is_animating_move:
+			reset_board_visuals()
 
 func _update_dimensions() -> void:
 	var side = min(size.x, size.y)
@@ -233,6 +236,15 @@ func _create_piece_nodes() -> void:
 	drag_texture_rect.visible = false
 	drag_texture_rect.z_index = 30
 	add_child(drag_texture_rect)
+
+	# Node dédié au vol d'animation des pièces (au-dessus du plateau, fluide et stable)
+	flying_piece = TextureRect.new()
+	flying_piece.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	flying_piece.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	flying_piece.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flying_piece.visible = false
+	flying_piece.z_index = 32
+	add_child(flying_piece)
 
 	# Calque d'effets visuels prioritaires au-dessus des pièces
 	fx_layer = Control.new()
@@ -272,7 +284,7 @@ func _clear_ghost_sprites() -> void:
 	
 	var sprite_nodes = piece_sprites.values()
 	for child in get_children():
-		if child is TextureRect and child != drag_texture_rect and not (child in sprite_nodes):
+		if child is TextureRect and child != drag_texture_rect and child != flying_piece and not (child in sprite_nodes):
 			remove_child(child)
 			child.queue_free()
 
@@ -287,6 +299,8 @@ func reset_board_visuals() -> void:
 	dragged_sq = -1
 	if drag_texture_rect:
 		drag_texture_rect.visible = false
+	if flying_piece:
+		flying_piece.visible = false
 	
 	best_move_arrow_from = -1
 	best_move_arrow_to = -1
@@ -340,35 +354,25 @@ func _animate_move(move: ChessMove) -> void:
 	var start_pos = _get_square_screen_pos(move.from_sq)
 	var end_pos = _get_square_screen_pos(move.to_sq)
 	
-	var moving_sprite: TextureRect = piece_sprites.get(move.from_sq, null)
-	if not moving_sprite:
-		reset_board_visuals()
-		return
-	
+	# Texture de la pièce en mouvement
 	var key = Vector2i(move.piece, move.color)
 	var tex = piece_textures.get(key, null)
-	if not tex and moving_sprite.texture != null:
-		tex = moving_sprite.texture
+	if not tex and move.from_sq in piece_sprites:
+		tex = piece_sprites[move.from_sq].texture
 	
-	moving_sprite.texture = tex
-	moving_sprite.visible = true
-	moving_sprite.size = Vector2(square_size, square_size)
-	moving_sprite.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
-	moving_sprite.z_index = 20
+	# Masquer immédiatement les sprites stationnaires du départ et de l'arrivée
+	if move.from_sq in piece_sprites:
+		piece_sprites[move.from_sq].visible = false
+	if move.to_sq in piece_sprites:
+		piece_sprites[move.to_sq].visible = false
 	
-	# Si le coup a été joué en drag & drop, transition fluide depuis le point de relâchement
-	var from_drag = pending_drag_move and drag_release_pos != Vector2.ZERO
-	if from_drag:
-		moving_sprite.position = drag_release_pos
+	# Si le coup a été joué en drag & drop avec déplacement significatif, animer depuis le relâchement
+	var from_pos = start_pos
+	if pending_drag_move and drag_release_pos != Vector2.ZERO:
+		if drag_release_pos.distance_to(end_pos) > square_size * 0.4:
+			from_pos = drag_release_pos
 		pending_drag_move = false
 		drag_release_pos = Vector2.ZERO
-	else:
-		moving_sprite.position = start_pos
-	
-	# Masquer immédiatement la case d'arrivée pour éviter toute superposition
-	var target_sprite: TextureRect = piece_sprites.get(move.to_sq, null)
-	if target_sprite:
-		target_sprite.visible = false
 	
 	# Déclenchement de l'explosion vibrante de capture
 	if move.captured_piece != ChessPiece.Type.NONE:
@@ -381,25 +385,36 @@ func _animate_move(move: ChessMove) -> void:
 	if move.is_castling:
 		_animate_castling_rook(move)
 	
-	var anim_time = 0.16 if from_drag else move_anim_duration
+	# Préparation de flying_piece (au premier plan z_index=32)
+	flying_piece.texture = tex
+	flying_piece.size = Vector2(square_size, square_size)
+	flying_piece.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
+	flying_piece.position = from_pos
+	flying_piece.scale = Vector2.ONE
+	flying_piece.modulate = Color.WHITE
+	flying_piece.visible = true
+	
+	var anim_time = move_anim_duration
 	
 	# 1. Glissement spatial fluide vers la destination
 	var tween_pos = create_tween()
 	active_tweens.append(tween_pos)
-	tween_pos.tween_property(moving_sprite, "position", end_pos, anim_time).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween_pos.tween_property(flying_piece, "position", end_pos, anim_time).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	
 	# 2. Élévation physique en transit (arche de vol) et atterrissage élastique amorti
-	if not from_drag:
-		var tween_scale = create_tween()
-		active_tweens.append(tween_scale)
-		tween_scale.tween_property(moving_sprite, "scale", Vector2(1.14, 1.14), anim_time * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		tween_scale.chain().tween_property(moving_sprite, "scale", Vector2.ONE, anim_time * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-		tween_scale.chain().tween_property(moving_sprite, "scale", Vector2(1.05, 0.95), 0.04)
-		tween_scale.chain().tween_property(moving_sprite, "scale", Vector2.ONE, 0.06)
+	var tween_scale = create_tween()
+	active_tweens.append(tween_scale)
+	tween_scale.tween_property(flying_piece, "scale", Vector2(1.14, 1.14), anim_time * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2.ONE, anim_time * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2(1.05, 0.95), 0.04)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2.ONE, 0.06)
 	
 	tween_pos.chain().tween_callback(func():
 		is_animating_move = false
-		moving_sprite.z_index = 1
+		flying_piece.visible = false
+		var gctl = _get_game_controller()
+		if gctl:
+			displayed_ply_index = gctl.current_ply_index
 		reset_board_visuals()
 	)
 
@@ -415,25 +430,14 @@ func _animate_navigation_forward(move: ChessMove) -> void:
 	var start_pos = _get_square_screen_pos(move.from_sq)
 	var end_pos = _get_square_screen_pos(move.to_sq)
 	
-	var moving_sprite: TextureRect = piece_sprites.get(move.to_sq, null)
-	if not moving_sprite:
-		reset_board_visuals()
-		return
-	
 	var key = Vector2i(move.piece, move.color)
 	var tex = piece_textures.get(key, null)
-	if tex:
-		moving_sprite.texture = tex
 	
-	# Masquer le départ
+	# Masquer le départ et l'arrivée sur l'échiquier sous-jacent
 	if move.from_sq in piece_sprites:
 		piece_sprites[move.from_sq].visible = false
-	
-	moving_sprite.visible = true
-	moving_sprite.size = Vector2(square_size, square_size)
-	moving_sprite.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
-	moving_sprite.position = start_pos
-	moving_sprite.z_index = 20
+	if move.to_sq in piece_sprites:
+		piece_sprites[move.to_sq].visible = false
 	
 	# Effet d'explosion vibrante de capture
 	if move.captured_piece != ChessPiece.Type.NONE:
@@ -445,22 +449,33 @@ func _animate_navigation_forward(move: ChessMove) -> void:
 	if move.is_castling:
 		_animate_castling_rook(move)
 	
+	flying_piece.texture = tex
+	flying_piece.size = Vector2(square_size, square_size)
+	flying_piece.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
+	flying_piece.position = start_pos
+	flying_piece.scale = Vector2.ONE
+	flying_piece.modulate = Color.WHITE
+	flying_piece.visible = true
+	
 	var anim_time = move_anim_duration
 	
 	var tween_pos = create_tween()
 	active_tweens.append(tween_pos)
-	tween_pos.tween_property(moving_sprite, "position", end_pos, anim_time).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween_pos.tween_property(flying_piece, "position", end_pos, anim_time).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	
 	var tween_scale = create_tween()
 	active_tweens.append(tween_scale)
-	tween_scale.tween_property(moving_sprite, "scale", Vector2(1.14, 1.14), anim_time * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween_scale.chain().tween_property(moving_sprite, "scale", Vector2.ONE, anim_time * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween_scale.chain().tween_property(moving_sprite, "scale", Vector2(1.04, 0.96), 0.04)
-	tween_scale.chain().tween_property(moving_sprite, "scale", Vector2.ONE, 0.06)
+	tween_scale.tween_property(flying_piece, "scale", Vector2(1.14, 1.14), anim_time * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2.ONE, anim_time * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2(1.04, 0.96), 0.04)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2.ONE, 0.06)
 	
 	tween_pos.chain().tween_callback(func():
 		is_animating_move = false
-		moving_sprite.z_index = 1
+		flying_piece.visible = false
+		var gctl = _get_game_controller()
+		if gctl:
+			displayed_ply_index = gctl.current_ply_index
 		reset_board_visuals()
 	)
 	queue_redraw()
@@ -474,25 +489,20 @@ func _animate_navigation_backward(move: ChessMove) -> void:
 	var start_pos = _get_square_screen_pos(move.to_sq)
 	var end_pos = _get_square_screen_pos(move.from_sq)
 	
-	var moving_sprite: TextureRect = piece_sprites.get(move.from_sq, null)
-	if not moving_sprite:
-		reset_board_visuals()
-		return
-	
 	var key = Vector2i(move.piece, move.color)
 	var tex = piece_textures.get(key, null)
-	if tex:
-		moving_sprite.texture = tex
 	
-	moving_sprite.visible = true
-	moving_sprite.size = Vector2(square_size, square_size)
-	moving_sprite.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
-	moving_sprite.position = start_pos
-	moving_sprite.z_index = 20
+	if move.from_sq in piece_sprites:
+		piece_sprites[move.from_sq].visible = false
+	if move.to_sq in piece_sprites:
+		piece_sprites[move.to_sq].visible = false
 	
-	# Réapparition en fondu doux de la pièce restaurée
+	# Réapparition en fondu doux de la pièce capturée qui revient à la vie
 	if move.captured_piece != ChessPiece.Type.NONE and move.to_sq in piece_sprites:
 		var cap_sprite: TextureRect = piece_sprites[move.to_sq]
+		var cap_key = Vector2i(move.captured_piece, 1 - move.color)
+		cap_sprite.texture = piece_textures.get(cap_key, null)
+		cap_sprite.position = start_pos
 		cap_sprite.modulate.a = 0.0
 		cap_sprite.scale = Vector2(0.5, 0.5)
 		cap_sprite.visible = true
@@ -505,20 +515,31 @@ func _animate_navigation_backward(move: ChessMove) -> void:
 	if move.is_castling:
 		_animate_reverse_castling_rook(move)
 	
+	flying_piece.texture = tex
+	flying_piece.size = Vector2(square_size, square_size)
+	flying_piece.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
+	flying_piece.position = start_pos
+	flying_piece.scale = Vector2.ONE
+	flying_piece.modulate = Color.WHITE
+	flying_piece.visible = true
+	
 	var anim_time = move_anim_duration * 0.85
 	
 	var tween_pos = create_tween()
 	active_tweens.append(tween_pos)
-	tween_pos.tween_property(moving_sprite, "position", end_pos, anim_time).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween_pos.tween_property(flying_piece, "position", end_pos, anim_time).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	
 	var tween_scale = create_tween()
 	active_tweens.append(tween_scale)
-	tween_scale.tween_property(moving_sprite, "scale", Vector2(1.10, 1.10), anim_time * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween_scale.chain().tween_property(moving_sprite, "scale", Vector2.ONE, anim_time * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tween_scale.tween_property(flying_piece, "scale", Vector2(1.10, 1.10), anim_time * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2.ONE, anim_time * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	
 	tween_pos.chain().tween_callback(func():
 		is_animating_move = false
-		moving_sprite.z_index = 1
+		flying_piece.visible = false
+		var gctl = _get_game_controller()
+		if gctl:
+			displayed_ply_index = gctl.current_ply_index
 		reset_board_visuals()
 	)
 	queue_redraw()
@@ -567,22 +588,25 @@ func _spawn_capture_fx(sq: int, cap_type: int, attacker_color: int) -> void:
 	# Sursaut lumineux à l'impact
 	ghost.modulate = Color(1.35, 1.25, 1.0, 1.0)
 	
-	# Vibration tactile rapide d'impact (0.12s)
-	var v_tween = create_tween()
-	active_tweens.append(v_tween)
-	v_tween.tween_property(ghost, "position", origin_pos + Vector2(3.5, -2.0), 0.03)
-	v_tween.tween_property(ghost, "position", origin_pos + Vector2(-3.0, 2.5), 0.03)
-	v_tween.tween_property(ghost, "position", origin_pos + Vector2(2.0, 1.0), 0.03)
-	v_tween.tween_property(ghost, "position", origin_pos, 0.03)
+	# Animation combinée séquentielle du fantôme : vibration rapide puis dissipation
+	var ghost_tween = create_tween()
+	active_tweens.append(ghost_tween)
 	
-	# Dissipation élégante (pop puis contraction et élévation)
+	# Étape 1 : Vibration tactile (4 secousses de 0.025s)
+	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(3.5, -2.0), 0.025)
+	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(-3.0, 2.5), 0.025)
+	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(2.0, 1.0), 0.025)
+	ghost_tween.tween_property(ghost, "position", origin_pos, 0.025)
+	
+	# Étape 2 : Dissipation élégante (pop puis rétrécissement et envolée)
+	ghost_tween.tween_property(ghost, "scale", Vector2(1.15, 1.15), 0.06).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	
 	var diss_tween = create_tween()
 	active_tweens.append(diss_tween)
 	diss_tween.set_parallel(true)
-	diss_tween.tween_property(ghost, "scale", Vector2(1.15, 1.15), 0.08).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	diss_tween.chain().tween_property(ghost, "scale", Vector2(0.35, 0.35), 0.24).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	diss_tween.tween_property(ghost, "modulate:a", 0.0, 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	diss_tween.tween_property(ghost, "position:y", origin_pos.y - 8.0, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	diss_tween.tween_property(ghost, "scale", Vector2(0.35, 0.35), 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	diss_tween.tween_property(ghost, "modulate:a", 0.0, 0.24).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	diss_tween.tween_property(ghost, "position:y", origin_pos.y - 10.0, 0.24).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	
 	diss_tween.chain().tween_callback(func():
 		if is_instance_valid(ghost):
@@ -843,6 +867,7 @@ func _on_game_reset() -> void:
 	reset_board_visuals()
 
 func _on_move_navigated(target_ply: int) -> void:
+	print("[DEBUG_NAV] _on_move_navigated target_ply=", target_ply, " displayed_ply_index=", displayed_ply_index)
 	var gc = _get_game_controller()
 	if not gc or not gc.game:
 		displayed_ply_index = target_ply

@@ -198,4 +198,5 @@ func _on_game_board_changed() -> void:
 
 func _on_game_move_made(p_move: ChessMove) -> void:
 	if not is_loading_game:
+		current_ply_index = game.move_history.size() - 1
 		move_made.emit(p_move)
