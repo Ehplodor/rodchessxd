@@ -25,6 +25,14 @@ func _ready() -> void:
 	_setup_ui()
 
 func _add_engine_selector(parent: Node) -> void:
+	if OS.has_feature("android"):
+		var a_note := Label.new()
+		a_note.text = "Sur Android, l'analyse utilise Stockfish. Maia (via lc0) n'est pas exécutable sur mobile."
+		a_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		a_note.add_theme_font_size_override("font_size", 10)
+		a_note.add_theme_color_override("font_color", Color("#94a3b8"))
+		parent.add_child(a_note)
+		return
 	var title := Label.new()
 	title.text = "Moteur d'analyse (Maia via lc0)"
 	title.add_theme_font_size_override("font_size", 11)
@@ -61,6 +69,13 @@ func _add_engine_selector(parent: Node) -> void:
 		var btn := _make_choice_button("Maia " + elo)
 		btn.pressed.connect(_pick_engine.bind("maia_lc0", fn))
 		flow.add_child(btn)
+
+func _activate_stockfish() -> void:
+	if EngineManager.is_engine_profile_active("stockfish") and EngineManager.is_engine_available():
+		status_lbl.text = "Stockfish est déjà actif."
+		return
+	var ok = EngineManager.set_engine_profile("stockfish")
+	status_lbl.text = "Stockfish redémarré." if ok else "⚠ Impossible de démarrer Stockfish (binaire non exécutable ?)."
 
 func _start_lc0_download() -> void:
 	if EngineManager.is_lc0_download_active():
@@ -136,20 +151,33 @@ func _setup_ui() -> void:
 	engines_list.add_theme_constant_override("separation", 8)
 	scroll.add_child(engines_list)
 
-	# 1. Stockfish Packagé / Téléchargeable
-	if EngineManager.has_engine_binary():
-		_add_engine_card(engines_list, "Stockfish 19 (Intégré)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. Prêt à l'emploi.", true, "")
+	var is_android = OS.has_feature("android")
+
+	# 1. Stockfish
+	var sf_active = EngineManager.is_engine_profile_active("stockfish") and EngineManager.is_engine_available()
+	if sf_active:
+		_add_engine_card(engines_list, "Stockfish 19 (Actif)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. En cours d'exécution.", true, "")
+	elif EngineManager.has_engine_binary():
+		_add_engine_card(engines_list, "Stockfish 19 (Disponible)", "Binaire présent mais moteur arrêté. Redémarrez Stockfish pour l'analyse.", false, "", _activate_stockfish, "Redémarrer")
 	elif EngineManager.get_stockfish_download_available():
-		_add_engine_card(engines_list, "Stockfish 19 (Télécharger)", "Téléchargez automatiquement le moteur officiel depuis le dépôt Stockfish. Aucune installation manuelle requise.", false, "", _start_stockfish_download)
+		_add_engine_card(engines_list, "Stockfish 19 (Télécharger)", "Téléchargez automatiquement le moteur officiel depuis le dépôt Stockfish. Aucune installation manuelle requise.", false, "", _start_stockfish_download, "Télécharger")
 	else:
 		_add_engine_card(engines_list, "Stockfish 19", "Aucun binaire compatible n'est disponible sur cette plateforme.", false, "")
 
-	# 2. Modèles Maia Chess
-	for name in EngineManager.DOWNLOADABLE_ENGINES.keys():
-		var data = EngineManager.DOWNLOADABLE_ENGINES[name]
-		var local_file = OS.get_user_data_dir() + "/engines/" + data["filename"]
-		var is_installed = FileAccess.file_exists(local_file)
-		_add_engine_card(engines_list, name, data["desc"], is_installed, data["url"])
+	# 2. Modèles Maia Chess (bureau uniquement — lc0 non exécutable sur Android)
+	if is_android:
+		var maia_note = Label.new()
+		maia_note.text = "ℹ Maia (réseaux neuronaux humains) n'est pas proposé sur Android : il nécessite le moteur lc0, non exécutable sur mobile."
+		maia_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		maia_note.add_theme_font_size_override("font_size", 10)
+		maia_note.add_theme_color_override("font_color", Color("#94a3b8"))
+		engines_list.add_child(maia_note)
+	else:
+		for name in EngineManager.DOWNLOADABLE_ENGINES.keys():
+			var data = EngineManager.DOWNLOADABLE_ENGINES[name]
+			var local_file = OS.get_user_data_dir() + "/engines/" + data["filename"]
+			var is_installed = FileAccess.file_exists(local_file)
+			_add_engine_card(engines_list, name, data["desc"], is_installed, data["url"])
 
 	# Bouton Fermer
 	var btn_close = Button.new()
@@ -159,7 +187,7 @@ func _setup_ui() -> void:
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
 
-func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bool, download_url: String, on_download: Callable = Callable()) -> void:
+func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bool, download_url: String, on_download: Callable = Callable(), action_label: String = "Télécharger") -> void:
 	var panel = PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var style = StyleBoxFlat.new()
@@ -209,7 +237,7 @@ func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bo
 		action_btn.text = "Télécharger"
 		action_btn.pressed.connect(func(): _start_download(name, download_url))
 	elif on_download.is_valid():
-		action_btn.text = "Télécharger"
+		action_btn.text = action_label
 		action_btn.pressed.connect(on_download)
 	else:
 		action_btn.text = "Indisponible"

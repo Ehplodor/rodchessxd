@@ -68,6 +68,8 @@ var _install_inner_match := ""
 var _install_target_name := ""
 var _install_last_bytes := 0
 var cancel_eval_requested := false
+var _received_any_output := false
+var _started_msec := 0
 
 func _ready() -> void:
 	command_mutex = Mutex.new()
@@ -80,6 +82,8 @@ func _ready() -> void:
 	call_deferred("_ensure_engine_started")
 
 func _process(_delta: float) -> void:
+	if is_engine_running and not should_stop_thread and _started_msec > 0 and not _received_any_output and Time.get_ticks_msec() - _started_msec > 6000:
+		_handle_engine_dead("Le moteur d'échecs ne répond pas (aucune sortie UCI reçue). Vérifiez que le binaire est exécutable sur cet appareil (architecture/noexec).")
 	if not _installing_engine or install_http == null:
 		return
 	var total := install_http.get_body_size()
@@ -136,6 +140,13 @@ func is_lc0_binary_present() -> bool:
 			return true
 	return false
 
+func _stockfish_binary_names() -> PackedStringArray:
+	if OS.has_feature("android"):
+		return PackedStringArray(["stockfish", "libstockfish.so"])
+	if OS.get_name() == "Windows":
+		return PackedStringArray(["stockfish.exe"])
+	return PackedStringArray(["stockfish", "libstockfish.so"])
+
 func _engine_binary_names() -> PackedStringArray:
 	if is_lc0_profile():
 		if OS.has_feature("android"):
@@ -143,22 +154,15 @@ func _engine_binary_names() -> PackedStringArray:
 		if OS.get_name() == "Windows":
 			return PackedStringArray(["lc0.exe"])
 		return PackedStringArray(["lc0"])
-	if OS.has_feature("android"):
-		return PackedStringArray(["stockfish", "libstockfish.so"])
-	if OS.get_name() == "Windows":
-		return PackedStringArray(["stockfish.exe"])
-	return PackedStringArray(["stockfish", "libstockfish.so"])
+	return _stockfish_binary_names()
 
 func _custom_engine_path() -> String:
 	var key := "lc0_path" if is_lc0_profile() else "engine_path"
 	return SettingsManager.get_setting(key, "")
 
-func _get_engine_executable_path() -> String:
-	var is_android = OS.has_feature("android")
-	var names = _engine_binary_names()
-
+func _find_binary_path(names: PackedStringArray, custom_key: String) -> String:
 	# 1. Vérifier si un chemin personnalisé est configuré
-	var custom_path = _custom_engine_path()
+	var custom_path = SettingsManager.get_setting(custom_key, "")
 	if custom_path != "" and FileAccess.file_exists(custom_path):
 		return custom_path
 
@@ -178,12 +182,15 @@ func _get_engine_executable_path() -> String:
 			return _extract_engine_to_user_dir(n)
 
 	# 4. Chemins de développement (uniquement sur bureau, jamais sur mobile)
-	if not is_android:
+	if not OS.has_feature("android"):
 		var dev_path = "c:/Dev/RodChessXD/bin/" + names[0]
 		if FileAccess.file_exists(dev_path):
 			return dev_path
 
 	return ""
+
+func _get_engine_executable_path() -> String:
+	return _find_binary_path(_engine_binary_names(), _custom_engine_path())
 
 func _extract_engine_to_user_dir(name: String) -> String:
 	var src = "res://bin/" + name
@@ -209,7 +216,7 @@ func is_engine_available() -> bool:
 	return running
 
 func has_engine_binary() -> bool:
-	return _get_engine_executable_path() != ""
+	return _find_binary_path(_stockfish_binary_names(), "engine_path") != ""
 
 func _pending_extraction_name() -> String:
 	if SettingsManager.get_setting("engine_path", "") != "":
@@ -478,6 +485,8 @@ func start_engine() -> bool:
 	state_mutex.lock()
 	is_engine_running = true
 	state_mutex.unlock()
+	_received_any_output = false
+	_started_msec = Time.get_ticks_msec()
 
 	# Démarrage du thread de lecture des réponses UCI
 	should_stop_thread = false
@@ -626,11 +635,28 @@ func _engine_reader_loop() -> void:
 			var line = stdio.get_line()
 			if line != "":
 				_parse_engine_line(line)
+			elif stdio.eof_reached():
+				break
 		else:
 			break
 		OS.delay_msec(5)
 
+	if not should_stop_thread:
+		call_deferred("_handle_engine_dead", "Le processus moteur s'est arrêté inopinément (binaire non exécutable ou arrêté sur cet appareil).")
+
+func _handle_engine_dead(msg: String) -> void:
+	state_mutex.lock()
+	if not is_engine_running or should_stop_thread:
+		state_mutex.unlock()
+		return
+	is_engine_running = false
+	is_evaluating = false
+	state_mutex.unlock()
+	print("EngineManager: ", msg)
+	engine_error.emit(msg)
+
 func _parse_engine_line(line: String) -> void:
+	_received_any_output = true
 	# Exemple de ligne : info depth 18 seldepth 22 multipv 1 score cp 45 nodes 84523 pv e2e4 e7e5 ...
 	if line.begins_with("info "):
 		var tokens = line.split(" ", false)
