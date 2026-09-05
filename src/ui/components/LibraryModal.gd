@@ -272,6 +272,7 @@ func _load_game(game_id: String) -> void:
 		var evals = last_ea.get("evaluations", [])
 		if main.advantage_graph:
 			main.advantage_graph.set_evaluations(evals)
+			main.advantage_graph.update_stored_analyses(engine_analyses)
 		if main.stats_label:
 			var w_acc = last_ea.get("white_accuracy", 0.0)
 			var b_acc = last_ea.get("black_accuracy", 0.0)

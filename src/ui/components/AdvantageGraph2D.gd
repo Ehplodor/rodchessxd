@@ -4,7 +4,7 @@ extends Control
 
 signal move_scrubbed(ply_index: int)
 
-var evaluations: Array[Dictionary] = []
+var evaluations: Array = []
 var active_ply: int = -1
 
 var max_eval_cp: float = 500.0 # Plafond visuel à ±5 pions
@@ -94,9 +94,12 @@ func _cycle_analysis() -> void:
 		var b_elo = cur.get("black_estimated_elo", 1500)
 		main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO)" % [w_acc, w_elo, b_acc, b_elo]
 
-func set_evaluations(eval_data: Array[Dictionary]) -> void:
-	evaluations = eval_data
-	if not evaluations.is_empty() and active_ply < 0:
+func set_evaluations(eval_data: Array) -> void:
+	evaluations.clear()
+	for item in eval_data:
+		if item is Dictionary:
+			evaluations.append(item)
+	if not evaluations.is_empty() and (active_ply < 0 or active_ply >= evaluations.size()):
 		active_ply = evaluations.size() - 1
 	queue_redraw()
 
