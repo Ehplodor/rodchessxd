@@ -63,6 +63,32 @@ func _setup_ui() -> void:
 	depth_row.add_child(depth_spin)
 	vbox.add_child(depth_row)
 
+	# Mémoire (Hash) — Stockfish
+	var hash_row = HBoxContainer.new()
+	hash_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var hash_lbl = Label.new()
+	hash_lbl.text = "Mémoire de transposition (Hash Mo) :"
+	hash_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hash_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hash_lbl.add_theme_font_size_override("font_size", 11)
+	hash_row.add_child(hash_lbl)
+
+	var hash_spin = SpinBox.new()
+	hash_spin.min_value = 16
+	hash_spin.max_value = 2048
+	hash_spin.step = 16
+	hash_spin.value = SettingsManager.get_setting("engine_hash_mb", 32)
+	hash_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_hash_mb", int(val)))
+	hash_row.add_child(hash_spin)
+	vbox.add_child(hash_row)
+
+	var param_note = Label.new()
+	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Threads : plus de cœurs → plus rapide (Stockfish & lc0).\n• Profondeur (Depth) : plus élevée → analyse plus approfondie mais plus lente. Valeur basse = réponse rapide.\n• Hash : mémoire de transposition, utile sur les longues parties (Stockfish uniquement ; lc0 utilise son propre cache réseau).\nCes réglages s'appliquent au prochain démarrage du moteur (relancez via l'Engine Hub)."
+	param_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	param_note.add_theme_font_size_override("font_size", 10)
+	param_note.add_theme_color_override("font_color", Color("#94a3b8"))
+	vbox.add_child(param_note)
+
 	_add_section_header(vbox, "🤖 Intelligence Artificielle & Coach")
 
 	var hub_btn = Button.new()

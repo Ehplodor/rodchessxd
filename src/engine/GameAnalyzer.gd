@@ -87,6 +87,8 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 			return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
 		if eval_after_data.get("timed_out", false) and eval_after_data.get("depth", 0) <= 0:
 			return _fail_analysis("Le moteur n'a pas répondu dans le délai pour le coup %s." % move.san)
+		if cancel_requested:
+			break
 		var score_after = eval_after_data.get("score_cp", score_before)
 		var best_move_uci = eval_after_data.get("best_move", "")
 

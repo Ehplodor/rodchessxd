@@ -53,16 +53,21 @@ const DOWNLOADABLE_ENGINES = {
 # Source de téléchargement officielle du binaire Stockfish (URL vérifiée le 06/09/2026).
 const STOCKFISH_RELEASE_URL = "https://github.com/official-stockfish/Stockfish/releases/download/sf_19/stockfish-android-arm64-universal.tar.gz"
 
+# Source officielle lc0 pour Windows CPU (URL vérifiée le 06/09/2026, contenu : lc0.exe + dnnl.dll + mimalloc*.dll).
+const LC0_WINDOWS_RELEASE_URL = "https://github.com/LeelaChessZero/lc0/releases/download/v0.32.1/lc0-v0.32.1-windows-cpu-dnnl.zip"
+
 # Fichiers de réseau Maia téléchargeables (moteur lc0 requis pour les exécuter).
 const MAIA_NET_FILES: Array[String] = ["maia-1100.pb.gz", "maia-1500.pb.gz", "maia-1900.pb.gz"]
 
 var install_http: HTTPRequest = null
 var _installing_engine := false
+var _install_kind := ""
 var _install_display := ""
 var _install_cache_path := ""
 var _install_inner_match := ""
 var _install_target_name := ""
 var _install_last_bytes := 0
+var cancel_eval_requested := false
 
 func _ready() -> void:
 	command_mutex = Mutex.new()
@@ -243,7 +248,7 @@ func get_stockfish_download_available() -> bool:
 	return OS.has_feature("android")
 
 func is_stockfish_download_active() -> bool:
-	return _installing_engine
+	return _installing_engine and _install_kind == "stockfish"
 
 func install_stockfish_engine() -> bool:
 	if is_engine_available():
@@ -254,51 +259,110 @@ func install_stockfish_engine() -> bool:
 	if _installing_engine:
 		return true
 
-	var cache = OS.get_user_data_dir() + "/engines/stockfish-android-arm64-universal.tar.gz"
-	_installing_engine = true
+	_install_kind = "stockfish"
 	_install_display = "Stockfish 19 (Android)"
-	_install_cache_path = cache
+	_install_cache_path = OS.get_user_data_dir() + "/engines/stockfish-android-arm64-universal.tar.gz"
 	_install_inner_match = "stockfish-android-arm64-universal"
 	_install_target_name = "stockfish"
+	return _start_engine_download(STOCKFISH_RELEASE_URL)
+
+func get_lc0_download_available() -> bool:
+	return not is_lc0_binary_present() and not OS.has_feature("android") and OS.get_name() == "Windows"
+
+func is_lc0_download_active() -> bool:
+	return _installing_engine and _install_kind == "lc0_win"
+
+func install_lc0_engine() -> bool:
+	if is_lc0_binary_present():
+		return false
+	if not get_lc0_download_available():
+		engine_error.emit("Le téléchargement de lc0 n'est proposé que sur Windows de bureau.")
+		return false
+	if _installing_engine:
+		return true
+
+	_install_kind = "lc0_win"
+	_install_display = "lc0 (Windows CPU)"
+	_install_cache_path = OS.get_user_data_dir() + "/engines/lc0-windows.zip"
+	_install_inner_match = ""
+	_install_target_name = ""
+	return _start_engine_download(LC0_WINDOWS_RELEASE_URL)
+
+func _start_engine_download(url: String) -> bool:
+	_installing_engine = true
 	_install_last_bytes = 0
-	install_http.download_file = cache
-	var err = install_http.request(STOCKFISH_RELEASE_URL)
+	install_http.download_file = _install_cache_path
+	var err = install_http.request(url)
 	if err != OK:
 		_installing_engine = false
 		install_http.download_file = ""
-		engine_error.emit("Impossible de lancer le téléchargement de Stockfish (%d)." % err)
+		_cleanup_install_cache()
+		engine_error.emit("Impossible de lancer le téléchargement de %s (%d)." % [_install_display, err])
 		return false
 	download_progress.emit(_install_display, 0.0)
-	print("EngineManager: Téléchargement de Stockfish en cours (", _install_display, ")...")
+	print("EngineManager: Téléchargement de ", _install_display, " en cours...")
 	return true
 
 func _on_engine_install_completed(result: int, response_code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
 	install_http.download_file = ""
 	var display = _install_display
+	var kind = _install_kind
 	if not _installing_engine:
 		return
 	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
 		_installing_engine = false
 		_cleanup_install_cache()
-		var msg = "Échec du téléchargement de Stockfish (HTTP %d)." % response_code
+		var msg = "Échec du téléchargement de %s (HTTP %d)." % [display, response_code]
 		print("EngineManager: ", msg)
 		engine_error.emit(msg)
 		download_failed.emit(display, msg)
 		return
 
-	var out = OS.get_user_data_dir() + "/engines/" + _install_target_name
-	var extracted = _extract_tar_gz_engine(_install_cache_path, out, _install_inner_match)
+	var installed := false
+	if kind == "lc0_win":
+		installed = _extract_lc0_windows_zip(_install_cache_path)
+	else:
+		var out = OS.get_user_data_dir() + "/engines/" + _install_target_name
+		installed = _extract_tar_gz_engine(_install_cache_path, out, _install_inner_match) != ""
 	_cleanup_install_cache()
 	_installing_engine = false
-	if extracted == "":
-		var msg = "Extraction du moteur Stockfish impossible (archive invalide)."
+	if not installed:
+		var msg = "Extraction de %s impossible (archive invalide)." % display
 		print("EngineManager: ", msg)
 		engine_error.emit(msg)
 		download_failed.emit(display, msg)
 		return
-	print("EngineManager: Stockfish installé à ", extracted)
+	print("EngineManager: ", display, " installé.")
 	download_completed.emit(display)
 	start_engine()
+
+func _extract_lc0_windows_zip(zip_path: String) -> bool:
+	var reader := ZIPReader.new()
+	if reader.open(zip_path) != OK:
+		return false
+	var wanted := {
+		"lc0.exe": true,
+		"dnnl.dll": true,
+		"mimalloc-override.dll": true,
+		"mimalloc-redirect.dll": true
+	}
+	var ok := false
+	for entry in reader.get_files():
+		if reader.file_exists(entry):
+			var name := entry.get_file()
+			if not wanted.has(name):
+				continue
+			var data := reader.read_file(entry)
+			if data.size() == 0:
+				continue
+			var f := FileAccess.open(OS.get_user_data_dir() + "/engines/" + name, FileAccess.WRITE)
+			if f == null:
+				continue
+			f.store_buffer(data)
+			f.close()
+			ok = true
+	reader.close()
+	return ok
 
 func _cleanup_install_cache() -> void:
 	if _install_cache_path != "" and FileAccess.file_exists(_install_cache_path):
@@ -447,6 +511,9 @@ func set_engine_profile(profile_id: String, maia_filename: String = "") -> bool:
 func is_engine_profile_active(profile_id: String) -> bool:
 	return get_engine_profile() == profile_id
 
+func get_engine_display_name() -> String:
+	return _engine_display_name()
+
 func send_command(cmd: String) -> void:
 	if not is_engine_running or not process_pipe.has("stdio"):
 		return
@@ -480,6 +547,12 @@ func stop_evaluation() -> void:
 		is_evaluating = false
 		state_mutex.unlock()
 
+func interrupt_evaluation() -> void:
+	state_mutex.lock()
+	cancel_eval_requested = true
+	state_mutex.unlock()
+	send_command("stop")
+
 ## Évaluation synchrone robuste pour l'analyse globale de partie (GameAnalyzer)
 func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500) -> Dictionary:
 	if not is_engine_available() or not process_pipe.has("stdio"):
@@ -498,34 +571,47 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 	is_evaluating = true
 	best_move_uci = ""
 	eval_depth = 0
+	cancel_eval_requested = false
 	state_mutex.unlock()
 
 	send_command("position fen " + fen)
 	send_command("go depth %d" % depth)
 
 	var elapsed = 0
+	var cancelled := false
+	var timed_out := false
 	while is_evaluating and elapsed < timeout_ms:
+		if cancel_eval_requested:
+			cancelled = true
+			break
 		OS.delay_msec(15)
 		elapsed += 15
 
-	var timed_out = is_evaluating
-	if timed_out:
-		send_command("stop")
-		var settle_wait = 20
-		while is_evaluating and settle_wait > 0:
-			OS.delay_msec(15)
-			settle_wait -= 1
-		if is_evaluating:
-			state_mutex.lock()
-			is_evaluating = false
-			state_mutex.unlock()
+	if cancelled:
+		state_mutex.lock()
+		is_evaluating = false
+		cancel_eval_requested = false
+		state_mutex.unlock()
+	else:
+		timed_out = is_evaluating
+		if timed_out:
+			send_command("stop")
+			var settle_wait = 20
+			while is_evaluating and settle_wait > 0:
+				OS.delay_msec(15)
+				settle_wait -= 1
+			if is_evaluating:
+				state_mutex.lock()
+				is_evaluating = false
+				state_mutex.unlock()
 
 	state_mutex.lock()
 	var result = {
 		"score_cp": eval_score_cp,
 		"best_move": best_move_uci,
 		"depth": eval_depth,
-		"timed_out": timed_out
+		"timed_out": timed_out,
+		"cancelled": cancelled
 	}
 	state_mutex.unlock()
 	return result

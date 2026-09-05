@@ -263,11 +263,13 @@ func _on_btn_settings_pressed() -> void:
 
 func _on_analysis_progress(cur: int, tot: int) -> void:
 	if analyzer.is_analyzing and cur < tot:
-		stats_label.text = "⏳ Analyse par Stockfish (%d/%d)..." % [cur, tot]
+		stats_label.text = "⏳ Analyse par %s (%d/%d)..." % [EngineManager.get_engine_display_name(), cur, tot]
 
 func _on_btn_analyze_game_pressed() -> void:
 	if analyzer.is_analyzing:
 		analyzer.cancel_analysis()
+		if EngineManager != null:
+			EngineManager.interrupt_evaluation()
 		stats_label.text = "Analyse interrompue par l'utilisateur."
 		return
 
@@ -276,7 +278,7 @@ func _on_btn_analyze_game_pressed() -> void:
 		stats_label.text = "Jouez ou importez des coups avant de lancer l'analyse globale."
 		return
 	
-	stats_label.text = "⏳ Démarrage de l'analyse Stockfish (0/%d)..." % moves_count
+	stats_label.text = "⏳ Démarrage de l'analyse %s (0/%d)..." % [EngineManager.get_engine_display_name(), moves_count]
 	
 	if analysis_thread and analysis_thread.is_started():
 		analysis_thread.wait_to_finish()

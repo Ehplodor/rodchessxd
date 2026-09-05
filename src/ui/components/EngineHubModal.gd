@@ -41,12 +41,17 @@ func _add_engine_selector(parent: Node) -> void:
 	flow.add_child(stock_btn)
 
 	if not EngineManager.is_lc0_binary_present():
-		var note := Label.new()
-		note.text = "⚠ Pour analyser avec Maia : placez le binaire lc0 (\"lc0\" ou \"lc0.exe\") dans user://engines/ ou res://bin/."
-		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		note.add_theme_font_size_override("font_size", 10)
-		note.add_theme_color_override("font_color", Color("#fbbf24"))
-		parent.add_child(note)
+		if EngineManager.get_lc0_download_available():
+			var dl_btn := _make_choice_button("Télécharger lc0 (Windows)")
+			dl_btn.pressed.connect(_start_lc0_download)
+			flow.add_child(dl_btn)
+		else:
+			var note := Label.new()
+			note.text = "⚠ Pour analyser avec Maia : placez le binaire lc0 (\"lc0\" ou \"lc0.exe\") dans user://engines/ ou res://bin/."
+			note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			note.add_theme_font_size_override("font_size", 10)
+			note.add_theme_color_override("font_color", Color("#fbbf24"))
+			parent.add_child(note)
 		return
 
 	for fn in EngineManager.MAIA_NET_FILES:
@@ -56,6 +61,13 @@ func _add_engine_selector(parent: Node) -> void:
 		var btn := _make_choice_button("Maia " + elo)
 		btn.pressed.connect(_pick_engine.bind("maia_lc0", fn))
 		flow.add_child(btn)
+
+func _start_lc0_download() -> void:
+	if EngineManager.is_lc0_download_active():
+		status_lbl.text = "Téléchargement de lc0 déjà en cours..."
+		return
+	status_lbl.text = "Préparation du téléchargement de lc0 (Windows CPU)..."
+	EngineManager.install_lc0_engine()
 
 func _make_choice_button(label_text: String) -> Button:
 	var btn := Button.new()
