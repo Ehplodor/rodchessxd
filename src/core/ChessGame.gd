@@ -593,6 +593,12 @@ func load_pgn(pgn: String) -> bool:
 		else:
 			move_text += " " + trimmed
 	
+	# Initialiser le plateau avec la position initiale (ou le tag FEN si présent)
+	if pgn_headers.has("FEN"):
+		load_fen(pgn_headers["FEN"])
+	else:
+		load_fen(INITIAL_FEN)
+
 	var clean_tokens = _tokenize_pgn(move_text)
 	for token in clean_tokens:
 		if token in ["1-0", "0-1", "1/2-1/2", "*"]:
@@ -608,21 +614,22 @@ func load_pgn(pgn: String) -> bool:
 func _tokenize_pgn(text: String) -> Array[String]:
 	var result: Array[String] = []
 	var in_comment = false
+	var in_bracket = false
 	var cleaned = ""
 	for i in range(text.length()):
 		var c = text[i]
 		if c == '{': in_comment = true; continue
 		if c == '}': in_comment = false; continue
 		if in_comment: continue
+		if c == '(': in_bracket = true; continue
+		if c == ')': in_bracket = false; continue
+		if in_bracket: continue
 		cleaned += c
 	
 	for raw_token in cleaned.split(" ", false):
 		var tok = raw_token.strip_edges()
-		if tok == "" or tok.ends_with("."):
-			continue
-		var dot_pos = tok.find(".")
-		if dot_pos != -1:
-			tok = tok.substr(dot_pos + 1)
+		while tok.length() > 0 and (tok[0].is_valid_int() or tok[0] == '.'):
+			tok = tok.substr(1)
 		tok = tok.replace("+", "").replace("#", "").replace("!", "").replace("?", "")
 		if tok != "":
 			result.append(tok)
@@ -630,12 +637,59 @@ func _tokenize_pgn(text: String) -> Array[String]:
 
 func _find_matching_move(token: String) -> ChessMove:
 	var legal = get_legal_moves(active_color)
+	
+	# 1. Correspondance exacte SAN ou UCI
 	for m in legal:
 		var clean_san = m.san.replace("+", "").replace("#", "")
-		if clean_san == token:
+		if clean_san == token or m.uci == token:
 			return m
-		if m.uci == token:
-			return m
+
+	# 2. Roque
+	if token in ["O-O", "0-0"]:
+		for m in legal:
+			if m.is_castling and (m.to_sq % 8 == 6):
+				return m
+	elif token in ["O-O-O", "0-0-0"]:
+		for m in legal:
+			if m.is_castling and (m.to_sq % 8 == 2):
+				return m
+
+	# 3. Parsing sémantique du coup SAN avec gestion des désambiguïsations
+	# ex: R4f2, Rad1, Nbd7, exd5, e8=Q, f8Q, etc.
+	var clean = token.replace("x", "").replace("=", "")
+	if clean.length() < 2:
+		return null
+
+	var dest_coord = clean.substr(clean.length() - 2, 2)
+	var dest_sq = ChessMove.coord_to_square(dest_coord)
+	if dest_sq == -1:
+		# Promotion sans égal : ex "h1Q" -> dest "h1", prom "Q"
+		if clean.length() >= 3 and clean[-1] in ["Q", "R", "B", "N"]:
+			dest_coord = clean.substr(clean.length() - 3, 2)
+			dest_sq = ChessMove.coord_to_square(dest_coord)
+
+	if dest_sq == -1:
+		return null
+
+	var piece_type = ChessPiece.Type.PAWN
+	var start_idx = 0
+	if clean[0] in ["N", "B", "R", "Q", "K"]:
+		piece_type = ChessPiece.from_char(clean[0]).type
+		start_idx = 1
+
+	var disambig_hint = clean.substr(start_idx, clean.length() - start_idx - 2)
+
+	for m in legal:
+		if m.to_sq == dest_sq and m.piece == piece_type:
+			if disambig_hint == "":
+				return m
+			var from_coord = ChessMove.square_to_coord(m.from_sq)
+			if disambig_hint.length() == 1:
+				if disambig_hint[0] == from_coord[0] or disambig_hint[0] == from_coord[1]:
+					return m
+			elif disambig_hint == from_coord:
+				return m
+
 	return null
 
 func export_pgn() -> String:

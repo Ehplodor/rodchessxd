@@ -27,7 +27,21 @@ func _ready() -> void:
 	game = ChessGame.new()
 	game.board_changed.connect(_on_game_board_changed)
 	game.move_made.connect(_on_game_move_made)
-	board_flipped = SettingsManager.get_setting("flip_board", false)
+	var settings = _get_settings_manager()
+	if settings:
+		board_flipped = settings.get_setting("flip_board", false)
+
+func _get_settings_manager() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("SettingsManager"):
+		return tree.root.get_node("SettingsManager")
+	return null
+
+func _get_engine_manager() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		return tree.root.get_node("EngineManager")
+	return null
 
 func reset_to_initial() -> void:
 	game.reset_board()
@@ -103,8 +117,9 @@ func try_play_move(from_sq: int, to_sq: int, promotion_type: int = ChessPiece.Ty
 				else:
 					play_sound_requested.emit("move")
 				
-				if EngineManager != null:
-					EngineManager.evaluate_position(game.get_fen())
+				var engine = _get_engine_manager()
+				if engine != null:
+					engine.evaluate_position(game.get_fen())
 				return true
 	deselect_square()
 	return false
@@ -121,8 +136,9 @@ func navigate_to_ply(ply_idx: int) -> void:
 	move_navigated.emit(current_ply_index)
 	position_changed.emit()
 
-	if EngineManager != null:
-		EngineManager.evaluate_position(game.get_fen())
+	var engine = _get_engine_manager()
+	if engine != null:
+		engine.evaluate_position(game.get_fen())
 
 func go_first_move() -> void:
 	navigate_to_ply(-1)
@@ -138,7 +154,9 @@ func go_last_move() -> void:
 
 func flip_board() -> void:
 	board_flipped = not board_flipped
-	SettingsManager.set_setting("flip_board", board_flipped)
+	var settings = _get_settings_manager()
+	if settings:
+		settings.set_setting("flip_board", board_flipped)
 	position_changed.emit()
 
 func _on_game_board_changed() -> void:

@@ -8,6 +8,8 @@ const MoveList2D = preload("res://src/ui/components/MoveList2D.gd")
 const CoachPanel2D = preload("res://src/ui/components/CoachPanel2D.gd")
 const GameAnalyzer = preload("res://src/engine/GameAnalyzer.gd")
 const OCREditorModal = preload("res://src/ui/components/OCREditorModal.gd")
+const PGNModal = preload("res://src/ui/components/PGNModal.gd")
+const ChessComImportModal = preload("res://src/ui/components/ChessComImportModal.gd")
 const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
 const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 
@@ -74,10 +76,20 @@ func _on_btn_last_pressed() -> void:
 func _on_btn_flip_pressed() -> void:
 	GameController.flip_board()
 
-# --- MODALES & ANALYSE ---
+# --- MODALES D'IMPORT & GESTION ---
 
 func _on_btn_import_png_pressed() -> void:
 	var modal: OCREditorModal = OCREditorModal.new()
+	add_child(modal)
+	modal.popup_centered()
+
+func _on_btn_import_pgn_pressed() -> void:
+	var modal: PGNModal = PGNModal.new()
+	add_child(modal)
+	modal.popup_centered()
+
+func _on_btn_chess_com_pressed() -> void:
+	var modal: ChessComImportModal = ChessComImportModal.new()
 	add_child(modal)
 	modal.popup_centered()
 
@@ -90,6 +102,8 @@ func _on_btn_settings_pressed() -> void:
 	var modal: SettingsModal = SettingsModal.new()
 	add_child(modal)
 	modal.popup_centered()
+
+# --- ANALYSE DE PARTIE ---
 
 func _on_btn_analyze_game_pressed() -> void:
 	var moves_count = GameController.game.move_history.size()
