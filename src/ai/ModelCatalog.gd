@@ -437,6 +437,9 @@ func _merge_remote_models(remote_data: Array) -> void:
 			count_added += 1
 
 ## Détecte en local les modèles installés dans Ollama (127.0.0.1:11434)
+func detect_local_ollama_models() -> void:
+	check_local_ollama_models()
+
 func check_local_ollama_models() -> void:
 	var err = http_ollama.request(OLLAMA_TAGS_URL, ["User-Agent: RodChessXD/1.0"], HTTPClient.METHOD_GET)
 	if err != OK:

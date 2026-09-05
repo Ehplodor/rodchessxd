@@ -96,8 +96,13 @@ func _init() -> void:
 	assert(added_model.name == "DeepSeek V4 Turbo (Nouveau)", "Le nom du nouveau modèle doit correspondre")
 	print("Nouveau modèle ajouté avec succès : %s" % added_model.name)
 
-	# 4. Test d'instanciation de ModelHubModal
-	print("\nTest de l'interface ModelHubModal...")
+	# 4. Test d'instanciation de ModelHubModal et détection Ollama
+	print("\nTest de la détection Ollama locale et de l'interface ModelHubModal...")
+	assert(catalog.has_method("detect_local_ollama_models"), "ModelCatalog doit implémenter detect_local_ollama_models")
+	assert(catalog.has_method("check_local_ollama_models"), "ModelCatalog doit implémenter check_local_ollama_models")
+	catalog.detect_local_ollama_models()
+	print("Méthode detect_local_ollama_models appelée avec succès !")
+
 	var hub = ModelHubModalScript.new()
 	root.add_child(hub)
 	print("ModelHubModal instanciée sans erreur !")
