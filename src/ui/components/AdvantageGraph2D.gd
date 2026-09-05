@@ -10,6 +10,9 @@ var active_ply: int = -1
 var max_eval_cp: float = 500.0 # Plafond visuel à ±5 pions
 var is_expanded: bool = false
 var btn_expand: Button
+var stored_analyses: Array = []
+var current_analysis_idx: int = 0
+var btn_switch_analysis: Button
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(250, 90)
@@ -26,7 +29,16 @@ func _setup_expand_button() -> void:
 	btn_expand.custom_minimum_size = Vector2(68, 22)
 	btn_expand.pressed.connect(_toggle_expand)
 	add_child(btn_expand)
-	_update_expand_button_position()
+
+	btn_switch_analysis = Button.new()
+	btn_switch_analysis.visible = false
+	btn_switch_analysis.add_theme_font_size_override("font_size", 9)
+	btn_switch_analysis.custom_minimum_size = Vector2(0, 22)
+	btn_switch_analysis.tooltip_text = "Cliquer pour basculer entre les différentes analyses de moteurs enregistrées"
+	btn_switch_analysis.pressed.connect(_cycle_analysis)
+	add_child(btn_switch_analysis)
+
+	_update_button_positions()
 
 func _toggle_expand() -> void:
 	is_expanded = not is_expanded
@@ -35,12 +47,52 @@ func _toggle_expand() -> void:
 	if get_parent() is Control:
 		get_parent().custom_minimum_size = Vector2(0, new_h)
 	btn_expand.text = "📐 Réduire" if is_expanded else "📐 Agrandir"
-	_update_expand_button_position()
+	_update_button_positions()
 	queue_redraw()
 
-func _update_expand_button_position() -> void:
+func _update_button_positions() -> void:
+	var right_cursor = size.x - 6
 	if btn_expand:
-		btn_expand.position = Vector2(size.x - btn_expand.size.x - 6, 6)
+		btn_expand.position = Vector2(right_cursor - btn_expand.size.x, 6)
+		right_cursor -= (btn_expand.size.x + 6)
+	if btn_switch_analysis and btn_switch_analysis.visible:
+		btn_switch_analysis.position = Vector2(right_cursor - btn_switch_analysis.size.x, 6)
+
+func update_stored_analyses(analyses: Array) -> void:
+	stored_analyses = analyses
+	if stored_analyses.size() > 1:
+		current_analysis_idx = stored_analyses.size() - 1
+		_show_switch_analysis_button()
+	else:
+		if btn_switch_analysis:
+			btn_switch_analysis.visible = false
+	_update_button_positions()
+
+func _show_switch_analysis_button() -> void:
+	if not btn_switch_analysis:
+		return
+	btn_switch_analysis.visible = true
+	var cur = stored_analyses[current_analysis_idx]
+	var eng = cur.get("engine_name", "Stockfish")
+	var d = cur.get("depth", 10)
+	btn_switch_analysis.text = "⚡ %s (d%d) [%d/%d]" % [eng, d, current_analysis_idx + 1, stored_analyses.size()]
+	btn_switch_analysis.reset_size()
+	_update_button_positions()
+
+func _cycle_analysis() -> void:
+	if stored_analyses.is_empty():
+		return
+	current_analysis_idx = (current_analysis_idx + 1) % stored_analyses.size()
+	var cur = stored_analyses[current_analysis_idx]
+	set_evaluations(cur.get("evaluations", []))
+	_show_switch_analysis_button()
+	var main = find_parent("Main")
+	if main and main.stats_label:
+		var w_acc = cur.get("white_accuracy", 0.0)
+		var b_acc = cur.get("black_accuracy", 0.0)
+		var w_elo = cur.get("white_estimated_elo", 1500)
+		var b_elo = cur.get("black_estimated_elo", 1500)
+		main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO)" % [w_acc, w_elo, b_acc, b_elo]
 
 func set_evaluations(eval_data: Array[Dictionary]) -> void:
 	evaluations = eval_data
@@ -50,7 +102,7 @@ func set_evaluations(eval_data: Array[Dictionary]) -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
-		_update_expand_button_position()
+		_update_button_positions()
 		queue_redraw()
 
 func _draw() -> void:

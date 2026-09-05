@@ -22,6 +22,7 @@ var legal_destinations: Array[int] = []
 
 var play_mode: PlayMode = PlayMode.ANALYSIS
 var board_flipped: bool = false
+var current_game_id: String = ""
 
 func _ready() -> void:
 	game = ChessGame.new()
@@ -43,9 +44,24 @@ func _get_engine_manager() -> Node:
 		return tree.root.get_node("EngineManager")
 	return null
 
+func _get_database_manager() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("DatabaseManager"):
+		return tree.root.get_node("DatabaseManager")
+	return null
+
+func get_or_create_game_id() -> String:
+	if current_game_id != "":
+		return current_game_id
+	var dm = _get_database_manager()
+	if dm:
+		current_game_id = dm.record_active_game(game)
+	return current_game_id
+
 func reset_to_initial() -> void:
 	game.reset_board()
 	game.load_fen(ChessGame.INITIAL_FEN)
+	current_game_id = ""
 	current_ply_index = -1
 	selected_square = -1
 	legal_destinations.clear()
@@ -58,15 +74,24 @@ func load_fen(fen: String) -> bool:
 	var success = game.load_fen(fen)
 	if success:
 		current_ply_index = -1
+		var dm = _get_database_manager()
+		if dm:
+			current_game_id = dm.record_active_game(game, "Position FEN", "fen_import")
 		position_changed.emit()
 	return success
 
-func load_pgn(pgn: String) -> bool:
+func load_pgn(pgn: String, known_game_id: String = "") -> bool:
 	selected_square = -1
 	legal_destinations.clear()
 	var success = game.load_pgn(pgn)
 	if success:
 		current_ply_index = game.move_history.size() - 1
+		if known_game_id != "":
+			current_game_id = known_game_id
+		else:
+			var dm = _get_database_manager()
+			if dm:
+				current_game_id = dm.record_pgn_game(pgn, "pgn_import")
 		position_changed.emit()
 	return success
 

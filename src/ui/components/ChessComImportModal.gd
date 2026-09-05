@@ -122,6 +122,14 @@ func _on_games_fetched(games: Array[Dictionary]) -> void:
 	all_games = games
 	status_lbl.text = "✅ %d parties récupérées pour %s." % [games.size(), username_input.text]
 	status_lbl.add_theme_color_override("font_color", Color("#22c55e"))
+
+	# Sauvegarde automatique dans la bibliothèque locale DatabaseManager
+	var tree = Engine.get_main_loop() as SceneTree
+	var dm = tree.root.get_node_or_null("DatabaseManager") if (tree and tree.root) else null
+	if dm:
+		for g in games:
+			dm.record_chesscom_game(g)
+
 	_render_games_list()
 
 func _on_fetch_error(msg: String) -> void:

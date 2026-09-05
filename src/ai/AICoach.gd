@@ -40,6 +40,26 @@ func _get_catalog() -> Node:
 		return tree.root.get_node("ModelCatalog")
 	return null
 
+func _get_game_controller() -> Node:
+	if is_inside_tree():
+		var t = get_tree()
+		if t and t.root and t.root.has_node("GameController"):
+			return t.root.get_node("GameController")
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("GameController"):
+		return tree.root.get_node("GameController")
+	return null
+
+func _get_database_manager() -> Node:
+	if is_inside_tree():
+		var t = get_tree()
+		if t and t.root and t.root.has_node("DatabaseManager"):
+			return t.root.get_node("DatabaseManager")
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("DatabaseManager"):
+		return tree.root.get_node("DatabaseManager")
+	return null
+
 func _get_setting(key: String, default_val: Variant) -> Variant:
 	var sm = _get_settings()
 	if sm:
@@ -83,11 +103,51 @@ func build_prompt_data(
 
 	var personality = extra_context.get("personality", _get_setting("coach_personality", "mentor"))
 
+	# Perspective demandée (Point de vue Blancs / Noirs / Neutre)
+	var perspective = extra_context.get("perspective", _get_setting("coach_perspective", "white"))
+	var perspective_label = "Blancs (⚪)"
+	var perspective_instruction = ""
+	if perspective == "black":
+		perspective_label = "Noirs (⚫)"
+		perspective_instruction = """RÈGLE D'OR DE POINT DE VUE (PERSPECTIVE OBLIGATOIRE) :
+Tu es EXCLUSIVEMENT le coach et le conseiller personnel du JOUEUR AVEC LES NOIRS.
+- Tous tes diagnostics, tes conseils stratégiques, tes alertes de sécurité et tes plans d'action doivent être formulés DU POINT DE VUE DES NOIRS.
+- Explique ce que les Noirs ont bien ou mal fait, quelles menaces pèsent sur les Noirs, comment les Noirs doivent réfuter les Blancs et quel est le meilleur plan pour les Noirs.
+- Même si le trait est aux Blancs, adresse-toi toujours au joueur Noir pour lui expliquer comment anticiper la réplique adverse !"""
+	elif perspective == "neutral":
+		perspective_label = "Neutre / Arbitre (⚖️)"
+		perspective_instruction = """RÈGLE DE POINT DE VUE (ARBITRE / ANALYSTE NEUTRE) :
+Tu es un analyste impartial et objectif. Présente les forces, faiblesses, opportunités et plans des Blancs et des Noirs de manière équilibrée."""
+	else:
+		perspective_label = "Blancs (⚪)"
+		perspective_instruction = """RÈGLE D'OR DE POINT DE VUE (PERSPECTIVE OBLIGATOIRE) :
+Tu es EXCLUSIVEMENT le coach et le conseiller personnel du JOUEUR AVEC LES BLANCS.
+- Tous tes diagnostics, tes conseils stratégiques, tes alertes de sécurité et tes plans d'action doivent être formulés DU POINT DE VUE DES BLANCS.
+- Explique ce que les Blancs ont bien ou mal fait, quelles menaces pèsent sur les Blancs, comment les Blancs doivent réfuter les Noirs et quel est le meilleur plan pour les Blancs.
+- Même si le trait est aux Noirs, adresse-toi toujours au joueur Blanc pour lui expliquer comment anticiper la réplique adverse !"""
+
+	# Déterminer qui a joué le dernier coup
+	var last_move_desc = "Position initiale (aucun coup joué)"
+	if last_move_san != "":
+		var last_move_is_white = true
+		if extra_context.has("last_move_color"):
+			last_move_is_white = (extra_context["last_move_color"] == "white")
+		elif extra_context.has("ply_index"):
+			last_move_is_white = (int(extra_context["ply_index"]) % 2 == 0)
+		else:
+			# Si le trait est aux Noirs, c'est que les Blancs viennent de jouer
+			last_move_is_white = (active_color_str == "Noirs")
+
+		var author_str = "Blancs" if last_move_is_white else "Noirs"
+		last_move_desc = "%s (joué par les %s)" % [last_move_san, author_str]
+
 	# --- 1. SYSTEM INSTRUCTIONS (RÈGLES D'OR & MISSION) ---
 	var system_prompt = """Tu es RodCoach, Grand Maître International d'échecs et entraîneur pédagogique d'élite au sein de l'application RodChessXD.
 Ton rôle est d'analyser les positions d'échecs pour faire progresser le joueur, en traduisant les calculs bruts de l'ordinateur en explications humaines lumineuses, logiques et immédiatement mémorables.
 
-RÈGLES D'OR DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
+%s
+
+RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 1. VÉRITÉ TERRAIN STRICTE (ZÉRO CALCUL INVENTÉ) :
    - Tu ne dois JAMAIS calculer de coups toi-même à l'aveugle : appuie-toi STRICTEMENT sur les données d'évaluation du moteur Stockfish fournies dans la fiche technique.
    - L'évaluation en pions, le meilleur coup et la suite tactique PV constituent la VÉRITÉ ABSOLUE du jeu. Tu ne dois jamais les contredire ni inventer des pièces imaginaires.
@@ -97,13 +157,13 @@ RÈGLES D'OR DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
      * Principes stratégiques : contrôle des cases centrales (e4, d4, e5, d5), sécurité du roi et statut du roque, colonnes ouvertes/semi-ouvertes pour les tours, avant-postes protégés pour les cavaliers, affaiblissement de cases de même couleur, paire de fous, structure de pions (pions doublés, isolés, arriérés, passés).
 3. STRUCTURE DE RÉPONSE OBLIGATOIRE (LISIBLE SUR SMARTPHONE) :
    Formate systématiquement ta réponse avec ces 3 rubriques courtes et aérées en Markdown :
-   - 🎯 **Diagnostic** : En 1 ou 2 phrases percutantes, qualifie l'impact du coup joué et résume l'état de l'évaluation.
+   - 🎯 **Diagnostic** : En 1 ou 2 phrases percutantes, qualifie l'impact du coup joué et résume l'état de l'évaluation du point de vue du camp conseillé (%s).
    - 💡 **Analyse & Réfutation** : Explique pourquoi ce coup est bon ou mauvais, ce qu'il permet ou néglige, et détaille le mécanisme de la variante calculée par le moteur (PV).
-   - 📌 **Plan conseillé** : Donne 1 ou 2 conseils pratiques clairs et concrets pour les prochains coups.
+   - 📌 **Plan conseillé** : Donne 1 ou 2 conseils pratiques clairs et concrets pour guider le camp conseillé (%s).
 4. TON ET VOCABULAIRE :
    - Langue : Français soigné, dynamique et motivant.
    - Notation : Notation algébrique standard (ex: 1. e4, 2... Cf6, 3. Fb5).
-   - Format concis : 150 à 250 mots au total (2 à 4 paragraphes percutants)."""
+   - Format concis : 150 à 220 mots au total (2 à 4 paragraphes percutants).""" % [perspective_instruction, perspective_label, perspective_label]
 
 	match personality:
 		"blunder_hunter":
@@ -115,21 +175,23 @@ RÈGLES D'OR DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 
 	# --- 2. USER CONTENT (FICHE D'ANALYSE DE LA POSITION) ---
 	var user_prompt = """### 📋 FICHE TECHNIQUE DE LA POSITION (Stockfish 18)
+- **Perspective d'analyse demandée** : %s (Conseiller ce camp en priorité)
+- **Dernier coup joué** : %s
+- **Trait actuel au jeu** : %s
 - **Position FEN** : `%s`
-- **Trait au jeu** : %s
 - **Phase de la partie** : %s
 - **Équilibre matériel** : %s
-- **Dernier coup joué** : %s
 - **Qualification du coup** : %s
 - **Évaluation Stockfish** : %s
 - **Meilleur coup recommandé par Stockfish** : `%s`
 - **Variante calculée (PV)** : `%s`
 """ % [
-		fen,
+		perspective_label,
+		last_move_desc,
 		active_color_str,
+		fen,
 		game_phase,
 		mat_info.get("summary", "Égalité"),
-		last_move_san if last_move_san != "" else "Position initiale",
 		quality_label,
 		eval_desc,
 		best_move if best_move != "" else "N/A",
@@ -405,7 +467,9 @@ func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> voi
 		"messages": [
 			{"role": "system", "content": prompt_data.get("system", "")},
 			{"role": "user", "content": prompt_data.get("user", "")}
-		]
+		],
+		"max_tokens": 750,
+		"temperature": 0.5
 	})
 	var headers = [
 		"Content-Type: application/json",
@@ -595,5 +659,26 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 		var cost_label: String = cost_info.get("label_per_query", "Gratuit")
 		coach_response_received.emit(answer.strip_edges())
 		coach_response_with_meta.emit(answer.strip_edges(), cost_label, elapsed)
+
+		# Archivage automatique dans DatabaseManager
+		var dm = _get_database_manager()
+		var gc = _get_game_controller()
+		if dm and gc:
+			var gid = gc.get_or_create_game_id()
+			if gid != "":
+				var extra = last_query_context.get("extra_context", {})
+				var coach_record = {
+					"ply_index": extra.get("ply_index", gc.current_ply_index),
+					"move_number": extra.get("move_number", 1),
+					"move_san": last_query_context.get("last_move_san", ""),
+					"perspective": extra.get("perspective", _get_setting("coach_perspective", "white")),
+					"model_id": active_query_model_id,
+					"provider": model_info.get("provider", "openrouter"),
+					"user_question": last_query_context.get("user_question", ""),
+					"response_text": answer.strip_edges(),
+					"elapsed_sec": elapsed,
+					"cost_label": cost_label
+				}
+				dm.add_coach_analysis(gid, coach_record)
 	else:
 		coach_error.emit("Impossible d'extraire le texte de la réponse du modèle.")

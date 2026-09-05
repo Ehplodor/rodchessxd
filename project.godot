@@ -22,6 +22,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 SettingsManager="*res://src/core/SettingsManager.gd"
+DatabaseManager="*res://src/core/DatabaseManager.gd"
 ModelCatalog="*res://src/ai/ModelCatalog.gd"
 GameController="*res://src/core/GameController.gd"
 EngineManager="*res://src/engine/EngineManager.gd"

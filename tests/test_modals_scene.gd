@@ -35,5 +35,9 @@ func _init() -> void:
 	coach_panel._open_model_hub()
 	await create_timer(0.05).timeout
 
-	print("[SCENE TEST] Succès total ! Toutes les modales s'ouvrent, se mettent en page et se comportent correctement !")
+	print("  7. Test ouverture LibraryModal...")
+	main_node._on_btn_library_pressed()
+	await create_timer(0.05).timeout
+
+	print("[SCENE TEST] Succès total ! Toutes les 7 modales s'ouvrent, se mettent en page et se comportent correctement !")
 	quit(0)

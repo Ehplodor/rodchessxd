@@ -12,6 +12,7 @@ const PGNModal = preload("res://src/ui/components/PGNModal.gd")
 const ChessComImportModal = preload("res://src/ui/components/ChessComImportModal.gd")
 const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
 const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
+const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 
 @onready var eval_bar: EvalBar2D = $VBox/CenterArea/EvalBar
 @onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardContainer/ChessBoard
@@ -52,7 +53,14 @@ func _ready() -> void:
 func _on_game_position_changed() -> void:
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
+		advantage_graph.update_stored_analyses([])
 		stats_label.text = "Position de départ prête. Cliquez sur '🔍 Analyser Partie'."
+	else:
+		var dm = get_node_or_null("/root/DatabaseManager")
+		if dm and GameController.current_game_id != "":
+			var g = dm.get_game(GameController.current_game_id)
+			var ea = g.get("engine_analyses", [])
+			advantage_graph.update_stored_analyses(ea)
 
 func _start_initial_eval() -> void:
 	if EngineManager != null and EngineManager.is_engine_running:
@@ -115,13 +123,17 @@ func _on_btn_chess_com_pressed() -> void:
 func _on_btn_engine_hub_pressed() -> void:
 	_open_modal(EngineHubModal.new())
 
+func _on_btn_library_pressed() -> void:
+	_open_modal(LibraryModal.new())
+
 func _on_btn_settings_pressed() -> void:
 	_open_modal(SettingsModal.new())
 
 # --- ANALYSE DE PARTIE ---
 
 func _on_analysis_progress(cur: int, tot: int) -> void:
-	stats_label.text = "⏳ Analyse par Stockfish (%d/%d)..." % [cur, tot]
+	if analyzer.is_analyzing and cur < tot:
+		stats_label.text = "⏳ Analyse par Stockfish (%d/%d)..." % [cur, tot]
 
 func _on_btn_analyze_game_pressed() -> void:
 	if analyzer.is_analyzing:
@@ -161,6 +173,28 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	var short_sample = " • [Échantillon court]" if total_moves < 12 else ""
 
 	stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO)%s" % [w_acc, w_elo, b_acc, b_elo, short_sample]
+
+	# Archivage automatique dans DatabaseManager pour la partie active
+	var dm = get_node_or_null("/root/DatabaseManager")
+	if dm and GameController:
+		var gid = GameController.get_or_create_game_id()
+		if gid != "":
+			var analysis_entry = {
+				"engine_name": "Stockfish",
+				"depth": 10,
+				"white_accuracy": w_acc,
+				"black_accuracy": b_acc,
+				"white_estimated_elo": w_elo,
+				"black_estimated_elo": b_elo,
+				"white_acpl": report.get("white_acpl", 0.0),
+				"black_acpl": report.get("black_acpl", 0.0),
+				"white_stats": report.get("white_stats", {}),
+				"black_stats": report.get("black_stats", {}),
+				"evaluations": evals
+			}
+			dm.add_engine_analysis(gid, analysis_entry)
+			var game_rec = dm.get_game(gid)
+			advantage_graph.update_stored_analyses(game_rec.get("engine_analyses", []))
 
 	# Basculer immédiatement sur l'onglet du graphe pour que l'utilisateur le visualise en direct
 	bottom_tabs.current_tab = 0

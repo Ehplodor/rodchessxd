@@ -1,15 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 45 45" width="45" height="45">
-  <g style="
-    fill: #1e293b;
-    stroke: #f1f5f9;
-    stroke-width: 1.5;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-">
-    
-  <path d="M 22 10 C 32.5 11 38.5 18 38 39 L 15 39 C 15 30 14 27.5 12 26 C 9 23.5 6 22.5 9 18 C 11.5 14 15 10.5 22 10 z" />
-  <path d="M 24 18 C 24.38 20.91 18.45 22.6 16 24.5 C 13 27 13 29 13 29 C 17 27 23 26 23 26 C 25.96 27.76 27.56 31.81 29 35 C 31 35 34 35 36 35 C 36 29 33 21 24 18 z" />
-  <circle cx="15" cy="17" r="1.5" />
-
+  <g style="fill:#242a35; stroke:#0f172a; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round;">
+    <path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 14,27.5 12,26 C 9,23.5 6,22.5 9,18 C 11.5,14 15,10.5 22,10 z" />
+    <path d="M 24,18 C 24.38,20.91 18.45,22.6 16,24.5 C 13,27 13,29 13,29 C 17,27 23,26 23,26 C 25.96,27.76 27.56,31.81 29,35 C 31,35 34,35 36,35 C 36,29 33,21 24,18 z" />
+  </g>
+  <g style="fill:none; stroke:#94a3b8; stroke-width:1.2; stroke-linecap:round; stroke-linejoin:round; opacity:0.85;">
+    <!-- Oeil et museau lumineux -->
+    <circle cx="9.5" cy="25.5" r="0.8" style="fill:#ffffff; stroke:#ffffff;" />
+    <circle cx="15" cy="16.5" r="1.2" style="fill:#ffffff; stroke:#ffffff;" />
+    <path d="M 24.55,10.4 C 24.19,10 23.7,9.75 23.18,9.75 C 22.31,9.75 21.6,10.46 21.6,11.33 C 21.6,12.2 22.31,12.91 23.18,12.91 C 23.7,12.91 24.19,12.66 24.55,12.26" />
+    <path d="M 28.5,13.5 C 28.5,15.5 27.5,17 27.5,17" />
+    <path d="M 32.5,17.5 C 32.5,19.5 31.5,21 31.5,21" />
+    <path d="M 35.5,22.5 C 35.5,24.5 34.5,26 34.5,26" />
+    <path d="M 17,27 C 18,29 20,30 23,30" />
+    <path d="M 15.5,38 L 37.5,38" />
   </g>
 </svg>
