@@ -1,0 +1,653 @@
+class_name ChessGame
+extends RefCounted
+## ChessGame.gd - Moteur de règles d'échecs complet avec gestion FEN, PGN, coups légaux et historique
+
+signal board_changed
+signal move_made(move: ChessMove)
+signal game_over(result: String, reason: String)
+
+const INITIAL_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+var board: Array = [] # 64 cases (0=a1, 7=h1, 56=a8, 63=h8)
+var active_color: int = ChessPiece.PieceColor.WHITE
+
+# Droits au roque
+var castle_k_white: bool = true
+var castle_q_white: bool = true
+var castle_k_black: bool = true
+var castle_q_black: bool = true
+
+var en_passant_sq: int = -1
+var halfmove_clock: int = 0
+var fullmove_number: int = 1
+
+# Historique pour navigation et annulation
+var move_history: Array[ChessMove] = []
+var state_history: Array[Dictionary] = []
+var history_index: int = -1
+
+# Métadonnées PGN
+var pgn_headers: Dictionary = {
+	"Event": "RodChessXD Game",
+	"Site": "Mobile",
+	"Date": "????.??.??",
+	"Round": "1",
+	"White": "Player 1",
+	"Black": "Player 2",
+	"Result": "*"
+}
+
+func _init(initial_fen: String = INITIAL_FEN) -> void:
+	reset_board()
+	load_fen(initial_fen)
+
+func reset_board() -> void:
+	board.clear()
+	board.resize(64)
+	for i in range(64):
+		board[i] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+	active_color = ChessPiece.PieceColor.WHITE
+	castle_k_white = true
+	castle_q_white = true
+	castle_k_black = true
+	castle_q_black = true
+	en_passant_sq = -1
+	halfmove_clock = 0
+	fullmove_number = 1
+	move_history.clear()
+	state_history.clear()
+	history_index = -1
+
+func get_piece(sq: int) -> Dictionary:
+	if sq < 0 or sq >= 64:
+		return {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+	return board[sq]
+
+func set_piece(sq: int, type: int, color: int) -> void:
+	if sq >= 0 and sq < 64:
+		board[sq] = {"type": type, "color": color}
+
+# --- CHARGEMENT & EXPORT FEN ---
+
+func load_fen(fen: String) -> bool:
+	var parts = fen.strip_edges().split(" ")
+	if parts.size() < 1:
+		return false
+	
+	reset_board()
+	var ranks = parts[0].split("/")
+	if ranks.size() != 8:
+		return false
+	
+	for r in range(8):
+		var rank_idx = 7 - r # Dans le FEN, la 1re rangée est la 8e (index 7)
+		var file_idx = 0
+		var rank_str = ranks[r]
+		for i in range(rank_str.length()):
+			var c = rank_str[i]
+			if c.is_valid_int():
+				file_idx += c.to_int()
+			else:
+				var piece_info = ChessPiece.from_char(c)
+				var sq = rank_idx * 8 + file_idx
+				set_piece(sq, piece_info.type, piece_info.color)
+				file_idx += 1
+
+	if parts.size() > 1:
+		active_color = ChessPiece.PieceColor.WHITE if parts[1] == "w" else ChessPiece.PieceColor.BLACK
+	
+	if parts.size() > 2:
+		var c_str = parts[2]
+		castle_k_white = "K" in c_str
+		castle_q_white = "Q" in c_str
+		castle_k_black = "k" in c_str
+		castle_q_black = "q" in c_str
+	
+	if parts.size() > 3:
+		en_passant_sq = ChessMove.coord_to_square(parts[3]) if parts[3] != "-" else -1
+	
+	if parts.size() > 4:
+		halfmove_clock = parts[4].to_int()
+	if parts.size() > 5:
+		fullmove_number = parts[5].to_int()
+
+	save_state_snapshot()
+	board_changed.emit()
+	return true
+
+func get_fen() -> String:
+	var fen = ""
+	for r in range(7, -1, -1):
+		var empty_count = 0
+		for f in range(8):
+			var sq = r * 8 + f
+			var piece = board[sq]
+			if piece.type == ChessPiece.Type.NONE:
+				empty_count += 1
+			else:
+				if empty_count > 0:
+					fen += str(empty_count)
+					empty_count = 0
+				fen += ChessPiece.to_char(piece.type, piece.color)
+		if empty_count > 0:
+			fen += str(empty_count)
+		if r > 0:
+			fen += "/"
+	
+	fen += " " + ("w" if active_color == ChessPiece.PieceColor.WHITE else "b") + " "
+	
+	var castling = ""
+	if castle_k_white: castling += "K"
+	if castle_q_white: castling += "Q"
+	if castle_k_black: castling += "k"
+	if castle_q_black: castling += "q"
+	fen += (castling if castling != "" else "-") + " "
+	
+	fen += (ChessMove.square_to_coord(en_passant_sq) if en_passant_sq != -1 else "-") + " "
+	fen += str(halfmove_clock) + " " + str(fullmove_number)
+	return fen
+
+# --- SNAPSHOT & GESTION D'ÉTAT ---
+
+func save_state_snapshot() -> void:
+	var state = {
+		"board": board.duplicate(true),
+		"active_color": active_color,
+		"castle_k_white": castle_k_white,
+		"castle_q_white": castle_q_white,
+		"castle_k_black": castle_k_black,
+		"castle_q_black": castle_q_black,
+		"en_passant_sq": en_passant_sq,
+		"halfmove_clock": halfmove_clock,
+		"fullmove_number": fullmove_number
+	}
+	state_history.append(state)
+	history_index = state_history.size() - 1
+
+func restore_state(index: int) -> bool:
+	if index < 0 or index >= state_history.size():
+		return false
+	var state = state_history[index]
+	board = state["board"].duplicate(true)
+	active_color = state["active_color"]
+	castle_k_white = state["castle_k_white"]
+	castle_q_white = state["castle_q_white"]
+	castle_k_black = state["castle_k_black"]
+	castle_q_black = state["castle_q_black"]
+	en_passant_sq = state["en_passant_sq"]
+	halfmove_clock = state["halfmove_clock"]
+	fullmove_number = state["fullmove_number"]
+	history_index = index
+	board_changed.emit()
+	return true
+
+# --- GÉNÉRATION DES COUPS LÉGAUX ---
+
+func get_legal_moves(for_color: int = -1) -> Array[ChessMove]:
+	if for_color == -1:
+		for_color = active_color
+	var pseudo_moves = _generate_pseudo_legal_moves(for_color)
+	var legal_moves: Array[ChessMove] = []
+	for m in pseudo_moves:
+		if _is_move_legal(m, for_color):
+			_annotate_move(m)
+			legal_moves.append(m)
+	return legal_moves
+
+func get_legal_moves_for_square(sq: int) -> Array[ChessMove]:
+	var result: Array[ChessMove] = []
+	var piece = get_piece(sq)
+	if piece.color != active_color:
+		return result
+	for m in get_legal_moves(active_color):
+		if m.from_sq == sq:
+			result.append(m)
+	return result
+
+func _generate_pseudo_legal_moves(color: int) -> Array[ChessMove]:
+	var moves: Array[ChessMove] = []
+	for sq in range(64):
+		var piece = board[sq]
+		if piece.color != color:
+			continue
+		match piece.type:
+			ChessPiece.Type.PAWN:
+				_gen_pawn_moves(sq, color, moves)
+			ChessPiece.Type.KNIGHT:
+				_gen_knight_moves(sq, color, moves)
+			ChessPiece.Type.BISHOP:
+				_gen_sliding_moves(sq, color, [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)], moves)
+			ChessPiece.Type.ROOK:
+				_gen_sliding_moves(sq, color, [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)], moves)
+			ChessPiece.Type.QUEEN:
+				_gen_sliding_moves(sq, color, [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)], moves)
+			ChessPiece.Type.KING:
+				_gen_king_moves(sq, color, moves)
+	return moves
+
+func _gen_pawn_moves(sq: int, color: int, moves: Array[ChessMove]) -> void:
+	var f = sq % 8
+	var r = sq / 8
+	var dir = 1 if color == ChessPiece.PieceColor.WHITE else -1
+	var start_rank = 1 if color == ChessPiece.PieceColor.WHITE else 6
+	var prom_rank = 7 if color == ChessPiece.PieceColor.WHITE else 0
+	
+	# Avance simple
+	var next_r = r + dir
+	if next_r >= 0 and next_r <= 7:
+		var target_sq = next_r * 8 + f
+		if board[target_sq].type == ChessPiece.Type.NONE:
+			if next_r == prom_rank:
+				for prom in [ChessPiece.Type.QUEEN, ChessPiece.Type.ROOK, ChessPiece.Type.BISHOP, ChessPiece.Type.KNIGHT]:
+					var m = ChessMove.new(sq, target_sq, ChessPiece.Type.PAWN, color)
+					m.promotion = prom
+					moves.append(m)
+			else:
+				moves.append(ChessMove.new(sq, target_sq, ChessPiece.Type.PAWN, color))
+			
+			# Avance double depuis rangée de départ
+			if r == start_rank:
+				var double_sq = (r + dir * 2) * 8 + f
+				if board[double_sq].type == ChessPiece.Type.NONE:
+					moves.append(ChessMove.new(sq, double_sq, ChessPiece.Type.PAWN, color))
+	
+	# Prises en diagonale
+	for df in [-1, 1]:
+		var target_f = f + df
+		if target_f >= 0 and target_f <= 7 and next_r >= 0 and next_r <= 7:
+			var target_sq = next_r * 8 + target_f
+			var target_piece = board[target_sq]
+			if target_piece.type != ChessPiece.Type.NONE and target_piece.color != color:
+				if next_r == prom_rank:
+					for prom in [ChessPiece.Type.QUEEN, ChessPiece.Type.ROOK, ChessPiece.Type.BISHOP, ChessPiece.Type.KNIGHT]:
+						var m = ChessMove.new(sq, target_sq, ChessPiece.Type.PAWN, color)
+						m.captured_piece = target_piece.type
+						m.promotion = prom
+						moves.append(m)
+				else:
+					var m = ChessMove.new(sq, target_sq, ChessPiece.Type.PAWN, color)
+					m.captured_piece = target_piece.type
+					moves.append(m)
+			elif target_sq == en_passant_sq: # Prise en passant
+				var m = ChessMove.new(sq, target_sq, ChessPiece.Type.PAWN, color)
+				m.is_en_passant = true
+				m.captured_piece = ChessPiece.Type.PAWN
+				moves.append(m)
+
+func _gen_knight_moves(sq: int, color: int, moves: Array[ChessMove]) -> void:
+	var f = sq % 8
+	var r = sq / 8
+	var deltas = [
+		Vector2i(1, 2), Vector2i(2, 1), Vector2i(-1, 2), Vector2i(-2, 1),
+		Vector2i(1, -2), Vector2i(2, -1), Vector2i(-1, -2), Vector2i(-2, -1)
+	]
+	for d in deltas:
+		var nf = f + d.x
+		var nr = r + d.y
+		if nf >= 0 and nf <= 7 and nr >= 0 and nr <= 7:
+			var tsq = nr * 8 + nf
+			var tpiece = board[tsq]
+			if tpiece.type == ChessPiece.Type.NONE or tpiece.color != color:
+				var m = ChessMove.new(sq, tsq, ChessPiece.Type.KNIGHT, color)
+				m.captured_piece = tpiece.type
+				moves.append(m)
+
+func _gen_sliding_moves(sq: int, color: int, dirs: Array[Vector2i], moves: Array[ChessMove]) -> void:
+	var f = sq % 8
+	var r = sq / 8
+	var piece_type = board[sq].type
+	for d in dirs:
+		var cur_f = f + d.x
+		var cur_r = r + d.y
+		while cur_f >= 0 and cur_f <= 7 and cur_r >= 0 and cur_r <= 7:
+			var tsq = cur_r * 8 + cur_f
+			var tpiece = board[tsq]
+			if tpiece.type == ChessPiece.Type.NONE:
+				moves.append(ChessMove.new(sq, tsq, piece_type, color))
+			else:
+				if tpiece.color != color:
+					var m = ChessMove.new(sq, tsq, piece_type, color)
+					m.captured_piece = tpiece.type
+					moves.append(m)
+				break
+			cur_f += d.x
+			cur_r += d.y
+
+func _gen_king_moves(sq: int, color: int, moves: Array[ChessMove]) -> void:
+	var f = sq % 8
+	var r = sq / 8
+	for df in [-1, 0, 1]:
+		for dr in [-1, 0, 1]:
+			if df == 0 and dr == 0:
+				continue
+			var nf = f + df
+			var nr = r + dr
+			if nf >= 0 and nf <= 7 and nr >= 0 and nr <= 7:
+				var tsq = nr * 8 + nf
+				var tpiece = board[tsq]
+				if tpiece.type == ChessPiece.Type.NONE or tpiece.color != color:
+					var m = ChessMove.new(sq, tsq, ChessPiece.Type.KING, color)
+					m.captured_piece = tpiece.type
+					moves.append(m)
+	
+	# Roque (Castling)
+	if not is_in_check(color):
+		var base_rank = 0 if color == ChessPiece.PieceColor.WHITE else 7
+		if r == base_rank and f == 4:
+			# Petit roque (Kingside)
+			var can_k = castle_k_white if color == ChessPiece.PieceColor.WHITE else castle_k_black
+			if can_k and board[base_rank * 8 + 5].type == ChessPiece.Type.NONE and board[base_rank * 8 + 6].type == ChessPiece.Type.NONE:
+				if not is_square_attacked(base_rank * 8 + 5, 1 - color) and not is_square_attacked(base_rank * 8 + 6, 1 - color):
+					var m = ChessMove.new(sq, base_rank * 8 + 6, ChessPiece.Type.KING, color)
+					m.is_castling = true
+					moves.append(m)
+			
+			# Grand roque (Queenside)
+			var can_q = castle_q_white if color == ChessPiece.PieceColor.WHITE else castle_q_black
+			if can_q and board[base_rank * 8 + 1].type == ChessPiece.Type.NONE and board[base_rank * 8 + 2].type == ChessPiece.Type.NONE and board[base_rank * 8 + 3].type == ChessPiece.Type.NONE:
+				if not is_square_attacked(base_rank * 8 + 3, 1 - color) and not is_square_attacked(base_rank * 8 + 2, 1 - color):
+					var m = ChessMove.new(sq, base_rank * 8 + 2, ChessPiece.Type.KING, color)
+					m.is_castling = true
+					moves.append(m)
+
+func is_square_attacked(sq: int, by_color: int) -> bool:
+	var f = sq % 8
+	var r = sq / 8
+	
+	# Attaque par pion
+	var pawn_dir = 1 if by_color == ChessPiece.PieceColor.WHITE else -1
+	var pawn_r = r - pawn_dir
+	if pawn_r >= 0 and pawn_r <= 7:
+		for df in [-1, 1]:
+			var pf = f + df
+			if pf >= 0 and pf <= 7:
+				var psq = pawn_r * 8 + pf
+				var p = board[psq]
+				if p.type == ChessPiece.Type.PAWN and p.color == by_color:
+					return true
+
+	# Attaque par cavalier
+	var knight_deltas = [
+		Vector2i(1, 2), Vector2i(2, 1), Vector2i(-1, 2), Vector2i(-2, 1),
+		Vector2i(1, -2), Vector2i(2, -1), Vector2i(-1, -2), Vector2i(-2, -1)
+	]
+	for d in knight_deltas:
+		var kf = f + d.x
+		var kr = r + d.y
+		if kf >= 0 and kf <= 7 and kr >= 0 and kr <= 7:
+			var p = board[kr * 8 + kf]
+			if p.type == ChessPiece.Type.KNIGHT and p.color == by_color:
+				return true
+
+	# Attaque diagonale (Fou / Dame)
+	for d in [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]:
+		var cf = f + d.x
+		var cr = r + d.y
+		while cf >= 0 and cf <= 7 and cr >= 0 and cr <= 7:
+			var p = board[cr * 8 + cf]
+			if p.type != ChessPiece.Type.NONE:
+				if p.color == by_color and (p.type == ChessPiece.Type.BISHOP or p.type == ChessPiece.Type.QUEEN):
+					return true
+				break
+			cf += d.x
+			cr += d.y
+
+	# Attaque orthogonale (Tour / Dame)
+	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var cf = f + d.x
+		var cr = r + d.y
+		while cf >= 0 and cf <= 7 and cr >= 0 and cr <= 7:
+			var p = board[cr * 8 + cf]
+			if p.type != ChessPiece.Type.NONE:
+				if p.color == by_color and (p.type == ChessPiece.Type.ROOK or p.type == ChessPiece.Type.QUEEN):
+					return true
+				break
+			cf += d.x
+			cr += d.y
+
+	# Attaque par Roi
+	for df in [-1, 0, 1]:
+		for dr in [-1, 0, 1]:
+			if df == 0 and dr == 0: continue
+			var kf = f + df
+			var kr = r + dr
+			if kf >= 0 and kf <= 7 and kr >= 0 and kr <= 7:
+				var p = board[kr * 8 + kf]
+				if p.type == ChessPiece.Type.KING and p.color == by_color:
+					return true
+
+	return false
+
+func is_in_check(color: int) -> bool:
+	var king_sq = -1
+	for i in range(64):
+		var p = board[i]
+		if p.type == ChessPiece.Type.KING and p.color == color:
+			king_sq = i
+			break
+	if king_sq == -1:
+		return false
+	return is_square_attacked(king_sq, 1 - color)
+
+func _is_move_legal(move: ChessMove, color: int) -> bool:
+	# Simulation du coup
+	var orig_from = board[move.from_sq]
+	var orig_to = board[move.to_sq]
+	var orig_ep_pawn = null
+	var ep_captured_sq = -1
+	
+	board[move.to_sq] = orig_from
+	board[move.from_sq] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+	
+	if move.is_en_passant:
+		var dir = 1 if color == ChessPiece.PieceColor.WHITE else -1
+		ep_captured_sq = move.to_sq - (dir * 8)
+		orig_ep_pawn = board[ep_captured_sq]
+		board[ep_captured_sq] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+
+	var in_check = is_in_check(color)
+
+	# Restauration
+	board[move.from_sq] = orig_from
+	board[move.to_sq] = orig_to
+	if move.is_en_passant and ep_captured_sq != -1:
+		board[ep_captured_sq] = orig_ep_pawn
+
+	return not in_check
+
+func _annotate_move(m: ChessMove) -> void:
+	if m.is_castling:
+		m.san = "O-O" if (m.to_sq % 8 == 6) else "O-O-O"
+		return
+	
+	var res = ""
+	if m.piece != ChessPiece.Type.PAWN:
+		res += ChessPiece.SYMBOLS_WHITE[m.piece]
+	
+	if m.captured_piece != ChessPiece.Type.NONE or m.is_en_passant:
+		if m.piece == ChessPiece.Type.PAWN:
+			res += ChessMove.square_to_coord(m.from_sq)[0]
+		res += "x"
+	
+	res += ChessMove.square_to_coord(m.to_sq)
+	
+	if m.promotion != ChessPiece.Type.NONE:
+		res += "=" + ChessPiece.SYMBOLS_WHITE[m.promotion]
+	
+	m.san = res
+
+# --- EXÉCUTION D'UN COUP ---
+
+func make_move(move: ChessMove) -> bool:
+	var piece = board[move.from_sq]
+	if piece.type == ChessPiece.Type.NONE or piece.color != active_color:
+		return false
+
+	# Exécution sur le plateau
+	board[move.to_sq] = piece
+	board[move.from_sq] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+
+	# Gestion promotion
+	if move.promotion != ChessPiece.Type.NONE:
+		board[move.to_sq].type = move.promotion
+
+	# Gestion en passant
+	if move.is_en_passant:
+		var dir = 1 if active_color == ChessPiece.PieceColor.WHITE else -1
+		var ep_sq = move.to_sq - (dir * 8)
+		board[ep_sq] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+
+	# Gestion roque (déplacement de la tour)
+	if move.is_castling:
+		var base_rank = 0 if active_color == ChessPiece.PieceColor.WHITE else 7
+		if move.to_sq % 8 == 6: # Petit roque
+			board[base_rank * 8 + 5] = board[base_rank * 8 + 7]
+			board[base_rank * 8 + 7] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+		elif move.to_sq % 8 == 2: # Grand roque
+			board[base_rank * 8 + 3] = board[base_rank * 8 + 0]
+			board[base_rank * 8 + 0] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+
+	# Mise à jour des droits au roque
+	if piece.type == ChessPiece.Type.KING:
+		if active_color == ChessPiece.PieceColor.WHITE:
+			castle_k_white = false
+			castle_q_white = false
+		else:
+			castle_k_black = false
+			castle_q_black = false
+	elif piece.type == ChessPiece.Type.ROOK:
+		if move.from_sq == 0: castle_q_white = false
+		elif move.from_sq == 7: castle_k_white = false
+		elif move.from_sq == 56: castle_q_black = false
+		elif move.from_sq == 63: castle_k_black = false
+
+	# En passant target
+	if piece.type == ChessPiece.Type.PAWN and abs(move.to_sq - move.from_sq) == 16:
+		var dir = 1 if active_color == ChessPiece.PieceColor.WHITE else -1
+		en_passant_sq = move.from_sq + (dir * 8)
+	else:
+		en_passant_sq = -1
+
+	# Demi-coups (règle des 50 coups)
+	if piece.type == ChessPiece.Type.PAWN or move.captured_piece != ChessPiece.Type.NONE:
+		halfmove_clock = 0
+	else:
+		halfmove_clock += 1
+
+	if active_color == ChessPiece.PieceColor.BLACK:
+		fullmove_number += 1
+
+	# Changement de joueur
+	active_color = 1 - active_color
+	
+	# Échec / Mat ?
+	var opp_in_check = is_in_check(active_color)
+	var opp_has_moves = get_legal_moves(active_color).size() > 0
+	if opp_in_check:
+		if not opp_has_moves:
+			move.is_checkmate = true
+			move.san += "#"
+		else:
+			move.is_check = true
+			move.san += "+"
+
+	# Historique
+	if history_index < move_history.size() - 1:
+		move_history = move_history.slice(0, history_index + 1)
+		state_history = state_history.slice(0, history_index + 2)
+	
+	move_history.append(move)
+	save_state_snapshot()
+	
+	move_made.emit(move)
+	board_changed.emit()
+
+	if not opp_has_moves:
+		if opp_in_check:
+			var winner = "Blancs" if active_color == ChessPiece.PieceColor.BLACK else "Noirs"
+			game_over.emit(winner + " gagnent", "Échec et mat")
+		else:
+			game_over.emit("Partie nulle", "Pat")
+
+	return true
+
+func is_game_over() -> bool:
+	return get_legal_moves(active_color).size() == 0
+
+# --- PARSING PGN ---
+
+func load_pgn(pgn: String) -> bool:
+	reset_board()
+	var lines = pgn.split("\n")
+	var move_text = ""
+	
+	for line in lines:
+		var trimmed = line.strip_edges()
+		if trimmed.begins_with("[") and trimmed.ends_with("]"):
+			var content = trimmed.substr(1, trimmed.length() - 2)
+			var space_idx = content.find(" ")
+			if space_idx != -1:
+				var key = content.substr(0, space_idx)
+				var val = content.substr(space_idx + 1).replace('"', '')
+				pgn_headers[key] = val
+		else:
+			move_text += " " + trimmed
+	
+	var clean_tokens = _tokenize_pgn(move_text)
+	for token in clean_tokens:
+		if token in ["1-0", "0-1", "1/2-1/2", "*"]:
+			pgn_headers["Result"] = token
+			break
+		var found_move = _find_matching_move(token)
+		if found_move:
+			make_move(found_move)
+
+	board_changed.emit()
+	return true
+
+func _tokenize_pgn(text: String) -> Array[String]:
+	var result: Array[String] = []
+	var in_comment = false
+	var cleaned = ""
+	for i in range(text.length()):
+		var c = text[i]
+		if c == '{': in_comment = true; continue
+		if c == '}': in_comment = false; continue
+		if in_comment: continue
+		cleaned += c
+	
+	for raw_token in cleaned.split(" ", false):
+		var tok = raw_token.strip_edges()
+		if tok == "" or tok.ends_with("."):
+			continue
+		var dot_pos = tok.find(".")
+		if dot_pos != -1:
+			tok = tok.substr(dot_pos + 1)
+		tok = tok.replace("+", "").replace("#", "").replace("!", "").replace("?", "")
+		if tok != "":
+			result.append(tok)
+	return result
+
+func _find_matching_move(token: String) -> ChessMove:
+	var legal = get_legal_moves(active_color)
+	for m in legal:
+		var clean_san = m.san.replace("+", "").replace("#", "")
+		if clean_san == token:
+			return m
+		if m.uci == token:
+			return m
+	return null
+
+func export_pgn() -> String:
+	var pgn = ""
+	for k in pgn_headers.keys():
+		pgn += '[%s "%s"]\n' % [k, pgn_headers[k]]
+	pgn += "\n"
+	
+	for i in range(move_history.size()):
+		if i % 2 == 0:
+			pgn += str((i / 2) + 1) + ". "
+		pgn += move_history[i].san + " "
+	
+	pgn += pgn_headers.get("Result", "*")
+	return pgn

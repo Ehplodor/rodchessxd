@@ -1,0 +1,41 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; but it can also be edited by text editors.
+
+config_version=5
+
+[application]
+
+config/name="RodChessXD"
+config/description="Application mobile multi-plateforme d'analyse échiquéenne avec Stockfish et Coach IA LLM/SLM"
+config/version="1.0.0"
+run/main_scene="res://src/ui/Main.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+boot_splash/bg_color=Color(0.0705882, 0.0823529, 0.109804, 1)
+boot_splash/show_image=false
+config/icon="res://icon.svg"
+
+[autoload]
+
+SettingsManager="*res://src/core/SettingsManager.gd"
+GameController="*res://src/core/GameController.gd"
+EngineManager="*res://src/engine/EngineManager.gd"
+AICoach="*res://src/ai/AICoach.gd"
+
+[display]
+
+window/size/viewport_width=450
+window/size/viewport_height=800
+window/size/window_width_override=450
+window/size/window_height_override=800
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=1
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+viewport/hdr_2d=false
+anti_aliasing/screen_space_roughness_limiter/enabled=false

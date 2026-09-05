@@ -1,0 +1,135 @@
+class_name EngineHubModal
+extends Window
+## EngineHubModal.gd - Gestionnaire de moteurs d'échecs et téléchargement in-app (Maia Chess, Stockfish NNUE)
+
+var http_request: HTTPRequest
+var active_download_engine: String = ""
+var download_progress_bar: ProgressBar
+var status_lbl: Label
+
+func _ready() -> void:
+	title = "Engine Hub : Téléchargement de Moteurs"
+	size = Vector2i(420, 520)
+	exclusive = true
+	close_requested.connect(queue_free)
+	
+	http_request = HTTPRequest.new()
+	add_child(http_request)
+	http_request.request_completed.connect(_on_download_completed)
+	
+	_setup_ui()
+
+func _setup_ui() -> void:
+	var vbox = VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.offset_left = 16
+	vbox.offset_top = 16
+	vbox.offset_right = -16
+	vbox.offset_bottom = -16
+	vbox.add_theme_constant_override("separation", 12)
+	add_child(vbox)
+
+	var desc = Label.new()
+	desc.text = "Téléchargez directement des réseaux et moteurs additionnels spécialisés dans l'analyse humaine ou grand-maître."
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.add_theme_font_size_override("font_size", 12)
+	desc.add_theme_color_override("font_color", Color("#94a3b8"))
+	vbox.add_child(desc)
+
+	# Barre de téléchargement
+	download_progress_bar = ProgressBar.new()
+	download_progress_bar.custom_minimum_size = Vector2(0, 16)
+	download_progress_bar.visible = false
+	vbox.add_child(download_progress_bar)
+
+	status_lbl = Label.new()
+	status_lbl.text = ""
+	status_lbl.add_theme_font_size_override("font_size", 11)
+	status_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+	vbox.add_child(status_lbl)
+
+	# Liste des moteurs
+	# 1. Stockfish Packagé
+	_add_engine_card(vbox, "Stockfish 18 (Intégré)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. Prêt à l'emploi.", true, "")
+
+	# 2. Modèles Maia Chess
+	for name in EngineManager.DOWNLOADABLE_ENGINES.keys():
+		var data = EngineManager.DOWNLOADABLE_ENGINES[name]
+		var local_file = OS.get_user_data_dir() + "/engines/" + data["filename"]
+		var is_installed = FileAccess.file_exists(local_file)
+		_add_engine_card(vbox, name, data["desc"], is_installed, data["url"])
+
+	# Bouton Fermer
+	var btn_close = Button.new()
+	btn_close.text = "Fermer"
+	btn_close.custom_minimum_size = Vector2(0, 40)
+	btn_close.pressed.connect(queue_free)
+	vbox.add_child(btn_close)
+
+func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bool, download_url: String) -> void:
+	var panel = PanelContainer.new()
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color("#1e293b")
+	style.corner_radius_top_left = 8
+	style.corner_radius_top_right = 8
+	style.corner_radius_bottom_left = 8
+	style.corner_radius_bottom_right = 8
+	style.content_margin_left = 10
+	style.content_margin_top = 8
+	style.content_margin_right = 10
+	style.content_margin_bottom = 8
+	panel.add_theme_stylebox_override("panel", style)
+
+	var row = HBoxContainer.new()
+	panel.add_child(row)
+
+	var text_box = VBoxContainer.new()
+	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(text_box)
+
+	var title_lbl = Label.new()
+	title_lbl.text = name
+	title_lbl.add_theme_font_size_override("font_size", 13)
+	title_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
+	text_box.add_child(title_lbl)
+
+	var desc_lbl = Label.new()
+	desc_lbl.text = desc
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.add_theme_font_size_override("font_size", 10)
+	desc_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	text_box.add_child(desc_lbl)
+
+	var action_btn = Button.new()
+	if is_installed:
+		action_btn.text = "Actif"
+		action_btn.disabled = true
+	else:
+		action_btn.text = "Télécharger"
+		action_btn.pressed.connect(func(): _start_download(name, download_url))
+	row.add_child(action_btn)
+
+	parent.add_child(panel)
+
+func _start_download(engine_name: String, url: String) -> void:
+	active_download_engine = engine_name
+	download_progress_bar.visible = true
+	download_progress_bar.value = 10
+	status_lbl.text = "Téléchargement de %s en cours..." % engine_name
+
+	var filename = EngineManager.DOWNLOADABLE_ENGINES[engine_name]["filename"]
+	var save_path = OS.get_user_data_dir() + "/engines/" + filename
+	http_request.download_file = save_path
+	http_request.request(url)
+
+func _on_download_completed(result: int, response_code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
+	download_progress_bar.visible = false
+	if result == HTTPRequest.RESULT_SUCCESS and response_code == 200:
+		status_lbl.text = "✅ Téléchargement réussi pour %s !" % active_download_engine
+		# Recharger l'UI
+		for child in get_children():
+			if child != http_request:
+				child.queue_free()
+		_setup_ui()
+	else:
+		status_lbl.text = "❌ Erreur de téléchargement (Code %d)" % response_code

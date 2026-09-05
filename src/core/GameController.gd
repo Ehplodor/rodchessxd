@@ -1,0 +1,148 @@
+extends Node
+## GameController.gd - Singleton centralisant la partie en cours et la synchronisation UI
+
+signal game_reset
+signal position_changed
+signal move_navigated(move_idx: int)
+signal move_made(move: ChessMove)
+signal square_selected(sq: int, legal_moves: Array[ChessMove])
+signal square_deselected
+signal play_sound_requested(sound_type: String)
+
+enum PlayMode {
+	ANALYSIS = 0,
+	FREE_PLAY = 1,
+	PLAY_VS_ENGINE = 2
+}
+
+var game: ChessGame
+var current_ply_index: int = -1 # -1 = position de départ, 0 = 1er demi-coup, etc.
+var selected_square: int = -1
+var legal_destinations: Array[int] = []
+
+var play_mode: PlayMode = PlayMode.ANALYSIS
+var board_flipped: bool = false
+
+func _ready() -> void:
+	game = ChessGame.new()
+	game.board_changed.connect(_on_game_board_changed)
+	game.move_made.connect(_on_game_move_made)
+	board_flipped = SettingsManager.get_setting("flip_board", false)
+
+func reset_to_initial() -> void:
+	game.reset_board()
+	game.load_fen(ChessGame.INITIAL_FEN)
+	current_ply_index = -1
+	selected_square = -1
+	legal_destinations.clear()
+	game_reset.emit()
+	position_changed.emit()
+
+func load_fen(fen: String) -> bool:
+	selected_square = -1
+	legal_destinations.clear()
+	var success = game.load_fen(fen)
+	if success:
+		current_ply_index = -1
+		position_changed.emit()
+	return success
+
+func load_pgn(pgn: String) -> bool:
+	selected_square = -1
+	legal_destinations.clear()
+	var success = game.load_pgn(pgn)
+	if success:
+		current_ply_index = game.move_history.size() - 1
+		position_changed.emit()
+	return success
+
+func select_square(sq: int) -> void:
+	if selected_square == sq:
+		deselect_square()
+		return
+	
+	if selected_square != -1 and sq in legal_destinations:
+		try_play_move(selected_square, sq)
+		return
+
+	var piece = game.get_piece(sq)
+	if piece.type != ChessPiece.Type.NONE and piece.color == game.active_color:
+		selected_square = sq
+		var moves = game.get_legal_moves_for_square(sq)
+		legal_destinations.clear()
+		for m in moves:
+			legal_destinations.append(m.to_sq)
+		square_selected.emit(sq, moves)
+	else:
+		deselect_square()
+
+func deselect_square() -> void:
+	selected_square = -1
+	legal_destinations.clear()
+	square_deselected.emit()
+
+func try_play_move(from_sq: int, to_sq: int, promotion_type: int = ChessPiece.Type.NONE) -> bool:
+	var legal = game.get_legal_moves_for_square(from_sq)
+	for m in legal:
+		if m.to_sq == to_sq:
+			if m.promotion != ChessPiece.Type.NONE:
+				if promotion_type == ChessPiece.Type.NONE:
+					m.promotion = ChessPiece.Type.QUEEN
+				else:
+					m.promotion = promotion_type
+			
+			var move_made = game.make_move(m)
+			if move_made:
+				deselect_square()
+				current_ply_index = game.move_history.size() - 1
+				
+				if m.is_check:
+					play_sound_requested.emit("check")
+				elif m.captured_piece != ChessPiece.Type.NONE or m.is_en_passant:
+					play_sound_requested.emit("capture")
+				else:
+					play_sound_requested.emit("move")
+				
+				if EngineManager != null:
+					EngineManager.evaluate_position(game.get_fen())
+				return true
+	deselect_square()
+	return false
+
+func navigate_to_ply(ply_idx: int) -> void:
+	var total_moves = game.move_history.size()
+	ply_idx = clampi(ply_idx, -1, total_moves - 1)
+	if ply_idx == current_ply_index:
+		return
+	
+	deselect_square()
+	current_ply_index = ply_idx
+	game.restore_state(current_ply_index + 1)
+	move_navigated.emit(current_ply_index)
+	position_changed.emit()
+
+	if EngineManager != null:
+		EngineManager.evaluate_position(game.get_fen())
+
+func go_first_move() -> void:
+	navigate_to_ply(-1)
+
+func go_previous_move() -> void:
+	navigate_to_ply(current_ply_index - 1)
+
+func go_next_move() -> void:
+	navigate_to_ply(current_ply_index + 1)
+
+func go_last_move() -> void:
+	navigate_to_ply(game.move_history.size() - 1)
+
+func flip_board() -> void:
+	board_flipped = not board_flipped
+	SettingsManager.set_setting("flip_board", board_flipped)
+	position_changed.emit()
+
+func _on_game_board_changed() -> void:
+	position_changed.emit()
+
+func _on_game_move_made(p_move: ChessMove) -> void:
+	move_made.emit(p_move)

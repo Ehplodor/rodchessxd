@@ -1,0 +1,137 @@
+class_name CoachPanel2D
+extends PanelContainer
+## CoachPanel2D.gd - Interface interactive de coaching IA en langage naturel
+
+var response_label: RichTextLabel
+var quick_actions_box: HBoxContainer
+var question_input: LineEdit
+var send_button: Button
+var status_label: Label
+
+func _ready() -> void:
+	custom_minimum_size = Vector2(300, 220)
+	_setup_ui()
+	
+	AICoach.coach_thinking_started.connect(_on_thinking_started)
+	AICoach.coach_response_received.connect(_on_response_received)
+	AICoach.coach_error.connect(_on_error)
+
+func _setup_ui() -> void:
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color = Color("#0f172a")
+	bg_style.border_width_left = 1
+	bg_style.border_width_top = 1
+	bg_style.border_width_right = 1
+	bg_style.border_width_bottom = 1
+	bg_style.border_color = Color("#1e293b")
+	bg_style.corner_radius_top_left = 12
+	bg_style.corner_radius_top_right = 12
+	bg_style.corner_radius_bottom_left = 12
+	bg_style.corner_radius_bottom_right = 12
+	bg_style.content_margin_left = 12
+	bg_style.content_margin_top = 12
+	bg_style.content_margin_right = 12
+	bg_style.content_margin_bottom = 12
+	add_theme_stylebox_override("panel", bg_style)
+
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	add_child(vbox)
+
+	# 1. En-tête Coach
+	var header = HBoxContainer.new()
+	vbox.add_child(header)
+
+	var title = Label.new()
+	title.text = "🤖 Coach IA Grand-Maître"
+	title.add_theme_font_size_override("font_size", 14)
+	title.add_theme_color_override("font_color", Color("#38bdf8"))
+	header.add_child(title)
+
+	status_label = Label.new()
+	status_label.text = "Prêt"
+	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	status_label.add_theme_font_size_override("font_size", 11)
+	status_label.add_theme_color_override("font_color", Color("#64748b"))
+	header.add_child(status_label)
+
+	# 2. Zone de texte de la réponse du Coach
+	response_label = RichTextLabel.new()
+	response_label.bbcode_enabled = true
+	response_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	response_label.custom_minimum_size = Vector2(0, 100)
+	response_label.text = "[color=#94a3b8]Posez une question ou cliquez sur une action rapide pour recevoir les conseils du coach sur la position active.[/color]"
+	vbox.add_child(response_label)
+
+	# 3. Puces d'actions rapides
+	quick_actions_box = HBoxContainer.new()
+	quick_actions_box.add_theme_constant_override("separation", 6)
+	vbox.add_child(quick_actions_box)
+
+	_add_quick_chip("💡 Pourquoi ce coup ?", "Explique pourquoi le coup joué est bon ou mauvais.")
+	_add_quick_chip("🎯 Quel est le plan ?", "Quel est le plan stratégique principal pour le camp au trait ?")
+	_add_quick_chip("⚠️ Menace ?", "Quelles sont les menaces tactiques immédiates dans cette position ?")
+	_add_quick_chip("👶 Explique simplement", "Explique la situation avec des mots simples pour débutant.")
+
+	# 4. Ligne de saisie de question libre
+	var input_row = HBoxContainer.new()
+	input_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(input_row)
+
+	question_input = LineEdit.new()
+	question_input.placeholder_text = "Posez votre question au coach..."
+	question_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	question_input.text_submitted.connect(_on_submit_question)
+	input_row.add_child(question_input)
+
+	send_button = Button.new()
+	send_button.text = "Envoyer"
+	send_button.pressed.connect(func(): _on_submit_question(question_input.text))
+	input_row.add_child(send_button)
+
+func _add_quick_chip(label_text: String, question: String) -> void:
+	var btn = Button.new()
+	btn.text = label_text
+	btn.add_theme_font_size_override("font_size", 11)
+	btn.pressed.connect(func(): _send_coach_query(question))
+	quick_actions_box.add_child(btn)
+
+func _on_submit_question(query: String) -> void:
+	var trimmed = query.strip_edges()
+	if trimmed == "":
+		return
+	question_input.clear()
+	_send_coach_query(trimmed)
+
+func _send_coach_query(user_question: String) -> void:
+	var game = GameController.game
+	var fen = game.get_fen()
+	
+	var last_move_san = ""
+	var cur_ply = GameController.current_ply_index
+	if cur_ply >= 0 and cur_ply < game.move_history.size():
+		last_move_san = game.move_history[cur_ply].san
+
+	var eval_cp = EngineManager.eval_score_cp if EngineManager else 0
+	var best_move = EngineManager.best_move_uci if EngineManager else ""
+	var pv = EngineManager.pv_line if EngineManager else []
+
+	AICoach.ask_coach(fen, last_move_san, eval_cp, best_move, pv, user_question)
+
+func _on_thinking_started() -> void:
+	status_label.text = "Le coach réfléchit..."
+	status_label.add_theme_color_override("font_color", Color("#fbbf24"))
+	response_label.text = "[color=#fbbf24]⏳ Analyse de la position en cours avec les calculs de Stockfish...[/color]"
+
+func _on_response_received(response: String) -> void:
+	status_label.text = "Réponse prête"
+	status_label.add_theme_color_override("font_color", Color("#22c55e"))
+	# Conversion basique markdown vers BBCode pour Godot RichTextLabel
+	var formatted = response.replace("**", "[b]").replace("## ", "[b][color=#38bdf8]").replace("\n- ", "\n • ")
+	response_label.text = formatted
+
+func _on_error(error_msg: String) -> void:
+	status_label.text = "Erreur"
+	status_label.add_theme_color_override("font_color", Color("#ef4444"))
+	response_label.text = "[color=#ef4444]⚠️ " + error_msg + "[/color]"
