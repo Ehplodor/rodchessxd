@@ -17,6 +17,11 @@ func _ready() -> void:
 	add_child(http_request)
 	http_request.request_completed.connect(_on_download_completed)
 	
+	EngineManager.download_progress.connect(_on_engine_download_progress)
+	EngineManager.download_completed.connect(_on_engine_download_completed)
+	EngineManager.download_failed.connect(_on_engine_download_failed)
+	EngineManager.engine_ready.connect(_on_engine_ready)
+	
 	_setup_ui()
 
 func _setup_ui() -> void:
@@ -62,8 +67,13 @@ func _setup_ui() -> void:
 	engines_list.add_theme_constant_override("separation", 8)
 	scroll.add_child(engines_list)
 
-	# 1. Stockfish Packagé
-	_add_engine_card(engines_list, "Stockfish 18 (Intégré)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. Prêt à l'emploi.", true, "")
+	# 1. Stockfish Packagé / Téléchargeable
+	if EngineManager.has_engine_binary():
+		_add_engine_card(engines_list, "Stockfish 19 (Intégré)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. Prêt à l'emploi.", true, "")
+	elif EngineManager.get_stockfish_download_available():
+		_add_engine_card(engines_list, "Stockfish 19 (Télécharger)", "Téléchargez automatiquement le moteur officiel depuis le dépôt Stockfish. Aucune installation manuelle requise.", false, "", _start_stockfish_download)
+	else:
+		_add_engine_card(engines_list, "Stockfish 19", "Aucun binaire compatible n'est disponible sur cette plateforme.", false, "")
 
 	# 2. Modèles Maia Chess
 	for name in EngineManager.DOWNLOADABLE_ENGINES.keys():
@@ -80,7 +90,7 @@ func _setup_ui() -> void:
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
 
-func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bool, download_url: String) -> void:
+func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bool, download_url: String, on_download: Callable = Callable()) -> void:
 	var panel = PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var style = StyleBoxFlat.new()
@@ -126,9 +136,15 @@ func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bo
 	if is_installed:
 		action_btn.text = "✓ Actif"
 		action_btn.disabled = true
-	else:
+	elif download_url != "":
 		action_btn.text = "Télécharger"
 		action_btn.pressed.connect(func(): _start_download(name, download_url))
+	elif on_download.is_valid():
+		action_btn.text = "Télécharger"
+		action_btn.pressed.connect(on_download)
+	else:
+		action_btn.text = "Indisponible"
+		action_btn.disabled = true
 	row.add_child(action_btn)
 
 	parent.add_child(panel)
@@ -148,10 +164,36 @@ func _on_download_completed(result: int, response_code: int, _headers: PackedStr
 	download_progress_bar.visible = false
 	if result == HTTPRequest.RESULT_SUCCESS and response_code == 200:
 		status_lbl.text = "✅ Téléchargement réussi pour %s !" % active_download_engine
-		# Recharger l'UI
-		for child in get_children():
-			if child != http_request:
-				child.queue_free()
-		_setup_ui()
+		_reload()
 	else:
 		status_lbl.text = "❌ Erreur de téléchargement (Code %d)" % response_code
+
+func _start_stockfish_download() -> void:
+	if EngineManager.is_stockfish_download_active():
+		status_lbl.text = "Téléchargement de Stockfish déjà en cours..."
+		return
+	status_lbl.text = "Préparation du téléchargement de Stockfish..."
+	EngineManager.install_stockfish_engine()
+
+func _on_engine_download_progress(engine_name: String, pct: float) -> void:
+	download_progress_bar.visible = true
+	download_progress_bar.value = pct
+	status_lbl.text = "Téléchargement de %s : %d%%" % [engine_name, int(pct)]
+
+func _on_engine_download_completed(engine_name: String) -> void:
+	download_progress_bar.visible = false
+	status_lbl.text = "✅ %s installé et prêt !" % engine_name
+	_reload()
+
+func _on_engine_download_failed(engine_name: String, error_msg: String) -> void:
+	download_progress_bar.visible = false
+	status_lbl.text = "❌ %s : %s" % [engine_name, error_msg]
+
+func _on_engine_ready() -> void:
+	_reload()
+
+func _reload() -> void:
+	for child in get_children():
+		if child != http_request:
+			child.queue_free()
+	_setup_ui()
