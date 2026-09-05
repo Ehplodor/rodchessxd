@@ -1,20 +1,29 @@
 class_name CoachPanel2D
 extends PanelContainer
 ## CoachPanel2D.gd - Interface interactive de coaching IA en langage naturel
+## Intégré avec le Hub des Modèles pour afficher le modèle actif et le coût en direct
 
 var response_label: RichTextLabel
 var quick_actions_box: HBoxContainer
 var question_input: LineEdit
 var send_button: Button
 var status_label: Label
+var model_badge_btn: Button
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(300, 220)
+	custom_minimum_size = Vector2(300, 230)
 	_setup_ui()
 	
 	AICoach.coach_thinking_started.connect(_on_thinking_started)
 	AICoach.coach_response_received.connect(_on_response_received)
+	AICoach.coach_response_with_meta.connect(_on_response_with_meta)
 	AICoach.coach_error.connect(_on_error)
+
+	SettingsManager.settings_changed.connect(func(k, _v):
+		if k == "active_model_id" or k == "ai_provider":
+			_update_model_badge()
+	)
+	_update_model_badge()
 
 func _setup_ui() -> void:
 	var bg_style = StyleBoxFlat.new()
@@ -29,24 +38,31 @@ func _setup_ui() -> void:
 	bg_style.corner_radius_bottom_left = 12
 	bg_style.corner_radius_bottom_right = 12
 	bg_style.content_margin_left = 12
-	bg_style.content_margin_top = 12
+	bg_style.content_margin_top = 10
 	bg_style.content_margin_right = 12
-	bg_style.content_margin_bottom = 12
+	bg_style.content_margin_bottom = 10
 	add_theme_stylebox_override("panel", bg_style)
 
 	var vbox = VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 8)
 	add_child(vbox)
 
-	# 1. En-tête Coach
+	# 1. En-tête Coach avec Badge Modèle Cliquable
 	var header = HBoxContainer.new()
 	vbox.add_child(header)
 
 	var title = Label.new()
-	title.text = "🤖 Coach IA Grand-Maître"
-	title.add_theme_font_size_override("font_size", 14)
+	title.text = "🤖 Coach IA"
+	title.add_theme_font_size_override("font_size", 13)
 	title.add_theme_color_override("font_color", Color("#38bdf8"))
 	header.add_child(title)
+
+	model_badge_btn = Button.new()
+	model_badge_btn.text = "⚡ Modèle"
+	model_badge_btn.tooltip_text = "Cliquer pour ouvrir le Hub des Modèles IA (Changer de modèle, tester les clés, SLM local)"
+	model_badge_btn.add_theme_font_size_override("font_size", 10)
+	model_badge_btn.pressed.connect(_open_model_hub)
+	header.add_child(model_badge_btn)
 
 	status_label = Label.new()
 	status_label.text = "Prêt"
@@ -90,6 +106,29 @@ func _setup_ui() -> void:
 	send_button.pressed.connect(func(): _on_submit_question(question_input.text))
 	input_row.add_child(send_button)
 
+func _update_model_badge() -> void:
+	if not model_badge_btn:
+		return
+	var active_id = SettingsManager.get_setting("active_model_id", "groq/llama-3.3-70b-versatile")
+	var model_info = ModelCatalog.find_model_by_id(active_id)
+	var name_short = model_info.get("name", active_id)
+	if name_short.length() > 22:
+		name_short = name_short.substr(0, 20) + "..."
+	
+	var cost = ModelCatalog.get_cost_estimate(model_info)
+	var prefix = "⚡"
+	if model_info.get("modality", 0) == ModelCatalog.Modality.LOCAL_SLM:
+		prefix = "💻"
+	elif model_info.get("modality", 0) == ModelCatalog.Modality.API_PAID:
+		prefix = "🔑"
+
+	model_badge_btn.text = "%s %s" % [prefix, name_short]
+
+func _open_model_hub() -> void:
+	var modal = ModelHubModal.new()
+	get_tree().root.add_child(modal)
+	modal.popup_centered()
+
 func _add_quick_chip(label_text: String, question: String) -> void:
 	var btn = Button.new()
 	btn.text = label_text
@@ -120,16 +159,17 @@ func _send_coach_query(user_question: String) -> void:
 	AICoach.ask_coach(fen, last_move_san, eval_cp, best_move, pv, user_question)
 
 func _on_thinking_started() -> void:
-	status_label.text = "Le coach réfléchit..."
+	status_label.text = "Réflexion..."
 	status_label.add_theme_color_override("font_color", Color("#fbbf24"))
-	response_label.text = "[color=#fbbf24]⏳ Analyse de la position en cours avec les calculs de Stockfish...[/color]"
+	response_label.text = "[color=#fbbf24]⏳ Analyse en cours avec les calculs de Stockfish...[/color]"
 
 func _on_response_received(response: String) -> void:
-	status_label.text = "Réponse prête"
-	status_label.add_theme_color_override("font_color", Color("#22c55e"))
-	# Conversion basique markdown vers BBCode pour Godot RichTextLabel
 	var formatted = response.replace("**", "[b]").replace("## ", "[b][color=#38bdf8]").replace("\n- ", "\n • ")
 	response_label.text = formatted
+
+func _on_response_with_meta(_response: String, cost_label: String, elapsed_sec: float) -> void:
+	status_label.text = "Prêt (%.1fs • %s)" % [elapsed_sec, cost_label]
+	status_label.add_theme_color_override("font_color", Color("#22c55e"))
 
 func _on_error(error_msg: String) -> void:
 	status_label.text = "Erreur"

@@ -20,12 +20,15 @@ var settings := {
 	"sound_volume": 0.8,
 	"ai_provider": "free_cloud", # "local_slm", "free_cloud", "api_key"
 	"ai_free_service": "gemini_free", # "gemini_free", "groq_free"
-	"ai_api_service": "openai", # "openai", "anthropic", "deepseek", "gemini_paid"
+	"ai_api_service": "deepseek", # "openai", "anthropic", "deepseek", "gemini_paid"
+	"active_model_id": "z-ai/glm-5.3-flash:free",
 	"api_key_openai": "",
 	"api_key_gemini": "",
 	"api_key_anthropic": "",
 	"api_key_groq": "",
 	"api_key_deepseek": "",
+	"api_key_openrouter": "",
+	"last_catalog_sync": "",
 	"local_slm_url": "http://127.0.0.1:11434/api/generate", # Ollama / llama.cpp standard
 	"coach_personality": "mentor", # "mentor", "blunder_hunter", "kids_simple"
 	"flip_board": false

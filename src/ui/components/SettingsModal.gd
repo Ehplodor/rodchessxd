@@ -56,8 +56,17 @@ func _setup_ui() -> void:
 	depth_row.add_child(depth_spin)
 	vbox.add_child(depth_row)
 
-	# --- SECTION COACH IA ---
 	_add_section_header(vbox, "🤖 Intelligence Artificielle & Coach")
+
+	var hub_btn = Button.new()
+	hub_btn.text = "⚡ Gérer les Modèles IA & Coûts en direct..."
+	hub_btn.add_theme_font_size_override("font_size", 12)
+	hub_btn.pressed.connect(func():
+		var hub = ModelHubModal.new()
+		get_tree().root.add_child(hub)
+		hub.popup_centered()
+	)
+	vbox.add_child(hub_btn)
 
 	# Fournisseur IA
 	var prov_lbl = Label.new()
