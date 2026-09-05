@@ -23,7 +23,11 @@ var multipv_lines: Array[Dictionary] = []
 var engine_thread: Thread
 var should_stop_thread: bool = false
 var command_mutex: Mutex
+var state_mutex: Mutex
 var command_queue: Array[String] = []
+
+var boot_thread: Thread
+var _booting := false
 
 # Moteurs et réseaux téléchargeables
 const DOWNLOADABLE_ENGINES = {
@@ -46,45 +50,126 @@ const DOWNLOADABLE_ENGINES = {
 
 func _ready() -> void:
 	command_mutex = Mutex.new()
+	state_mutex = Mutex.new()
 	_ensure_engine_directories()
-	call_deferred("start_engine")
+	call_deferred("_ensure_engine_started")
 
 func _ensure_engine_directories() -> void:
 	var dir = DirAccess.open("user://")
 	if dir and not dir.dir_exists("engines"):
 		dir.make_dir("engines")
 
+func _engine_binary_names() -> PackedStringArray:
+	if OS.has_feature("android"):
+		return PackedStringArray(["stockfish", "libstockfish.so"])
+	if OS.get_name() == "Windows":
+		return PackedStringArray(["stockfish.exe"])
+	return PackedStringArray(["stockfish", "libstockfish.so"])
+
 func _get_engine_executable_path() -> String:
+	var is_android = OS.has_feature("android")
+	var names = _engine_binary_names()
+
 	# 1. Vérifier si un chemin personnalisé est configuré
 	var custom_path = SettingsManager.get_setting("engine_path", "")
 	if custom_path != "" and FileAccess.file_exists(custom_path):
 		return custom_path
-	
-	# 2. Vérifier dans user://engines/
-	var user_stockfish = OS.get_user_data_dir() + "/engines/stockfish.exe"
-	if FileAccess.file_exists(user_stockfish):
-		return user_stockfish
 
-	# 3. Vérifier dans res://bin/ (packagé avec l'application)
-	var project_bin = ProjectSettings.globalize_path("res://bin/stockfish.exe")
-	if FileAccess.file_exists(project_bin):
-		return project_bin
+	# 2. Vérifier dans user://engines/ (binaire réellement présent sur le disque)
+	for n in names:
+		var user_engine = OS.get_user_data_dir() + "/engines/" + n
+		if FileAccess.file_exists(user_engine):
+			return user_engine
 
-	# 4. Chemins système typiques sur Windows
-	var dev_path = "c:/Dev/RodChessXD/bin/stockfish.exe"
-	if FileAccess.file_exists(dev_path):
-		return dev_path
+	# 3. Vérifier dans res://bin/ (binaire embarqué avec l'application)
+	for n in names:
+		var res_bin = "res://bin/" + n
+		if FileAccess.file_exists(res_bin):
+			var globalized = ProjectSettings.globalize_path(res_bin)
+			if FileAccess.file_exists(globalized):
+				return globalized
+			return _extract_engine_to_user_dir(n)
+
+	# 4. Chemins de développement (uniquement sur bureau, jamais sur mobile)
+	if not is_android:
+		var dev_path = "c:/Dev/RodChessXD/bin/" + names[0]
+		if FileAccess.file_exists(dev_path):
+			return dev_path
 
 	return ""
+
+func _extract_engine_to_user_dir(name: String) -> String:
+	var src = "res://bin/" + name
+	var dst = OS.get_user_data_dir() + "/engines/" + name
+	var src_file = FileAccess.open(src, FileAccess.READ)
+	if src_file == null:
+		return ""
+	var dst_file = FileAccess.open(dst, FileAccess.WRITE)
+	if dst_file == null:
+		src_file.close()
+		return ""
+	while not src_file.eof_reached():
+		var chunk = src_file.get_buffer(1 << 20)
+		dst_file.store_buffer(chunk)
+	src_file.close()
+	dst_file.close()
+	return dst if FileAccess.file_exists(dst) else ""
+
+func is_engine_available() -> bool:
+	state_mutex.lock()
+	var running = is_engine_running
+	state_mutex.unlock()
+	return running
+
+func _pending_extraction_name() -> String:
+	if SettingsManager.get_setting("engine_path", "") != "":
+		return ""
+	for n in _engine_binary_names():
+		if FileAccess.file_exists(OS.get_user_data_dir() + "/engines/" + n):
+			return ""
+	for n in _engine_binary_names():
+		if FileAccess.file_exists("res://bin/" + n):
+			var globalized = ProjectSettings.globalize_path("res://bin/" + n)
+			if not FileAccess.file_exists(globalized):
+				return n
+	return ""
+
+func _ensure_engine_started() -> void:
+	var extract_name = _pending_extraction_name()
+	if extract_name == "":
+		start_engine()
+		return
+	_booting = true
+	boot_thread = Thread.new()
+	boot_thread.start(_extract_engine_thread.bind(extract_name))
+
+func _extract_engine_thread(name: String) -> void:
+	_extract_engine_to_user_dir(name)
+	call_deferred("_on_engine_extracted")
+
+func _on_engine_extracted() -> void:
+	_booting = false
+	if boot_thread and boot_thread.is_started():
+		boot_thread.wait_to_finish()
+	if not is_engine_running:
+		start_engine()
+
+func _engine_missing_hint() -> String:
+	if OS.has_feature("android"):
+		return "Placez un binaire Stockfish arm64 nommé \"stockfish\" dans user://engines/ (ou libstockfish.so dans bin/)."
+	return "Placez \"stockfish.exe\" dans bin/ ou user://engines/."
 
 func start_engine() -> bool:
 	if is_engine_running:
 		return true
+	if _booting:
+		return false
 
 	var exe_path = _get_engine_executable_path()
 	if exe_path == "":
-		print("EngineManager: Aucun exécutable de moteur trouvé.")
-		engine_error.emit("Moteur d'échecs non trouvé.")
+		var hint = _engine_missing_hint()
+		print("EngineManager: Aucun exécutable de moteur trouvé. ", hint)
+		engine_error.emit("Moteur d'échecs non trouvé. %s" % hint)
 		return false
 
 	print("EngineManager: Lancement de Stockfish depuis ", exe_path)
@@ -92,11 +177,14 @@ func start_engine() -> bool:
 	# Utilisation de OS.execute_with_pipe pour communication bidirectionnelle non bloquante
 	process_pipe = OS.execute_with_pipe(exe_path, [])
 	if process_pipe.is_empty() or not process_pipe.has("stdio"):
-		print("EngineManager: Échec d'exécution du sous-processus moteur.")
-		engine_error.emit("Impossible de démarrer le moteur UCI.")
+		var exec_hint = " Vérifiez que le binaire est un exécutable arm64 valide pour Android." if OS.has_feature("android") else " Vérifiez le chemin du moteur."
+		print("EngineManager: Échec d'exécution du sous-processus moteur (", exe_path, ").", exec_hint)
+		engine_error.emit("Impossible de démarrer le moteur UCI (%s).%s" % [exe_path, exec_hint])
 		return false
 
+	state_mutex.lock()
 	is_engine_running = true
+	state_mutex.unlock()
 
 	# Démarrage du thread de lecture des réponses UCI
 	should_stop_thread = false
@@ -132,8 +220,10 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 	if depth <= 0:
 		depth = SettingsManager.get_setting("engine_depth", 18)
 	
+	state_mutex.lock()
 	current_fen = fen
 	is_evaluating = true
+	state_mutex.unlock()
 	
 	send_command("stop")
 	send_command("position fen " + fen)
@@ -142,12 +232,14 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 func stop_evaluation() -> void:
 	if is_evaluating:
 		send_command("stop")
+		state_mutex.lock()
 		is_evaluating = false
+		state_mutex.unlock()
 
 ## Évaluation synchrone robuste pour l'analyse globale de partie (GameAnalyzer)
 func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500) -> Dictionary:
-	if not is_engine_running or not process_pipe.has("stdio"):
-		return {"score_cp": 0, "best_move": "", "depth": 0}
+	if not is_engine_available() or not process_pipe.has("stdio"):
+		return {"score_cp": 0, "best_move": "", "depth": 0, "timed_out": false, "error": "engine_unavailable"}
 
 	# Si une évaluation était déjà en cours, on l'interrompt proprement
 	if is_evaluating:
@@ -157,9 +249,12 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 			OS.delay_msec(10)
 			stop_wait -= 1
 
+	state_mutex.lock()
 	current_fen = fen
 	is_evaluating = true
 	best_move_uci = ""
+	eval_depth = 0
+	state_mutex.unlock()
 
 	send_command("position fen " + fen)
 	send_command("go depth %d" % depth)
@@ -169,22 +264,34 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 		OS.delay_msec(15)
 		elapsed += 15
 
-	if is_evaluating:
+	var timed_out = is_evaluating
+	if timed_out:
 		send_command("stop")
-		is_evaluating = false
+		var settle_wait = 20
+		while is_evaluating and settle_wait > 0:
+			OS.delay_msec(15)
+			settle_wait -= 1
+		if is_evaluating:
+			state_mutex.lock()
+			is_evaluating = false
+			state_mutex.unlock()
 
-	return {
+	state_mutex.lock()
+	var result = {
 		"score_cp": eval_score_cp,
 		"best_move": best_move_uci,
-		"depth": eval_depth
+		"depth": eval_depth,
+		"timed_out": timed_out
 	}
+	state_mutex.unlock()
+	return result
 
 func _engine_reader_loop() -> void:
 	var stdio: FileAccess = process_pipe.get("stdio", null)
 	if not stdio:
 		return
 
-	while not should_stop_thread and is_engine_running:
+	while not should_stop_thread and is_engine_available():
 		if stdio.is_open():
 			var line = stdio.get_line()
 			if line != "":
@@ -199,7 +306,10 @@ func _parse_engine_line(line: String) -> void:
 		var tokens = line.split(" ", false)
 		var i = 1
 		var depth = 0
+		state_mutex.lock()
 		var score_cp = eval_score_cp
+		var current_fen_snapshot = current_fen
+		state_mutex.unlock()
 		var mate_in = 0
 		var pv: Array[String] = []
 
@@ -230,31 +340,35 @@ func _parse_engine_line(line: String) -> void:
 		# Inversion du score selon le trait (Stockfish donne le score du point de vue du camp qui a le trait)
 		# Dans notre interface, on convertit toujours le score du point de vue des Blancs (+ = avantage Blancs)
 		var white_to_move = true
-		if current_fen != "":
-			var fen_parts = current_fen.split(" ")
+		if current_fen_snapshot != "":
+			var fen_parts = current_fen_snapshot.split(" ")
 			if fen_parts.size() > 1 and fen_parts[1] == "b":
 				white_to_move = false
 
 		var normalized_cp = score_cp if white_to_move else -score_cp
 
 		if depth > 0:
+			state_mutex.lock()
 			eval_depth = depth
 			eval_score_cp = normalized_cp
 			eval_mate_in = mate_in
 			pv_line = pv
 			if pv.size() > 0:
 				best_move_uci = pv[0]
-			
-			_emit_evaluation_deferred.call_deferred(normalized_cp, mate_in, depth, best_move_uci, pv_line, multipv_lines)
+			var emit_args = [normalized_cp, mate_in, depth, best_move_uci, pv_line, multipv_lines]
+			state_mutex.unlock()
+			_emit_evaluation_deferred.call_deferred(emit_args)
 
 	elif line.begins_with("bestmove "):
 		var parts = line.split(" ", false)
+		state_mutex.lock()
 		if parts.size() > 1:
 			best_move_uci = parts[1]
 		is_evaluating = false
+		state_mutex.unlock()
 
-func _emit_evaluation_deferred(score_cp: int, mate_in: int, depth: int, best_move: String, pv: Array, multipv: Array) -> void:
-	evaluation_updated.emit(score_cp, mate_in, depth, best_move, pv, multipv)
+func _emit_evaluation_deferred(emit_args: Array) -> void:
+	evaluation_updated.emit(emit_args[0], emit_args[1], emit_args[2], emit_args[3], emit_args[4], emit_args[5])
 
 func _exit_tree() -> void:
 	stop_engine()
@@ -263,6 +377,8 @@ func stop_engine() -> void:
 	if is_engine_running:
 		should_stop_thread = true
 		send_command("quit")
+		state_mutex.lock()
 		is_engine_running = false
+		state_mutex.unlock()
 		if engine_thread and engine_thread.is_started():
 			engine_thread.wait_to_finish()

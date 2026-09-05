@@ -31,6 +31,9 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 var analyzer: GameAnalyzer
 var analysis_thread: Thread = null
 
+var error_label: Label = null
+var _error_token := 0
+
 func _ready() -> void:
 	# Nommer clairement les onglets du panneau inférieur
 	bottom_tabs.set_tab_title(0, "📈 Graphe & Analyse")
@@ -47,7 +50,13 @@ func _ready() -> void:
 	
 	if EngineManager != null:
 		EngineManager.evaluation_updated.connect(_on_engine_eval)
+		EngineManager.engine_error.connect(_show_error_banner)
 	
+	var slm = get_node_or_null("/root/LocalSLMManager")
+	if slm:
+		slm.server_error.connect(_show_error_banner)
+	
+	_build_error_banner()
 	_apply_modern_theme()
 	call_deferred("_start_initial_eval")
 
@@ -142,6 +151,67 @@ func _on_engine_eval(score_cp: int, mate_in: int, _depth: int, _best_move: Strin
 			var pawns = score_cp / 100.0
 			top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
 
+# --- BANDEAU D'ERREURS À L'ÉCRAN ---
+
+func _build_error_banner() -> void:
+	if error_label != null:
+		return
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.50, 0.11, 0.13, 0.97)
+	style.border_color = Color(0.95, 0.45, 0.45, 0.9)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(8)
+	style.set_content_margin_all(10)
+	error_label = Label.new()
+	error_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	error_label.offset_left = 16
+	error_label.offset_right = -16
+	error_label.offset_top = 10
+	error_label.offset_bottom = 10
+	error_label.add_theme_stylebox_override("normal", style)
+	error_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	error_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	error_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	error_label.add_theme_color_override("font_color", Color("#ffe3e3"))
+	error_label.add_theme_font_size_override("font_size", 14)
+	error_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(error_label)
+	error_label.hide()
+
+func _measure_error_height(msg: String) -> float:
+	var font: Font = error_label.get_theme_font("font")
+	if font == null:
+		font = ThemeDB.fallback_font
+	var font_size: int = error_label.get_theme_font_size("font_size")
+	if font_size <= 0:
+		font_size = ThemeDB.fallback_font_size
+	var view_w: float = self.size.x
+	if view_w <= 0.0:
+		view_w = float(ProjectSettings.get_setting("display/window/size/viewport_width", 450))
+	var wrap_w := maxf(120.0, view_w - 32.0 - 20.0)
+	var text_size := font.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, wrap_w, font_size)
+	return clampf(ceilf(text_size.y) + 22.0, 40.0, 170.0)
+
+func _show_error_banner(msg: String) -> void:
+	if msg.is_empty():
+		return
+	if error_label == null:
+		_build_error_banner()
+	_error_token += 1
+	var token := _error_token
+	error_label.text = msg
+	error_label.show()
+	move_child(error_label, get_child_count() - 1)
+	error_label.offset_bottom = error_label.offset_top + _measure_error_height(msg)
+	await get_tree().process_frame
+	if token != _error_token:
+		return
+	var timer := get_tree().create_timer(6.0)
+	timer.timeout.connect(func() -> void:
+		if token == _error_token:
+			error_label.hide()
+	)
+
 # --- ACTIONS DES BOUTONS DE NAVIGATION ---
 
 func _on_btn_first_pressed() -> void:
@@ -220,6 +290,12 @@ func _on_btn_analyze_game_pressed() -> void:
 func _on_analysis_finished(report: Dictionary) -> void:
 	if analysis_thread and analysis_thread.is_started():
 		analysis_thread.wait_to_finish()
+
+	if report.has("error"):
+		var err: String = report["error"]
+		stats_label.text = "❌ %s" % err
+		_show_error_banner(err)
+		return
 
 	var evals = report.get("evaluations", [])
 	advantage_graph.set_evaluations(evals)

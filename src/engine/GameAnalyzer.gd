@@ -5,6 +5,9 @@ extends RefCounted
 signal progress_updated(current_ply: int, total_plies: int)
 signal analysis_finished(report: Dictionary)
 
+const ENGINE_START_WAIT_MS: int = 3000
+const EVAL_TIMEOUT_MS: int = 1500
+
 var is_analyzing: bool = false
 var cancel_requested: bool = false
 
@@ -44,11 +47,19 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 		call_deferred("emit_signal", "analysis_finished", rep)
 		return rep
 
+	if not _wait_for_engine():
+		var err_msg = "Moteur d'échecs indisponible : impossible d'analyser la partie."
+		return _fail_analysis(err_msg)
+
 	# Analyse de la position de départ (une seule fois)
 	var sim_game = ChessGame.new()
 	sim_game.load_fen(ChessGame.INITIAL_FEN)
 
 	var start_eval = _evaluate_fen_sync(ChessGame.INITIAL_FEN, depth)
+	if start_eval.has("error"):
+		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
+	if start_eval.get("timed_out", false) and start_eval.get("depth", 0) <= 0:
+		return _fail_analysis("Le moteur n'a pas répondu à l'évaluation de la position de départ.")
 	var prev_score_cp = start_eval.get("score_cp", 20)
 	var white_loss_sum = 0
 	var black_loss_sum = 0
@@ -58,6 +69,9 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 	for i in range(total_plies):
 		if cancel_requested:
 			break
+		
+		if engine_manager == null or not engine_manager.is_engine_available():
+			return _fail_analysis("Le moteur d'échecs s'est arrêté en cours d'analyse de la partie.")
 		
 		var move = moves[i]
 		var is_white = (i % 2 == 0)
@@ -69,6 +83,10 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 
 		# Évaluation de la position résultante
 		var eval_after_data = _evaluate_fen_sync(fen_after, depth)
+		if eval_after_data.has("error"):
+			return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
+		if eval_after_data.get("timed_out", false) and eval_after_data.get("depth", 0) <= 0:
+			return _fail_analysis("Le moteur n'a pas répondu dans le délai pour le coup %s." % move.san)
 		var score_after = eval_after_data.get("score_cp", score_before)
 		var best_move_uci = eval_after_data.get("best_move", "")
 
@@ -265,17 +283,44 @@ func _get_engine_manager() -> Node:
 		return tree.root.get_node_or_null("EngineManager")
 	return null
 
+func _wait_for_engine() -> bool:
+	if not engine_manager:
+		engine_manager = _get_engine_manager()
+	if engine_manager == null:
+		return false
+	var waited := 0
+	while not engine_manager.is_engine_available() and waited < ENGINE_START_WAIT_MS:
+		OS.delay_msec(50)
+		waited += 50
+	return engine_manager.is_engine_available()
+
+func _fail_analysis(msg: String) -> Dictionary:
+	is_analyzing = false
+	cancel_requested = false
+	_emit_engine_error(msg)
+	var rep = _build_final_report()
+	rep["error"] = msg
+	call_deferred("emit_signal", "analysis_finished", rep)
+	return rep
+
+func _emit_engine_error(msg: String) -> void:
+	var eng = engine_manager
+	if eng == null:
+		eng = _get_engine_manager()
+	if eng:
+		eng.call_deferred("emit_signal", "engine_error", msg)
+
 func _evaluate_fen_sync(fen: String, depth: int) -> Dictionary:
 	var engine = engine_manager
 	if engine == null:
 		engine = _get_engine_manager()
 		engine_manager = engine
 
-	if engine == null or not engine.is_engine_running:
-		return {"score_cp": 0, "best_move": ""}
+	if engine == null or not engine.is_engine_available():
+		return {"error": "engine_unavailable", "score_cp": 0, "best_move": "", "depth": 0}
 
 	if engine.has_method("evaluate_position_sync"):
-		return engine.evaluate_position_sync(fen, depth, 1500)
+		return engine.evaluate_position_sync(fen, depth, EVAL_TIMEOUT_MS)
 
 	engine.evaluate_position(fen, depth)
 	var max_wait = 20
@@ -285,7 +330,8 @@ func _evaluate_fen_sync(fen: String, depth: int) -> Dictionary:
 
 	return {
 		"score_cp": engine.eval_score_cp,
-		"best_move": engine.best_move_uci
+		"best_move": engine.best_move_uci,
+		"depth": engine.eval_depth
 	}
 
 func _build_final_report() -> Dictionary:
