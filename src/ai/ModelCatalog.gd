@@ -27,7 +27,7 @@ var http_updater: HTTPRequest
 var http_ollama: HTTPRequest
 var is_updating: bool = false
 
-const CATALOG_SCHEMA_VERSION = 20260905
+const CATALOG_SCHEMA_VERSION = 20260906
 
 func _ready() -> void:
 	http_updater = HTTPRequest.new()
@@ -205,7 +205,48 @@ func _load_default_curated_models() -> void:
 			"recommended": false
 		},
 
-		# 3. SLM LOCAL HORS-LIGNE (Bibliothèque Ollama 2026)
+		# 3. SLM LOCAL EMBARQUÉ AUTONOME (GGUF - Sans Ollama)
+		{
+			"id": "native_slm/smollm2-360m",
+			"name": "SmolLM2 360M Instruct (Natif Autonome)",
+			"provider": "native_slm",
+			"modality": Modality.LOCAL_SLM,
+			"description": "Modèle intégré 100% autonome (~229 Mo). 0 configuration, 0 dépendance externe, ultra-léger et instantané.",
+			"price_in_per_1m": 0.0,
+			"price_out_per_1m": 0.0,
+			"free_tier": true,
+			"context_length": 4096,
+			"recommended": true,
+			"is_native_slm": true
+		},
+		{
+			"id": "native_slm/qwen2.5-0.5b",
+			"name": "Qwen 2.5 0.5B Instruct (Natif Autonome)",
+			"provider": "native_slm",
+			"modality": Modality.LOCAL_SLM,
+			"description": "Modèle intégré 100% autonome (~398 Mo). Raisonnement tactique supérieur et excellent niveau en français.",
+			"price_in_per_1m": 0.0,
+			"price_out_per_1m": 0.0,
+			"free_tier": true,
+			"context_length": 8192,
+			"recommended": true,
+			"is_native_slm": true
+		},
+		{
+			"id": "native_slm/smollm2-1.7b",
+			"name": "SmolLM2 1.7B Instruct (Natif Autonome)",
+			"provider": "native_slm",
+			"modality": Modality.LOCAL_SLM,
+			"description": "Modèle intégré (~1.05 Go). Analyse haute définition pour ordinateurs et smartphones puissants.",
+			"price_in_per_1m": 0.0,
+			"price_out_per_1m": 0.0,
+			"free_tier": true,
+			"context_length": 8192,
+			"recommended": false,
+			"is_native_slm": true
+		},
+
+		# 4. SLM LOCAL VIA OLLAMA (Serveur externe existant)
 		{
 			"id": "ollama/glm-5.3-flash",
 			"name": "GLM 5.3 Flash (Local Ollama / 18B actifs)",

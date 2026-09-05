@@ -31,6 +31,9 @@ var paid_models_container: VBoxContainer
 var local_models_container: VBoxContainer
 var ollama_status_lbl: Label
 
+var download_progress_bars: Dictionary = {}
+var download_status_labels: Dictionary = {}
+
 func _get_settings() -> Node:
 	var tree = Engine.get_main_loop() as SceneTree
 	if tree and tree.root and tree.root.has_node("SettingsManager"):
@@ -49,6 +52,18 @@ func _get_coach() -> Node:
 		return tree.root.get_node("AICoach")
 	return null
 
+func _get_downloader() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("ModelDownloader"):
+		return tree.root.get_node("ModelDownloader")
+	return null
+
+func _get_slm_manager() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("LocalSLMManager"):
+		return tree.root.get_node("LocalSLMManager")
+	return null
+
 func _ready() -> void:
 	title = "⚡ Hub des Modèles IA"
 	size = Vector2i(410, 650)
@@ -63,6 +78,13 @@ func _ready() -> void:
 		cat.catalog_updated.connect(_on_catalog_updated)
 		cat.catalog_update_failed.connect(_on_catalog_update_failed)
 		cat.local_ollama_detected.connect(_on_ollama_detected)
+
+	var dl = _get_downloader()
+	if dl:
+		dl.download_progress.connect(_on_slm_download_progress)
+		dl.download_completed.connect(_on_slm_download_completed)
+		dl.download_failed.connect(_on_slm_download_failed)
+		dl.model_deleted.connect(_on_slm_model_deleted)
 
 	_setup_ui()
 	_refresh_active_badge()
@@ -347,15 +369,49 @@ func _populate_paid_tab() -> void:
 
 ## 3. Onglet SLM Local Hors-Ligne
 func _populate_local_tab() -> void:
+	download_progress_bars.clear()
+	download_status_labels.clear()
+
 	for child in local_models_container.get_children():
 		child.queue_free()
 
-	var desc = Label.new()
-	desc.text = "Exécution 100% hors-ligne et privée via Ollama. Zéro fuite de données, 0 € à vie."
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.add_theme_font_size_override("font_size", 10)
-	desc.add_theme_color_override("font_color", Color("#94a3b8"))
-	local_models_container.add_child(desc)
+	# --- SECTION A : COACH AUTONOME EMBARQUÉ (SANS OLLAMA) ---
+	var native_title = Label.new()
+	native_title.text = "📦 Coach Autonome Embarqué (Sans Ollama) :"
+	native_title.add_theme_font_size_override("font_size", 11)
+	native_title.add_theme_color_override("font_color", Color("#38bdf8"))
+	local_models_container.add_child(native_title)
+
+	var native_desc = Label.new()
+	native_desc.text = "Modèles d'IA légers (GGUF) stockés sur votre appareil. 100% privé, 0 € à vie, sans connexion Internet et sans logiciel externe requis."
+	native_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	native_desc.add_theme_font_size_override("font_size", 10)
+	native_desc.add_theme_color_override("font_color", Color("#94a3b8"))
+	local_models_container.add_child(native_desc)
+
+	var cat = _get_catalog()
+	if cat:
+		var local_list = cat.get_models_by_modality(ModelCatalogScript.Modality.LOCAL_SLM)
+		for m in local_list:
+			if m.get("provider") == "native_slm":
+				_add_native_slm_card(local_models_container, m)
+
+	var sep_ollama = HSeparator.new()
+	local_models_container.add_child(sep_ollama)
+
+	# --- SECTION B : SERVEUR OLLAMA EXTERNE ---
+	var ollama_title = Label.new()
+	ollama_title.text = "🌐 Serveur Externe Ollama (Utilisateurs Avancés) :"
+	ollama_title.add_theme_font_size_override("font_size", 11)
+	ollama_title.add_theme_color_override("font_color", Color("#c084fc"))
+	local_models_container.add_child(ollama_title)
+
+	var ollama_desc = Label.new()
+	ollama_desc.text = "Connectez RodChessXD à votre instance Ollama locale (127.0.0.1:11434)."
+	ollama_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ollama_desc.add_theme_font_size_override("font_size", 10)
+	ollama_desc.add_theme_color_override("font_color", Color("#94a3b8"))
+	local_models_container.add_child(ollama_desc)
 
 	# Bouton détection Ollama
 	var detect_box = HBoxContainer.new()
@@ -380,11 +436,11 @@ func _populate_local_tab() -> void:
 	ollama_status_lbl.add_theme_color_override("font_color", Color("#64748b"))
 	local_models_container.add_child(ollama_status_lbl)
 
-	var cat = _get_catalog()
 	if cat:
 		var local_list = cat.get_models_by_modality(ModelCatalogScript.Modality.LOCAL_SLM)
 		for m in local_list:
-			_add_model_card(local_models_container, m)
+			if m.get("provider") == "ollama":
+				_add_model_card(local_models_container, m)
 
 	var sep = HSeparator.new()
 	local_models_container.add_child(sep)
@@ -399,6 +455,130 @@ func _populate_local_tab() -> void:
 	_add_copyable_command(local_models_container, "Qwen 3.8 27B :", "ollama run qwen3.8")
 	_add_copyable_command(local_models_container, "Nemotron 3.5 Lightning (30B) :", "ollama run nemotron-3.5-lightning")
 	_add_copyable_command(local_models_container, "SmolLM2 1.7B (Ultra-léger) :", "ollama run smollm2:1.7b")
+
+## Carte pour les modèles SLM autonomes avec gestionnaire de téléchargement et suppression
+func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
+	var m_id = model_dict.get("id", "")
+	var m_name = model_dict.get("name", m_id)
+	var m_desc = model_dict.get("description", "")
+	var is_active = (m_id == current_active_id)
+
+	var downloader = _get_downloader()
+	var is_installed = downloader.is_model_installed(m_id) if downloader else false
+	var is_currently_downloading = (downloader != null and downloader.is_downloading and downloader.current_download_id == m_id)
+
+	var card = PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var card_style = StyleBoxFlat.new()
+	card_style.bg_color = Color("#0f172a") if not is_active else Color("#172554")
+	card_style.border_width_left = 2 if is_active else 1
+	card_style.border_width_top = 1
+	card_style.border_width_right = 1
+	card_style.border_width_bottom = 1
+	card_style.border_color = Color("#38bdf8") if is_active else Color("#334155")
+	card_style.corner_radius_top_left = 6
+	card_style.corner_radius_top_right = 6
+	card_style.corner_radius_bottom_left = 6
+	card_style.corner_radius_bottom_right = 6
+	card_style.content_margin_left = 8
+	card_style.content_margin_top = 6
+	card_style.content_margin_right = 8
+	card_style.content_margin_bottom = 6
+	card.add_theme_stylebox_override("panel", card_style)
+	parent.add_child(card)
+
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 3)
+	card.add_child(vbox)
+
+	# Ligne 1 : Nom à gauche, Action à droite
+	var top_row = HBoxContainer.new()
+	top_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(top_row)
+
+	var name_lbl = Label.new()
+	name_lbl.text = ("⭐ " if model_dict.get("recommended", false) else "") + m_name
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_lbl.add_theme_font_size_override("font_size", 11)
+	name_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
+	top_row.add_child(name_lbl)
+
+	if is_installed:
+		var btn_select = Button.new()
+		btn_select.text = "✓ Actif" if is_active else "Choisir"
+		btn_select.disabled = is_active
+		btn_select.custom_minimum_size = Vector2(64, 24)
+		btn_select.add_theme_font_size_override("font_size", 10)
+		btn_select.pressed.connect(func(): _select_model(m_id))
+		top_row.add_child(btn_select)
+
+		var btn_del = Button.new()
+		btn_del.text = "🗑️"
+		btn_del.tooltip_text = "Supprimer du disque"
+		btn_del.custom_minimum_size = Vector2(28, 24)
+		btn_del.add_theme_font_size_override("font_size", 10)
+		btn_del.pressed.connect(func():
+			if downloader: downloader.delete_model(m_id)
+		)
+		top_row.add_child(btn_del)
+	elif is_currently_downloading:
+		var btn_cancel = Button.new()
+		btn_cancel.text = "❌ Annuler"
+		btn_cancel.custom_minimum_size = Vector2(75, 24)
+		btn_cancel.add_theme_font_size_override("font_size", 10)
+		btn_cancel.pressed.connect(func():
+			if downloader: downloader.cancel_download()
+		)
+		top_row.add_child(btn_cancel)
+	else:
+		var btn_dl = Button.new()
+		var size_lbl = "Télécharger"
+		if downloader and downloader.DOWNLOADABLE_SLM.has(m_id):
+			size_lbl = "⬇️ Installer (%s)" % downloader.DOWNLOADABLE_SLM[m_id].get("size_label", "")
+		btn_dl.text = size_lbl
+		btn_dl.custom_minimum_size = Vector2(110, 24)
+		btn_dl.add_theme_font_size_override("font_size", 10)
+		btn_dl.pressed.connect(func():
+			if downloader: downloader.start_download(m_id)
+		)
+		top_row.add_child(btn_dl)
+
+	# Ligne 2 : Statut & Jauge de progression
+	if is_currently_downloading:
+		var pbar = ProgressBar.new()
+		pbar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pbar.custom_minimum_size = Vector2(0, 6)
+		pbar.show_percentage = false
+		vbox.add_child(pbar)
+		download_progress_bars[m_id] = pbar
+
+		var status_lbl = Label.new()
+		status_lbl.text = "⬇️ Téléchargement en cours..."
+		status_lbl.add_theme_font_size_override("font_size", 9)
+		status_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+		vbox.add_child(status_lbl)
+		download_status_labels[m_id] = status_lbl
+	else:
+		var status_lbl = Label.new()
+		if is_installed:
+			status_lbl.text = "🟢 Installé sur l'appareil (100% hors-ligne • 0,00 €)"
+			status_lbl.add_theme_color_override("font_color", Color("#22c55e"))
+		else:
+			status_lbl.text = "⚪ Non installé • 0 € à vie (aucun abonnement ni clé API)"
+			status_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+		status_lbl.add_theme_font_size_override("font_size", 9)
+		vbox.add_child(status_lbl)
+
+	# Ligne 3 : Description
+	if m_desc != "":
+		var desc_lbl = Label.new()
+		desc_lbl.text = m_desc
+		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc_lbl.add_theme_font_size_override("font_size", 9)
+		desc_lbl.add_theme_color_override("font_color", Color("#64748b"))
+		vbox.add_child(desc_lbl)
 
 ## Carte de présentation d'un modèle avec disposition multi-lignes 100% responsive
 func _add_model_card(parent: Control, model_dict: Dictionary) -> void:
@@ -594,3 +774,24 @@ func _on_ollama_detected(models_found: Array) -> void:
 	else:
 		ollama_status_lbl.text = "Ollama non détecté (Démarrer avec 'ollama serve')"
 		ollama_status_lbl.add_theme_color_override("font_color", Color("#ef4444"))
+
+func _on_slm_download_progress(model_id: String, received_bytes: int, total_bytes: int, percentage: float, speed_mb_s: float) -> void:
+	if download_progress_bars.has(model_id):
+		var bar: ProgressBar = download_progress_bars[model_id]
+		bar.value = percentage
+	if download_status_labels.has(model_id):
+		var lbl: Label = download_status_labels[model_id]
+		var rec_mb = received_bytes / 1048576.0
+		var tot_mb = total_bytes / 1048576.0
+		lbl.text = "⬇️ %.1f%% • %.1f / %.1f Mo (%.2f Mo/s)" % [percentage, rec_mb, tot_mb, speed_mb_s]
+
+func _on_slm_download_completed(_model_id: String, _file_path: String) -> void:
+	_populate_local_tab()
+	_refresh_active_badge()
+
+func _on_slm_download_failed(_model_id: String, _error_msg: String) -> void:
+	_populate_local_tab()
+
+func _on_slm_model_deleted(_model_id: String) -> void:
+	_populate_local_tab()
+	_refresh_active_badge()

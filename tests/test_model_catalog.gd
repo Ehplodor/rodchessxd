@@ -48,8 +48,8 @@ func _init() -> void:
 	var ds_flash_cost = catalog.get_cost_estimate(ds_v4_flash)
 	print("\nDeepSeek V4 Flash Cost:")
 	print(" - Par coup: %s (USD: %.6f)" % [ds_flash_cost.label_per_query, ds_flash_cost.per_query_usd])
-	# 500 in ($0.07/1M) + 300 out ($0.27/1M) => ~0.0000935$ (~0,09 $ / 1000 coups)
-	assert(ds_flash_cost.per_query_usd > 0.00005 and ds_flash_cost.per_query_usd < 0.0002, "Coût DeepSeek V4 Flash attendu ~0.000093 $")
+	# 500 in ($0.22/1M) + 300 out ($0.66/1M) => ~0.000308$ (~0,29 $ / 1000 coups)
+	assert(ds_flash_cost.per_query_usd > 0.0002 and ds_flash_cost.per_query_usd < 0.0005, "Coût DeepSeek V4 Flash attendu ~0.000308 $")
 
 	var ds_v4_pro = catalog.find_model_by_id("deepseek/deepseek-v4-pro")
 	assert(not ds_v4_pro.is_empty(), "DeepSeek V4 Pro doit être présent")
@@ -67,6 +67,13 @@ func _init() -> void:
 	print(" - Pour 1000 coups: %s" % astra_cost.label_per_1000)
 	# 500 in ($10.00/1M) = 0.005$ + 300 out ($50.00/1M) = 0.015$ => 0.020$ (2 c€)
 	assert(abs(astra_cost.per_query_usd - 0.020) < 0.0001, "Coût GPT-6 Astra attendu 0.020 $ par coup")
+
+	# Vérification des modèles natifs autonomes embarqués
+	var smollm_native = catalog.find_model_by_id("native_slm/smollm2-360m")
+	assert(not smollm_native.is_empty() and smollm_native.get("provider") == "native_slm", "SmolLM2 360M natif doit être présent")
+	var qwen_native = catalog.find_model_by_id("native_slm/qwen2.5-0.5b")
+	assert(not qwen_native.is_empty() and qwen_native.get("provider") == "native_slm", "Qwen 2.5 0.5B natif doit être présent")
+	print("\nModèles SLM natifs autonomes vérifiés : %s, %s" % [smollm_native.name, qwen_native.name])
 
 	var qwen38_local = catalog.find_model_by_id("ollama/qwen3.8")
 	assert(not qwen38_local.is_empty() and qwen38_local.get("provider") == "ollama", "Qwen 3.8 doit être présent dans les modèles locaux")

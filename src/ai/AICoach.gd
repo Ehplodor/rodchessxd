@@ -372,6 +372,8 @@ func ask_coach(
 	var provider = model_info.get("provider", "openrouter")
 
 	match provider:
+		"native_slm":
+			_request_native_slm(prompt_data, model_info)
 		"ollama":
 			_request_local_ollama(prompt_data, model_info)
 		"groq":
@@ -390,6 +392,52 @@ func ask_coach(
 			_request_openrouter(prompt_data, model_info)
 
 # --- REQUÊTES VERS LES DIFFÉRENTS FOURNISSEURS ---
+
+func _request_native_slm(prompt_data: Dictionary, model_info: Dictionary) -> void:
+	var model_id = model_info.get("id", "native_slm/smollm2-360m")
+	
+	# 1. Vérifier si le modèle GGUF est installé
+	var downloader = null
+	if Engine.has_singleton("ModelDownloader") or has_node("/root/ModelDownloader"):
+		downloader = get_node("/root/ModelDownloader")
+	
+	if downloader and not downloader.is_model_installed(model_id):
+		coach_error.emit("Le modèle %s n'est pas encore téléchargé.\n👉 Ouvrez le Hub de Modèles pour l'installer en 1 clic (100%% gratuit, hors-ligne)." % model_info.get("name", "SLM"))
+		return
+
+	# 2. Vérifier si LocalSLMManager est disponible
+	var slm_mgr = null
+	if Engine.has_singleton("LocalSLMManager") or has_node("/root/LocalSLMManager"):
+		slm_mgr = get_node("/root/LocalSLMManager")
+	
+	if not slm_mgr:
+		_fallback_offline_explanation("SLM Local Autonome")
+		return
+
+	# 3. Vérifier si l'exécutable d'inférence est disponible
+	if not slm_mgr.is_inference_engine_available():
+		_fallback_offline_explanation("SLM Local (Moteur non configuré)")
+		return
+
+	# 4. S'assurer que le serveur tourne pour ce modèle
+	if not slm_mgr.ensure_model_running(model_id):
+		coach_error.emit("Impossible de démarrer le serveur SLM local pour %s." % model_id)
+		return
+
+	var url = slm_mgr.get_api_endpoint_url()
+	var body = JSON.stringify({
+		"model": model_id,
+		"messages": [
+			{"role": "system", "content": prompt_data.get("system", "")},
+			{"role": "user", "content": prompt_data.get("user", "")}
+		],
+		"max_tokens": 512,
+		"temperature": 0.5
+	})
+	var headers = ["Content-Type: application/json"]
+	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
+	if err != OK:
+		coach_error.emit("Erreur de communication avec le serveur SLM local (%s)." % url)
 
 func _request_local_ollama(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var raw_id = model_info.get("id", "ollama/glm-5.3-flash")
