@@ -80,15 +80,22 @@ func _setup_ui() -> void:
 	response_label.text = "[color=#94a3b8]Posez une question ou cliquez sur une action rapide pour recevoir les conseils du coach sur la position active.[/color]"
 	vbox.add_child(response_label)
 
-	# 3. Puces d'actions rapides
+	# 3. Puces d'actions rapides avec défilement horizontal tactile
+	var scroll_chips = ScrollContainer.new()
+	scroll_chips.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll_chips.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	vbox.add_child(scroll_chips)
+
 	quick_actions_box = HBoxContainer.new()
 	quick_actions_box.add_theme_constant_override("separation", 6)
-	vbox.add_child(quick_actions_box)
+	scroll_chips.add_child(quick_actions_box)
 
 	_add_quick_chip("💡 Pourquoi ce coup ?", "Explique pourquoi le coup joué est bon ou mauvais.")
 	_add_quick_chip("🎯 Quel est le plan ?", "Quel est le plan stratégique principal pour le camp au trait ?")
-	_add_quick_chip("⚠️ Menace ?", "Quelles sont les menaces tactiques immédiates dans cette position ?")
-	_add_quick_chip("👶 Explique simplement", "Explique la situation avec des mots simples pour débutant.")
+	_add_quick_chip("⚠️ Menaces ?", "Quelles sont les menaces tactiques immédiates dans cette position ?")
+	_add_quick_chip("⚔️ Réfutation", "Montre la réfutation tactique coup par coup si l'adversaire tente une attaque.")
+	_add_quick_chip("🛡️ Sécurité Roi", "Analyse la sécurité des rois et les risques d'attaque.")
+	_add_quick_chip("👶 Débutant", "Explique la situation avec des mots simples pour débutant.")
 
 	# 4. Ligne de saisie de question libre
 	var input_row = HBoxContainer.new()
@@ -109,13 +116,12 @@ func _setup_ui() -> void:
 func _update_model_badge() -> void:
 	if not model_badge_btn:
 		return
-	var active_id = SettingsManager.get_setting("active_model_id", "groq/llama-3.3-70b-versatile")
+	var active_id = SettingsManager.get_setting("active_model_id", "z-ai/glm-5.3-flash:free")
 	var model_info = ModelCatalog.find_model_by_id(active_id)
 	var name_short = model_info.get("name", active_id)
 	if name_short.length() > 22:
 		name_short = name_short.substr(0, 20) + "..."
 	
-	var cost = ModelCatalog.get_cost_estimate(model_info)
 	var prefix = "⚡"
 	if model_info.get("modality", 0) == ModelCatalog.Modality.LOCAL_SLM:
 		prefix = "💻"
@@ -149,14 +155,23 @@ func _send_coach_query(user_question: String) -> void:
 	
 	var last_move_san = ""
 	var cur_ply = GameController.current_ply_index
+	var extra_context = {}
 	if cur_ply >= 0 and cur_ply < game.move_history.size():
-		last_move_san = game.move_history[cur_ply].san
+		var m = game.move_history[cur_ply]
+		last_move_san = m.san
+		extra_context["quality"] = m.quality
+		extra_context["cp_loss"] = m.centipawn_loss
+		extra_context["move_number"] = (cur_ply / 2) + 1
+		extra_context["is_check"] = m.is_check
+		extra_context["is_checkmate"] = m.is_checkmate
+	else:
+		extra_context["move_number"] = (game.move_history.size() / 2) + 1
 
 	var eval_cp = EngineManager.eval_score_cp if EngineManager else 0
 	var best_move = EngineManager.best_move_uci if EngineManager else ""
 	var pv = EngineManager.pv_line if EngineManager else []
 
-	AICoach.ask_coach(fen, last_move_san, eval_cp, best_move, pv, user_question)
+	AICoach.ask_coach(fen, last_move_san, eval_cp, best_move, pv, user_question, extra_context)
 
 func _on_thinking_started() -> void:
 	status_label.text = "Réflexion..."
@@ -164,8 +179,25 @@ func _on_thinking_started() -> void:
 	response_label.text = "[color=#fbbf24]⏳ Analyse en cours avec les calculs de Stockfish...[/color]"
 
 func _on_response_received(response: String) -> void:
-	var formatted = response.replace("**", "[b]").replace("## ", "[b][color=#38bdf8]").replace("\n- ", "\n • ")
+	var formatted = _format_markdown_to_bbcode(response)
 	response_label.text = formatted
+
+func _format_markdown_to_bbcode(md: String) -> String:
+	var text = md
+	# Bold **text** -> [b]text[/b]
+	var regex_b = RegEx.new()
+	regex_b.compile("\\*\\*(.*?)\\*\\*")
+	text = regex_b.sub(text, "[b]$1[/b]", true)
+	
+	# Headings ### Heading -> [b][color=#38bdf8]Heading[/color][/b]
+	var regex_h = RegEx.new()
+	regex_h.compile("(?m)^###?\\s+(.+)$")
+	text = regex_h.sub(text, "[b][color=#38bdf8]$1[/color][/b]", true)
+
+	# Bullet points
+	text = text.replace("\n- ", "\n [color=#38bdf8]•[/color] ")
+	text = text.replace("\n* ", "\n [color=#38bdf8]•[/color] ")
+	return text
 
 func _on_response_with_meta(_response: String, cost_label: String, elapsed_sec: float) -> void:
 	status_label.text = "Prêt (%.1fs • %s)" % [elapsed_sec, cost_label]
