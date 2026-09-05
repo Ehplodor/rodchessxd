@@ -23,6 +23,7 @@ var legal_destinations: Array[int] = []
 var play_mode: PlayMode = PlayMode.ANALYSIS
 var board_flipped: bool = false
 var current_game_id: String = ""
+var is_loading_game: bool = false
 
 func _ready() -> void:
 	game = ChessGame.new()
@@ -59,31 +60,38 @@ func get_or_create_game_id() -> String:
 	return current_game_id
 
 func reset_to_initial() -> void:
+	is_loading_game = true
 	game.reset_board()
 	game.load_fen(ChessGame.INITIAL_FEN)
 	current_game_id = ""
 	current_ply_index = -1
 	selected_square = -1
 	legal_destinations.clear()
+	is_loading_game = false
 	game_reset.emit()
 	position_changed.emit()
 
 func load_fen(fen: String) -> bool:
+	is_loading_game = true
 	selected_square = -1
 	legal_destinations.clear()
 	var success = game.load_fen(fen)
+	is_loading_game = false
 	if success:
 		current_ply_index = -1
 		var dm = _get_database_manager()
 		if dm:
 			current_game_id = dm.record_active_game(game, "Position FEN", "fen_import")
+		game_reset.emit()
 		position_changed.emit()
 	return success
 
 func load_pgn(pgn: String, known_game_id: String = "") -> bool:
+	is_loading_game = true
 	selected_square = -1
 	legal_destinations.clear()
 	var success = game.load_pgn(pgn)
+	is_loading_game = false
 	if success:
 		current_ply_index = game.move_history.size() - 1
 		if known_game_id != "":
@@ -92,6 +100,7 @@ func load_pgn(pgn: String, known_game_id: String = "") -> bool:
 			var dm = _get_database_manager()
 			if dm:
 				current_game_id = dm.record_pgn_game(pgn, "pgn_import")
+		game_reset.emit()
 		position_changed.emit()
 	return success
 
@@ -188,4 +197,5 @@ func _on_game_board_changed() -> void:
 	position_changed.emit()
 
 func _on_game_move_made(p_move: ChessMove) -> void:
-	move_made.emit(p_move)
+	if not is_loading_game:
+		move_made.emit(p_move)

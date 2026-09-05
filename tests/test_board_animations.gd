@@ -17,14 +17,22 @@ func _init() -> void:
 	assert(board.square_size == 50.0, "Square size should be 50")
 	print("Board dimensions verified: size=%.1f, square=%.1f" % [board.board_size, board.square_size])
 	
-	# 2. Test square coordinate mapping
-	var pos_a1 = board._get_square_screen_pos(0) # a1: rank 0, file 0 (bottom-left when not flipped)
-	print("Square a1 screen pos: ", pos_a1)
-	assert(pos_a1 == Vector2(0, 350), "a1 position should be (0, 350) with board_size 400 and square 50")
+	# 2. Test square coordinate mapping (non-flipped & flipped)
+	var gc = board._get_game_controller()
+	if gc:
+		gc.board_flipped = false
+	var pos_a1_white = board._get_square_screen_pos(0)
+	print("Square a1 (White view): ", pos_a1_white)
+	assert(pos_a1_white == Vector2(0, 350), "a1 position should be (0, 350) in White view")
 	
-	var pos_e4 = board._get_square_screen_pos(28) # e4: rank 3, file 4
-	print("Square e4 screen pos: ", pos_e4)
-	assert(pos_e4 == Vector2(200, 200), "e4 position should be (200, 200)")
+	if gc:
+		gc.board_flipped = true
+	var pos_a1_black = board._get_square_screen_pos(0)
+	print("Square a1 (Black view): ", pos_a1_black)
+	assert(pos_a1_black == Vector2(350, 0), "a1 position should be (350, 0) in Black view")
+	
+	if gc:
+		gc.board_flipped = false
 	
 	# 3. Test animated move call
 	var move = ChessMove.new()
@@ -74,6 +82,15 @@ func _init() -> void:
 	cap_move.captured_piece = ChessPiece.Type.PAWN
 	board._animate_move(cap_move)
 	print("Capture ghost animation verified.")
+	
+	# 8. Test PGN loading and clean reset of all pieces
+	if gc:
+		var pgn = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. O-O d6"
+		gc.load_pgn(pgn)
+		# Après chargement, aucun tween actif et aucun sprite fantôme
+		assert(board.active_tweens.size() == 0, "No active tweens after PGN load")
+		assert(board.ghost_sprites.size() == 0, "No ghost sprites after PGN load")
+		print("PGN loaded cleanly: board visuals completely reset, zero orphaned ghosts.")
 	
 	board.queue_free()
 	eval_bar.queue_free()

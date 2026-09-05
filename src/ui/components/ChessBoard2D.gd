@@ -65,7 +65,26 @@ var best_move_arrow_to: int = -1
 
 # Système d'animations fluides
 var active_tweens: Array[Tween] = []
+var ghost_sprites: Array[TextureRect] = []
 var move_anim_duration: float = 0.18
+
+func _get_game_controller() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("GameController"):
+		return tree.root.get_node("GameController")
+	return null
+
+func _get_settings_manager() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("SettingsManager"):
+		return tree.root.get_node("SettingsManager")
+	return null
+
+func _get_engine_manager() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		return tree.root.get_node("EngineManager")
+	return null
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(350, 350)
@@ -76,13 +95,18 @@ func _ready() -> void:
 	_update_dimensions()
 	_create_piece_nodes()
 	
-	GameController.position_changed.connect(_on_position_changed)
-	GameController.square_selected.connect(_on_square_selected)
-	GameController.square_deselected.connect(_on_square_deselected)
-	GameController.move_made.connect(_on_move_made)
+	var gc = _get_game_controller()
+	if gc:
+		gc.position_changed.connect(_on_position_changed)
+		gc.game_reset.connect(_on_game_reset)
+		gc.move_navigated.connect(_on_move_navigated)
+		gc.square_selected.connect(_on_square_selected)
+		gc.square_deselected.connect(_on_square_deselected)
+		gc.move_made.connect(_on_move_made)
 	
-	if EngineManager != null:
-		EngineManager.evaluation_updated.connect(_on_engine_eval)
+	var eng = _get_engine_manager()
+	if eng != null:
+		eng.evaluation_updated.connect(_on_engine_eval)
 
 func _process(delta: float) -> void:
 	if in_check_sq != -1:
@@ -92,9 +116,7 @@ func _process(delta: float) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_update_dimensions()
-		_clear_active_tweens()
-		_update_piece_positions()
-		queue_redraw()
+		reset_board_visuals()
 
 func _update_dimensions() -> void:
 	var side = min(size.x, size.y)
@@ -136,8 +158,12 @@ func _create_piece_nodes() -> void:
 func _get_square_screen_pos(sq: int) -> Vector2:
 	var f = sq % 8
 	var r = sq / 8
-	var disp_f = (7 - f) if GameController.board_flipped else f
-	var disp_r = r if GameController.board_flipped else (7 - r)
+	var flipped = false
+	var gc = _get_game_controller()
+	if gc:
+		flipped = gc.board_flipped
+	var disp_f = (7 - f) if flipped else f
+	var disp_r = r if flipped else (7 - r)
 	return Vector2(disp_f * square_size, disp_r * square_size)
 
 func _clear_active_tweens() -> void:
@@ -146,26 +172,68 @@ func _clear_active_tweens() -> void:
 			t.kill()
 	active_tweens.clear()
 
-func _update_piece_positions() -> void:
+func _clear_ghost_sprites() -> void:
+	for g in ghost_sprites:
+		if is_instance_valid(g):
+			g.queue_free()
+	ghost_sprites.clear()
+	
+	# Nettoyage de sécurité préventif : toute TextureRect orpheline est éliminée
+	var sprite_nodes = piece_sprites.values()
+	for child in get_children():
+		if child is TextureRect and child != drag_texture_rect and not (child in sprite_nodes):
+			child.queue_free()
+
+## Réinitialisation graphique complète et propre du plateau (efface toutes les pièces, annule les tweens, purge les résidus)
+func reset_board_visuals() -> void:
+	_clear_active_tweens()
+	_clear_ghost_sprites()
+	
+	dragged_sq = -1
+	if drag_texture_rect:
+		drag_texture_rect.visible = false
+	
+	best_move_arrow_from = -1
+	best_move_arrow_to = -1
+	
+	var gc = _get_game_controller()
+	if gc and gc.current_ply_index >= 0 and gc.current_ply_index < gc.game.move_history.size():
+		var m = gc.game.move_history[gc.current_ply_index]
+		last_move_from = m.from_sq
+		last_move_to = m.to_sq
+	else:
+		last_move_from = -1
+		last_move_to = -1
+	
+	# 1. Remise à zéro complète et absolue de toutes les cases
 	for sq in range(64):
 		var tr: TextureRect = piece_sprites.get(sq, null)
-		if not tr:
-			continue
-		
-		tr.position = _get_square_screen_pos(sq)
-		tr.size = Vector2(square_size, square_size)
-		tr.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
-		tr.scale = Vector2.ONE
-		tr.z_index = 1
-		
-		var piece = GameController.game.get_piece(sq)
-		if piece.type != ChessPiece.Type.NONE and sq != dragged_sq:
-			var key = Vector2i(piece.type, piece.color)
-			tr.texture = piece_textures.get(key, null)
-			tr.visible = true
-		else:
+		if tr:
+			tr.position = _get_square_screen_pos(sq)
+			tr.size = Vector2(square_size, square_size)
+			tr.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
+			tr.scale = Vector2.ONE
+			tr.modulate = Color.WHITE
+			tr.z_index = 1
 			tr.texture = null
 			tr.visible = false
+	
+	# 2. Ré-attribution stricte des pièces actuellement présentes sur l'échiquier
+	if gc and gc.game:
+		for sq in range(64):
+			var piece = gc.game.get_piece(sq)
+			if piece.type != ChessPiece.Type.NONE:
+				var tr: TextureRect = piece_sprites.get(sq, null)
+				if tr:
+					var key = Vector2i(piece.type, piece.color)
+					tr.texture = piece_textures.get(key, null)
+					tr.visible = true
+	
+	_check_king_status()
+	queue_redraw()
+
+func _update_piece_positions() -> void:
+	reset_board_visuals()
 
 # --- SYSTÈME D'ANIMATION DE COUPS ---
 
@@ -174,7 +242,7 @@ func _animate_move(move: ChessMove) -> void:
 	
 	var moving_sprite: TextureRect = piece_sprites.get(move.from_sq, null)
 	if not moving_sprite:
-		_update_piece_positions()
+		reset_board_visuals()
 		return
 	
 	if moving_sprite.texture == null and move.piece != ChessPiece.Type.NONE:
@@ -193,7 +261,6 @@ func _animate_move(move: ChessMove) -> void:
 	if move.captured_piece != ChessPiece.Type.NONE:
 		var cap_sq = move.to_sq
 		if move.is_en_passant:
-			# En passant : pion capturé sur la rangée d'origine
 			cap_sq = move.to_sq - 8 if move.color == ChessPiece.PieceColor.WHITE else move.to_sq + 8
 		
 		_spawn_capture_ghost(cap_sq, move.captured_piece, move.color)
@@ -215,7 +282,7 @@ func _animate_move(move: ChessMove) -> void:
 	
 	tween.chain().tween_callback(func():
 		moving_sprite.z_index = 1
-		_update_piece_positions()
+		reset_board_visuals()
 	)
 
 func _spawn_capture_ghost(sq: int, cap_type: int, attacker_color: int) -> void:
@@ -235,13 +302,18 @@ func _spawn_capture_ghost(sq: int, cap_type: int, attacker_color: int) -> void:
 	ghost.pivot_offset = Vector2(square_size * 0.5, square_size * 0.5)
 	ghost.z_index = 5
 	add_child(ghost)
+	ghost_sprites.append(ghost)
 	
 	var g_tween = create_tween()
 	active_tweens.append(g_tween)
 	g_tween.set_parallel(true)
 	g_tween.tween_property(ghost, "scale", Vector2(0.2, 0.2), move_anim_duration * 1.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	g_tween.tween_property(ghost, "modulate:a", 0.0, move_anim_duration * 1.1)
-	g_tween.chain().tween_callback(ghost.queue_free)
+	g_tween.chain().tween_callback(func():
+		if is_instance_valid(ghost):
+			ghost_sprites.erase(ghost)
+			ghost.queue_free()
+	)
 
 func _animate_castling_rook(move: ChessMove) -> void:
 	var rook_from: int = -1
@@ -270,9 +342,17 @@ func _animate_castling_rook(move: ChessMove) -> void:
 # --- RENDU VISUEL ---
 
 func _draw() -> void:
-	var theme_name = SettingsManager.get_setting("board_theme", "dark_modern")
+	var theme_name = "dark_modern"
+	var sm = _get_settings_manager()
+	if sm:
+		theme_name = sm.get_setting("board_theme", "dark_modern")
 	var theme = THEMES.get(theme_name, THEMES["dark_modern"])
-	var flipped = GameController.board_flipped
+	
+	var flipped = false
+	var gc = _get_game_controller()
+	if gc:
+		flipped = gc.board_flipped
+	
 	var font = ThemeDB.fallback_font
 	var coord_font_size = int(clampf(square_size * 0.22, 10.0, 16.0))
 
@@ -296,7 +376,7 @@ func _draw() -> void:
 				draw_rect(rect, theme.get("last_move_border", Color("#f59e0b88")), false, 1.5)
 
 			# Case sélectionnée avec aura
-			if sq == GameController.selected_square:
+			if gc and sq == gc.selected_square:
 				draw_rect(rect, theme["selected"])
 				draw_rect(rect, theme.get("selected_border", Color("#38bdf8")), false, 2.0)
 
@@ -325,10 +405,10 @@ func _draw() -> void:
 				draw_string(font, text_pos, file_char, HORIZONTAL_ALIGNMENT_LEFT, -1, coord_font_size, text_col)
 
 			# Points de destination légale
-			if sq in GameController.legal_destinations:
+			if gc and sq in gc.legal_destinations:
 				var center = rect.position + rect.size * 0.5
-				var piece_on_target = GameController.game.get_piece(sq)
-				if piece_on_target.type != ChessPiece.Type.NONE:
+				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
+				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
 					# Anneau de capture précis et moderne
 					draw_arc(center, square_size * 0.42, 0, TAU, 36, Color(0, 0, 0, 0.25), 5.0) # Ombre
 					draw_arc(center, square_size * 0.42, 0, TAU, 36, theme["legal_dot"], 3.5)
@@ -406,8 +486,12 @@ func _handle_press(sq: int, pos: Vector2) -> void:
 	if sq == -1:
 		return
 	
-	var piece = GameController.game.get_piece(sq)
-	if piece.type != ChessPiece.Type.NONE and piece.color == GameController.game.active_color:
+	var gc = _get_game_controller()
+	if not gc or not gc.game:
+		return
+	
+	var piece = gc.game.get_piece(sq)
+	if piece.type != ChessPiece.Type.NONE and piece.color == gc.game.active_color:
 		dragged_sq = sq
 		var key = Vector2i(piece.type, piece.color)
 		drag_texture_rect.texture = piece_textures.get(key, null)
@@ -418,38 +502,44 @@ func _handle_press(sq: int, pos: Vector2) -> void:
 		if sq in piece_sprites:
 			piece_sprites[sq].visible = false
 
-	GameController.select_square(sq)
+	gc.select_square(sq)
 	queue_redraw()
 
 func _handle_release(to_sq: int, _pos: Vector2) -> void:
+	var gc = _get_game_controller()
 	if dragged_sq != -1:
-		if to_sq != -1 and to_sq != dragged_sq:
-			GameController.try_play_move(dragged_sq, to_sq)
+		if to_sq != -1 and to_sq != dragged_sq and gc:
+			gc.try_play_move(dragged_sq, to_sq)
 		
 		drag_texture_rect.visible = false
 		if dragged_sq in piece_sprites:
 			piece_sprites[dragged_sq].visible = true
 		dragged_sq = -1
-		_update_piece_positions()
-		queue_redraw()
+		reset_board_visuals()
 
 func _pos_to_square(pos: Vector2) -> int:
 	if pos.x < 0 or pos.x >= board_size or pos.y < 0 or pos.y >= board_size:
 		return -1
 	var f = int(pos.x / square_size)
 	var r = int(pos.y / square_size)
-	var flipped = GameController.board_flipped
+	var flipped = false
+	var gc = _get_game_controller()
+	if gc:
+		flipped = gc.board_flipped
 	var actual_f = (7 - f) if flipped else f
 	var actual_r = r if flipped else (7 - r)
 	return actual_r * 8 + actual_f
 
 # --- SIGNAUX & MISES À JOUR ---
 
+func _on_game_reset() -> void:
+	reset_board_visuals()
+
+func _on_move_navigated(_ply_idx: int) -> void:
+	reset_board_visuals()
+
 func _on_position_changed() -> void:
-	_clear_active_tweens()
-	_check_king_status()
-	_update_piece_positions()
-	queue_redraw()
+	reset_board_visuals()
 
 func _on_square_selected(_sq: int, _moves: Array) -> void:
 	queue_redraw()
@@ -468,11 +558,11 @@ func _on_move_made(move: ChessMove) -> void:
 
 func _check_king_status() -> void:
 	in_check_sq = -1
-	var game = GameController.game
-	if game and game.is_in_check(game.active_color):
+	var gc = _get_game_controller()
+	if gc and gc.game and gc.game.is_in_check(gc.game.active_color):
 		for i in range(64):
-			var p = game.get_piece(i)
-			if p.type == ChessPiece.Type.KING and p.color == game.active_color:
+			var p = gc.game.get_piece(i)
+			if p.type == ChessPiece.Type.KING and p.color == gc.game.active_color:
 				in_check_sq = i
 				break
 	set_process(in_check_sq != -1)
