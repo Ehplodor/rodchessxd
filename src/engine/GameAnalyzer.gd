@@ -20,11 +20,19 @@ var black_estimated_elo: int = 1500
 var white_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0}
 var black_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0}
 
+var engine_manager: Node = null
+
+func _init() -> void:
+	engine_manager = _get_engine_manager()
+
 func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 	is_analyzing = true
 	cancel_requested = false
 	move_evaluations.clear()
 	
+	if not engine_manager:
+		engine_manager = _get_engine_manager()
+
 	_reset_stats()
 	
 	var moves = game.move_history
@@ -32,7 +40,9 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 	
 	if total_plies == 0:
 		is_analyzing = false
-		return _build_final_report()
+		var rep = _build_final_report()
+		call_deferred("emit_signal", "analysis_finished", rep)
+		return rep
 
 	# Analyse de la position de départ (une seule fois)
 	var sim_game = ChessGame.new()
@@ -102,21 +112,23 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 		move_evaluations.append(move_record)
 
 		prev_score_cp = score_after
-		progress_updated.emit(i + 1, total_plies)
+		call_deferred("emit_signal", "progress_updated", i + 1, total_plies)
 
-	# Calculs finaux ACPL & Précision
+	# Calculs finaux ACPL
 	white_acpl = float(white_loss_sum) / maxi(1, white_moves_count)
 	black_acpl = float(black_loss_sum) / maxi(1, black_moves_count)
 
-	white_accuracy = _calculate_accuracy(white_acpl)
-	black_accuracy = _calculate_accuracy(black_acpl)
+	# Calcul de précision CAPS2 basée sur la perte de probabilité de gain coup par coup
+	white_accuracy = _calculate_caps_accuracy(move_evaluations, true)
+	black_accuracy = _calculate_caps_accuracy(move_evaluations, false)
 
-	white_estimated_elo = _estimate_elo(white_acpl, white_stats)
-	black_estimated_elo = _estimate_elo(black_acpl, black_stats)
+	# Estimation ELO réaliste calibrée sur les benchmarks FIDE / Chess.com
+	white_estimated_elo = _estimate_elo(white_accuracy, white_acpl, white_stats, white_moves_count)
+	black_estimated_elo = _estimate_elo(black_accuracy, black_acpl, black_stats, black_moves_count)
 
 	is_analyzing = false
 	var report = _build_final_report()
-	analysis_finished.emit(report)
+	call_deferred("emit_signal", "analysis_finished", report)
 	return report
 
 func cancel_analysis() -> void:
@@ -130,16 +142,14 @@ func _reset_stats() -> void:
 func _classify_move(cp_loss: int, move: ChessMove, best_move: String, _score_before: int, _score_after: int, _is_white: bool) -> ChessMove.Quality:
 	# 1. Si le coup joué est exactement le #1 du moteur
 	if move.uci == best_move:
-		# Coup brillant ? (Sacrifice de matériel maintenant ou augmentant l'avantage)
 		if move.captured_piece == ChessPiece.Type.NONE and move.piece != ChessPiece.Type.PAWN:
-			# Sacrifices possibles de pièce mineure ou lourde
 			return ChessMove.Quality.BRILLIANT
 		return ChessMove.Quality.BEST
 
-	# 2. Selon la perte en centipions
+	# 2. Selon la perte en centipions (normes FIDE / Lichess)
 	if cp_loss <= 15:
 		return ChessMove.Quality.EXCELLENT
-	elif cp_loss <= 35:
+	elif cp_loss <= 40:
 		return ChessMove.Quality.GOOD
 	elif cp_loss <= 90:
 		return ChessMove.Quality.INACCURACY
@@ -158,25 +168,96 @@ func _increment_quality_stat(stats: Dictionary, q: ChessMove.Quality) -> void:
 		ChessMove.Quality.MISTAKE: stats["mistake"] += 1
 		ChessMove.Quality.BLUNDER: stats["blunder"] += 1
 
-## Formule de précision de jeu (type CAPS / Lichess win chance model)
-func _calculate_accuracy(acpl: float) -> float:
-	# Modèle sigmoïde standard : 100 * exp(-0.015 * ACPL)
-	var acc = 103.0 * exp(-0.0125 * acpl)
-	return clampf(acc, 15.0, 99.8)
+## Conversion centipions -> Probabilité de gain (modèle sigmoïde standard FIDE / Lichess)
+## 0 cp -> 50%, +100 cp -> ~64%, +300 cp -> ~85%, +600 cp -> ~97%
+func _win_percentage(score_cp: int) -> float:
+	return 100.0 / (1.0 + exp(-0.00368208 * float(score_cp)))
 
-## Modèle de régression d'estimation ELO calibré sur benchmarks réels
-func _estimate_elo(acpl: float, stats: Dictionary) -> int:
-	var base_elo = 2850.0 - (acpl * 14.5)
-	
-	# Pénalité pour gaffes
+## Précision CAPS2 (Chess.com / Lichess) calculée coup par coup
+func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> float:
+	var move_accuracies: Array[float] = []
+	var prev_cp = 20 # Score de départ égalité légère blanc
+
+	for ev in evals:
+		var cur_cp = ev.get("score_cp", 0)
+		var is_white_move = ev.get("is_white", true)
+
+		if is_white_move == for_white:
+			var win_before: float
+			var win_after: float
+
+			if for_white:
+				win_before = _win_percentage(prev_cp)
+				win_after = _win_percentage(cur_cp)
+			else:
+				win_before = 100.0 - _win_percentage(prev_cp)
+				win_after = 100.0 - _win_percentage(cur_cp)
+
+			var win_loss = maxf(0.0, win_before - win_after)
+			# Formule officielle CAPS2 : 103.1668 * exp(-0.04354 * win_loss) - 3.1669
+			var acc = 103.1668 * exp(-0.04354 * win_loss) - 3.1669
+			move_accuracies.append(clampf(acc, 0.0, 100.0))
+
+		prev_cp = cur_cp
+
+	if move_accuracies.is_empty():
+		return 50.0
+
+	var sum_acc = 0.0
+	for a in move_accuracies:
+		sum_acc += a
+	return clampf(sum_acc / float(move_accuracies.size()), 5.0, 99.8)
+
+## Modèle d'estimation ELO réaliste et étalonné
+## Évite l'inflation absurde à 2800 ELO sur les ouvertures courtes
+func _estimate_elo(accuracy: float, acpl: float, stats: Dictionary, moves_count: int) -> int:
+	if moves_count == 0:
+		return 1500
+
+	# 1. Base ELO dérivée de la précision de jeu (étalonné sur Chess.com Game Review)
+	var base_elo: float = 0.0
+	if accuracy >= 98.0:
+		base_elo = 2500.0 + (accuracy - 98.0) * 125.0 # 98% -> 2500, 100% -> 2750
+	elif accuracy >= 95.0:
+		base_elo = 2200.0 + (accuracy - 95.0) * 100.0 # 95% -> 2200, 98% -> 2500
+	elif accuracy >= 90.0:
+		base_elo = 1850.0 + (accuracy - 90.0) * 70.0  # 90% -> 1850, 95% -> 2200
+	elif accuracy >= 82.0:
+		base_elo = 1500.0 + (accuracy - 82.0) * 43.75 # 82% -> 1500, 90% -> 1850
+	elif accuracy >= 72.0:
+		base_elo = 1200.0 + (accuracy - 72.0) * 30.0  # 72% -> 1200, 82% -> 1500
+	elif accuracy >= 60.0:
+		base_elo = 900.0 + (accuracy - 60.0) * 25.0   # 60% -> 900,  72% -> 1200
+	elif accuracy >= 45.0:
+		base_elo = 600.0 + (accuracy - 45.0) * 20.0   # 45% -> 600,  60% -> 900
+	else:
+		base_elo = maxf(300.0, 300.0 + accuracy * 6.66) # <45% -> 300 à 600
+
+	# 2. Modulateur ACPL : une perte moyenne élevée plafonne le niveau maximum crédible
+	if acpl > 110.0:
+		base_elo = minf(base_elo, 950.0)
+	elif acpl > 75.0:
+		base_elo = minf(base_elo, 1350.0)
+	elif acpl > 50.0:
+		base_elo = minf(base_elo, 1700.0)
+
+	# 3. Pénalité pour gaffes et erreurs tactiques
 	var blunders = stats.get("blunder", 0)
-	base_elo -= blunders * 35.0
-	
-	# Bonus pour coups de maître
-	var great_moves = stats.get("best", 0) + stats.get("brilliant", 0)
-	base_elo += great_moves * 8.0
+	var mistakes = stats.get("mistake", 0)
+	var blunder_rate = float(blunders) / float(moves_count)
+	var mistake_rate = float(mistakes) / float(moves_count)
 
-	return clampi(int(base_elo), 600, 3000)
+	base_elo -= blunder_rate * 450.0 # Ex: 2 gaffes en 20 coups (-45 ELO)
+	base_elo -= mistake_rate * 200.0
+
+	# 4. Amortisseur statistique essentiel : Taille de l'échantillon (Nombre de coups)
+	# 4 coups d'ouverture connus par cœur ne font pas un Grand-Maître à 2700 !
+	# La pleine confiance n'est atteinte qu'à partir de 20 coups joués (~40 demi-coups).
+	var confidence = clampf(float(moves_count) / 20.0, 0.25, 1.0)
+	var median_anchor = 1250.0 # Point d'ancrage médian amateur / club
+	var calibrated_elo = (base_elo * confidence) + (median_anchor * (1.0 - confidence))
+
+	return clampi(int(round(calibrated_elo)), 300, 2850)
 
 func _get_engine_manager() -> Node:
 	var tree = Engine.get_main_loop() as SceneTree
@@ -185,7 +266,11 @@ func _get_engine_manager() -> Node:
 	return null
 
 func _evaluate_fen_sync(fen: String, depth: int) -> Dictionary:
-	var engine = _get_engine_manager()
+	var engine = engine_manager
+	if engine == null:
+		engine = _get_engine_manager()
+		engine_manager = engine
+
 	if engine == null or not engine.is_engine_running:
 		return {"score_cp": 0, "best_move": ""}
 

@@ -18,6 +18,7 @@ const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 @onready var advantage_graph: AdvantageGraph2D = $VBox/BottomTabs/Bilan/GraphContainer/AdvantageGraph
 @onready var move_list: MoveList2D = $VBox/BottomTabs/Bilan/MoveList
 @onready var coach_panel: CoachPanel2D = $VBox/BottomTabs/Coach/CoachPanel
+@onready var bottom_tabs: TabContainer = $VBox/BottomTabs
 
 @onready var stats_label: Label = $VBox/BottomTabs/Bilan/StatsLabel
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
@@ -30,6 +31,10 @@ var analyzer: GameAnalyzer
 var analysis_thread: Thread = null
 
 func _ready() -> void:
+	# Nommer clairement les onglets du panneau inférieur
+	bottom_tabs.set_tab_title(0, "📈 Graphe & Analyse")
+	bottom_tabs.set_tab_title(1, "🤖 Coach IA")
+
 	analyzer = GameAnalyzer.new()
 	analyzer.analysis_finished.connect(_on_analysis_finished)
 	analyzer.progress_updated.connect(func(cur, tot):
@@ -37,11 +42,17 @@ func _ready() -> void:
 	)
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
+	GameController.position_changed.connect(_on_game_position_changed)
 	
 	if EngineManager != null:
 		EngineManager.evaluation_updated.connect(_on_engine_eval)
 	
 	call_deferred("_start_initial_eval")
+
+func _on_game_position_changed() -> void:
+	if GameController.game.move_history.is_empty():
+		advantage_graph.set_evaluations([])
+		stats_label.text = "Position de départ prête. Cliquez sur '🔍 Analyser Partie'."
 
 func _start_initial_eval() -> void:
 	if EngineManager != null and EngineManager.is_engine_running:
@@ -128,10 +139,10 @@ func _on_btn_analyze_game_pressed() -> void:
 	if analysis_thread and analysis_thread.is_started():
 		analysis_thread.wait_to_finish()
 	
+	analyzer.is_analyzing = true
 	analysis_thread = Thread.new()
 	analysis_thread.start(func():
-		var report = analyzer.start_game_analysis(GameController.game, 10)
-		call_deferred("_on_analysis_finished", report)
+		analyzer.start_game_analysis(GameController.game, 10)
 	)
 
 func _on_analysis_finished(report: Dictionary) -> void:
@@ -146,4 +157,10 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	var w_elo = report.get("white_estimated_elo", 1500)
 	var b_elo = report.get("black_estimated_elo", 1500)
 
-	stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO)" % [w_acc, w_elo, b_acc, b_elo]
+	var total_moves = GameController.game.move_history.size() / 2
+	var short_sample = " • [Échantillon court]" if total_moves < 12 else ""
+
+	stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO)%s" % [w_acc, w_elo, b_acc, b_elo, short_sample]
+
+	# Basculer immédiatement sur l'onglet du graphe pour que l'utilisateur le visualise en direct
+	bottom_tabs.current_tab = 0

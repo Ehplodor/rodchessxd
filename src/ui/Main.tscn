@@ -189,7 +189,7 @@ text = "Position de départ prête pour l'analyse."
 horizontal_alignment = 1
 
 [node name="GraphContainer" type="PanelContainer" parent="VBox/BottomTabs/Bilan"]
-custom_minimum_size = Vector2(0, 60)
+custom_minimum_size = Vector2(0, 90)
 layout_mode = 2
 
 [node name="AdvantageGraph" type="Control" parent="VBox/BottomTabs/Bilan/GraphContainer"]
