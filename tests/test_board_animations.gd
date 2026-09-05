@@ -73,7 +73,7 @@ func _init() -> void:
 	assert(board.active_tweens.size() >= 2, "Castling should animate both King and Rook (tweens >= 2)")
 	print("Castling animation verified with %d tweens." % board.active_tweens.size())
 	
-	# 7. Test capture ghost animation
+	# 7. Test capture explosion and vibration FX
 	var cap_move = ChessMove.new()
 	cap_move.from_sq = 28 # e4
 	cap_move.to_sq = 35   # d5
@@ -81,16 +81,37 @@ func _init() -> void:
 	cap_move.color = ChessPiece.PieceColor.WHITE
 	cap_move.captured_piece = ChessPiece.Type.PAWN
 	board._animate_move(cap_move)
-	print("Capture ghost animation verified.")
+	assert(board.fx_layer != null, "fx_layer should exist on board")
+	assert(board.fx_layer.get_child_count() > 0, "fx_layer should have active CaptureBurstFX")
+	assert(board.ghost_sprites.size() > 0, "A ghost piece should be vibrating/dissipating")
+	print("Capture explosion & vibration FX verified: fx_layer childs=%d, ghosts=%d." % [board.fx_layer.get_child_count(), board.ghost_sprites.size()])
 	
-	# 8. Test PGN loading and clean reset of all pieces
+	# 8. Test History Navigation Animations (Forward & Backward)
+	var nav_move = ChessMove.new()
+	nav_move.from_sq = 12 # e2
+	nav_move.to_sq = 28   # e4
+	nav_move.piece = ChessPiece.Type.PAWN
+	nav_move.color = ChessPiece.PieceColor.WHITE
+	
+	board._animate_navigation_forward(nav_move)
+	assert(board.is_animating_move, "Navigation forward should set is_animating_move = true")
+	assert(board.active_tweens.size() > 0, "Navigation forward should register active tweens")
+	print("History navigation forward animation verified.")
+	
+	board._animate_navigation_backward(nav_move)
+	assert(board.is_animating_move, "Navigation backward should set is_animating_move = true")
+	assert(board.active_tweens.size() > 0, "Navigation backward should register active tweens")
+	print("History navigation backward reverse-glide animation verified.")
+	
+	# 9. Test PGN loading and clean reset of all pieces and FX
 	if gc:
 		var pgn = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. O-O d6"
 		gc.load_pgn(pgn)
-		# Après chargement, aucun tween actif et aucun sprite fantôme
+		# Après chargement, aucun tween actif, aucun sprite fantôme et calque FX vide
 		assert(board.active_tweens.size() == 0, "No active tweens after PGN load")
 		assert(board.ghost_sprites.size() == 0, "No ghost sprites after PGN load")
-		print("PGN loaded cleanly: board visuals completely reset, zero orphaned ghosts.")
+		assert(board.fx_layer.get_child_count() == 0, "fx_layer must have 0 children after reset")
+		print("PGN loaded cleanly: board visuals completely reset, zero orphaned ghosts, clean fx_layer.")
 	
 	board.queue_free()
 	eval_bar.queue_free()

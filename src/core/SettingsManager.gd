@@ -15,7 +15,7 @@ var settings := {
 	"engine_multipv": 2,
 	"engine_path": "",
 	"active_engine": "Stockfish",
-	"board_theme": "dark_modern",
+	"board_theme": "emerald",
 	"sound_enabled": true,
 	"sound_volume": 0.8,
 	"ai_provider": "free_cloud", # "local_slm", "free_cloud", "api_key"

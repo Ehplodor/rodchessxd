@@ -48,7 +48,67 @@ func _ready() -> void:
 	if EngineManager != null:
 		EngineManager.evaluation_updated.connect(_on_engine_eval)
 	
+	_apply_modern_theme()
 	call_deferred("_start_initial_eval")
+
+func _apply_modern_theme() -> void:
+	var btn_normal = StyleBoxFlat.new()
+	btn_normal.bg_color = Color(0.12, 0.16, 0.23, 0.90)
+	btn_normal.border_color = Color(0.20, 0.27, 0.38, 0.85)
+	btn_normal.set_border_width_all(1)
+	btn_normal.set_corner_radius_all(6)
+	btn_normal.content_margin_left = 6
+	btn_normal.content_margin_right = 6
+	btn_normal.content_margin_top = 3
+	btn_normal.content_margin_bottom = 3
+
+	var btn_hover = btn_normal.duplicate() as StyleBoxFlat
+	btn_hover.bg_color = Color(0.16, 0.22, 0.32, 1.0)
+	btn_hover.border_color = Color(0.22, 0.74, 0.97, 0.80)
+
+	var btn_pressed = btn_normal.duplicate() as StyleBoxFlat
+	btn_pressed.bg_color = Color(0.08, 0.12, 0.18, 1.0)
+	btn_pressed.border_color = Color(0.22, 0.74, 0.97, 1.0)
+
+	# Appliquer à tous les boutons de TopBar
+	var top_bar = $VBox/TopBar
+	for child in top_bar.get_children():
+		if child is Button:
+			child.add_theme_stylebox_override("normal", btn_normal)
+			child.add_theme_stylebox_override("hover", btn_hover)
+			child.add_theme_stylebox_override("pressed", btn_pressed)
+			child.add_theme_color_override("font_color", Color("#f1f5f9"))
+			child.add_theme_color_override("font_hover_color", Color("#ffffff"))
+
+	# Appliquer aux boutons de navigation
+	var nav_row = $VBox/NavRow
+	for child in nav_row.get_children():
+		if child is Button and child != $VBox/NavRow/BtnAnalyzeGame:
+			child.add_theme_stylebox_override("normal", btn_normal)
+			child.add_theme_stylebox_override("hover", btn_hover)
+			child.add_theme_stylebox_override("pressed", btn_pressed)
+			child.add_theme_color_override("font_color", Color("#f1f5f9"))
+
+	# Bouton Analyser Partie (accent émeraude moderne)
+	var btn_analyze = $VBox/NavRow/BtnAnalyzeGame
+	var analyze_normal = StyleBoxFlat.new()
+	analyze_normal.bg_color = Color("#059669")
+	analyze_normal.border_color = Color("#10b981")
+	analyze_normal.set_border_width_all(1)
+	analyze_normal.set_corner_radius_all(6)
+	analyze_normal.content_margin_left = 10
+	analyze_normal.content_margin_right = 10
+	analyze_normal.content_margin_top = 4
+	analyze_normal.content_margin_bottom = 4
+
+	var analyze_hover = analyze_normal.duplicate() as StyleBoxFlat
+	analyze_hover.bg_color = Color("#10b981")
+	analyze_hover.border_color = Color("#34d399")
+
+	btn_analyze.add_theme_stylebox_override("normal", analyze_normal)
+	btn_analyze.add_theme_stylebox_override("hover", analyze_hover)
+	btn_analyze.add_theme_stylebox_override("pressed", analyze_normal)
+	btn_analyze.add_theme_color_override("font_color", Color("#ffffff"))
 
 func _on_game_position_changed() -> void:
 	if GameController.game.move_history.is_empty():
