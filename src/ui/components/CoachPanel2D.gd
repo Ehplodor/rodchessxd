@@ -366,6 +366,8 @@ func _send_coach_query(user_question: String) -> void:
 	if cur_ply >= 0 and cur_ply < game.move_history.size():
 		var m = game.move_history[cur_ply]
 		last_move_san = m.san
+		extra_context["last_move_natural"] = game.describe_move_natural(m)
+		extra_context["last_move_uci"] = m.uci
 		extra_context["quality"] = m.quality
 		extra_context["cp_loss"] = m.centipawn_loss
 		extra_context["move_number"] = (cur_ply / 2) + 1

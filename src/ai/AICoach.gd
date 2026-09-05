@@ -139,7 +139,11 @@ Tu es EXCLUSIVEMENT le coach et le conseiller personnel du JOUEUR AVEC LES BLANC
 			last_move_is_white = (active_color_str == "Noirs")
 
 		var author_str = "Blancs" if last_move_is_white else "Noirs"
-		last_move_desc = "%s (joué par les %s)" % [last_move_san, author_str]
+		var natural_action = extra_context.get("last_move_natural", "")
+		if natural_action != "":
+			last_move_desc = "%s (%s - joué par les %s)" % [last_move_san, natural_action, author_str]
+		else:
+			last_move_desc = "%s (joué par les %s)" % [last_move_san, author_str]
 
 	# --- 1. SYSTEM INSTRUCTIONS (RÈGLES D'OR & MISSION) ---
 	var system_prompt = """Tu es RodCoach, Grand Maître International d'échecs et entraîneur pédagogique d'élite au sein de l'application RodChessXD.
@@ -163,7 +167,10 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 4. TON ET VOCABULAIRE :
    - Langue : Français soigné, dynamique et motivant.
    - Notation : Notation algébrique standard (ex: 1. e4, 2... Cf6, 3. Fb5).
-   - Format concis : 150 à 220 mots au total (2 à 4 paragraphes percutants).""" % [perspective_instruction, perspective_label, perspective_label]
+   - Format concis : 150 à 220 mots au total (2 à 4 paragraphes percutants).
+5. ACTIONS NATURELLES DÉCODÉES (AIDE AU CALCUL) :
+   - Tous les coups d'échecs (dernier coup joué, meilleur coup recommandé et suite de coups calculée par Stockfish) te sont fournis DÉJÀ DÉCODÉS en actions humaines explicites (ex: 'Dame blanche en c3 prend la Tour noire en e3', 'Cavalier blanc se déplace de g1 en f3').
+   - Appuie-toi sur ces actions déjà formulées pour expliquer les gains de matériel, les clouages, les fourchettes et les réfutations sans risque d'erreur sur l'identité des pièces ou des cases.""" % [perspective_instruction, perspective_label, perspective_label]
 
 	match personality:
 		"blunder_hunter":
@@ -172,6 +179,17 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 			system_prompt += "\n\nAdopte un ton très simple, amusant et imagé. Remplace le jargon technique par des métaphores visuelles concrètes ('le château du roi', 'le cavalier qui bondit au centre', 'la tour sur l'autoroute')."
 		_:
 			system_prompt += "\n\nAdopte un ton de mentor bienveillant, encourageant et constructif. Valorise les bonnes idées tout en expliquant les erreurs avec patience."
+
+	# Décodage naturel du meilleur coup et de la variante calculée
+	var best_move_desc = "N/A"
+	if best_move != "":
+		var bm_natural = ChessGame.describe_move_from_fen(fen, best_move)
+		if bm_natural != "" and bm_natural != best_move:
+			best_move_desc = "`%s` (%s)" % [best_move, bm_natural]
+		else:
+			best_move_desc = "`%s`" % best_move
+
+	var pv_natural_text = ChessGame.format_pv_natural_text(fen, pv_line, 6)
 
 	# --- 2. USER CONTENT (FICHE D'ANALYSE DE LA POSITION) ---
 	var user_prompt = """### 📋 FICHE TECHNIQUE DE LA POSITION (Stockfish 18)
@@ -183,8 +201,9 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 - **Équilibre matériel** : %s
 - **Qualification du coup** : %s
 - **Évaluation Stockfish** : %s
-- **Meilleur coup recommandé par Stockfish** : `%s`
-- **Variante calculée (PV)** : `%s`
+- **Meilleur coup recommandé par Stockfish** : %s
+- **Variante tactique calculée par Stockfish (enchaînement coup par coup)** :
+%s
 """ % [
 		perspective_label,
 		last_move_desc,
@@ -194,8 +213,8 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 		mat_info.get("summary", "Égalité"),
 		quality_label,
 		eval_desc,
-		best_move if best_move != "" else "N/A",
-		pv_str
+		best_move_desc,
+		pv_natural_text
 	]
 
 	if extra_context.get("is_check", false):

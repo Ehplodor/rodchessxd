@@ -638,11 +638,31 @@ func _tokenize_pgn(text: String) -> Array[String]:
 func _find_matching_move(token: String) -> ChessMove:
 	var legal = get_legal_moves(active_color)
 	
-	# 1. Correspondance exacte SAN ou UCI
+	# 1. Correspondance exacte SAN ou UCI (avec ou sans promotion)
 	for m in legal:
 		var clean_san = m.san.replace("+", "").replace("#", "")
 		if clean_san == token or m.uci == token:
 			return m
+
+	# Correspondance UCI directe (ex: e2e4, c3e3, e7e8q)
+	if token.length() >= 4:
+		var uci_from = ChessMove.coord_to_square(token.substr(0, 2))
+		var uci_to = ChessMove.coord_to_square(token.substr(2, 2))
+		if uci_from != -1 and uci_to != -1:
+			var prom_char = token.substr(4, 1).to_lower() if token.length() >= 5 else ""
+			for m in legal:
+				if m.from_sq == uci_from and m.to_sq == uci_to:
+					if prom_char != "":
+						var prom_type = ChessPiece.Type.QUEEN
+						match prom_char:
+							"q": prom_type = ChessPiece.Type.QUEEN
+							"r": prom_type = ChessPiece.Type.ROOK
+							"b": prom_type = ChessPiece.Type.BISHOP
+							"n": prom_type = ChessPiece.Type.KNIGHT
+						if m.promotion == prom_type:
+							return m
+					else:
+						return m
 
 	# 2. Roque
 	if token in ["O-O", "0-0"]:
@@ -705,3 +725,146 @@ func export_pgn() -> String:
 	
 	pgn += pgn_headers.get("Result", "*")
 	return pgn
+
+# --- INTERPRÉTATION ALGORITHMIQUE NATURELLE DES COUPS & ACTIONS ÉCHIQUÉENNES ---
+
+## Recherche un coup légal à partir d'une chaîne SAN ou UCI (ex: "Nf3", "c3e3", "O-O", "e7e8q")
+func find_move(token: String) -> ChessMove:
+	return _find_matching_move(token.strip_edges())
+
+## Nom français de base d'une pièce
+static func get_piece_name_fr(type: int) -> String:
+	match type:
+		ChessPiece.Type.PAWN: return "Pion"
+		ChessPiece.Type.KNIGHT: return "Cavalier"
+		ChessPiece.Type.BISHOP: return "Fou"
+		ChessPiece.Type.ROOK: return "Tour"
+		ChessPiece.Type.QUEEN: return "Dame"
+		ChessPiece.Type.KING: return "Roi"
+	return "Pièce"
+
+## Indique si le nom de la pièce est féminin en français (Tour, Dame)
+static func is_piece_feminine(type: int) -> bool:
+	return (type == ChessPiece.Type.ROOK or type == ChessPiece.Type.QUEEN)
+
+## Retourne le nom qualifié avec couleur et article optionnel
+## ex: "Dame blanche", "la Tour noire", "le Cavalier blanc"
+static func get_colored_piece_name_fr(type: int, color: int, with_article: bool = false) -> String:
+	var name = get_piece_name_fr(type)
+	var is_fem = is_piece_feminine(type)
+	var col_adj = ""
+	var article = ""
+	
+	if color == ChessPiece.PieceColor.WHITE:
+		col_adj = "blanche" if is_fem else "blanc"
+		article = "la " if is_fem else "le "
+	else:
+		col_adj = "noire" if is_fem else "noir"
+		article = "la " if is_fem else "le "
+	
+	if with_article:
+		return article + name + " " + col_adj
+	else:
+		return name + " " + col_adj
+
+## Traduit un coup en action humaine parfaitement explicite sans ambiguïté
+## ex: "Dame blanche en c3 prend la Tour noire en e3", "Petit roque des Blancs"
+func describe_move_natural(move: ChessMove) -> String:
+	if not move:
+		return ""
+
+	var col_name = "Blancs" if move.color == ChessPiece.PieceColor.WHITE else "Noirs"
+	var col_adj = "blanc" if move.color == ChessPiece.PieceColor.WHITE else "noir"
+	var opp_col_adj = "noir" if move.color == ChessPiece.PieceColor.WHITE else "blanc"
+	var from_c = ChessMove.square_to_coord(move.from_sq)
+	var to_c = ChessMove.square_to_coord(move.to_sq)
+
+	# 1. Roque
+	if move.is_castling:
+		if move.to_sq % 8 == 6:
+			var k_sq = "g1" if move.color == ChessPiece.PieceColor.WHITE else "g8"
+			var r_sq = "f1" if move.color == ChessPiece.PieceColor.WHITE else "f8"
+			return "Petit roque des %s (Roi en %s, Tour en %s)" % [col_name, k_sq, r_sq]
+		else:
+			var k_sq = "c1" if move.color == ChessPiece.PieceColor.WHITE else "c8"
+			var r_sq = "d1" if move.color == ChessPiece.PieceColor.WHITE else "d8"
+			return "Grand roque des %s (Roi en %s, Tour en %s)" % [col_name, k_sq, r_sq]
+
+	# 2. Prise en passant
+	if move.is_en_passant:
+		var dir = 1 if move.color == ChessPiece.PieceColor.WHITE else -1
+		var cap_sq_c = ChessMove.square_to_coord(move.to_sq - (dir * 8))
+		return "Pion %s en %s prend en passant le Pion %s en %s (arrive en %s)" % [col_adj, from_c, opp_col_adj, cap_sq_c, to_c]
+
+	# 3. Promotion
+	if move.promotion != ChessPiece.Type.NONE:
+		var prom_str = get_piece_name_fr(move.promotion)
+		var base_str = ""
+		if move.captured_piece != ChessPiece.Type.NONE:
+			var opp_piece = get_colored_piece_name_fr(move.captured_piece, 1 - move.color, true)
+			base_str = "Pion %s en %s prend %s en %s et est promu en %s" % [col_adj, from_c, opp_piece, to_c, prom_str]
+		else:
+			base_str = "Pion %s en %s avance en %s et est promu en %s" % [col_adj, from_c, to_c, prom_str]
+		
+		if move.is_checkmate: base_str += " (# Échec et mat !)"
+		elif move.is_check: base_str += " (+ Échec au Roi)"
+		return base_str
+
+	# 4. Prise classique
+	if move.captured_piece != ChessPiece.Type.NONE:
+		var attacker = get_colored_piece_name_fr(move.piece, move.color, false)
+		var victim = get_colored_piece_name_fr(move.captured_piece, 1 - move.color, true)
+		var text = "%s en %s prend %s en %s" % [attacker, from_c, victim, to_c]
+		if move.is_checkmate: text += " (# Échec et mat !)"
+		elif move.is_check: text += " (+ Échec au Roi)"
+		return text
+
+	# 5. Déplacement sans prise
+	if move.piece == ChessPiece.Type.PAWN:
+		var text = "Pion %s avance de %s en %s" % [col_adj, from_c, to_c]
+		if move.is_checkmate: text += " (# Échec et mat !)"
+		elif move.is_check: text += " (+ Échec au Roi)"
+		return text
+	else:
+		var piece_str = get_colored_piece_name_fr(move.piece, move.color, false)
+		var text = "%s se déplace de %s en %s" % [piece_str, from_c, to_c]
+		if move.is_checkmate: text += " (# Échec et mat !)"
+		elif move.is_check: text += " (+ Échec au Roi)"
+		return text
+
+## Décrit en langage naturel clair un coup à partir d'un FEN (sans LLM)
+static func describe_move_from_fen(fen: String, move_str: String) -> String:
+	if move_str == "":
+		return ""
+	var game = ChessGame.new(fen)
+	var m = game.find_move(move_str)
+	if m:
+		return game.describe_move_natural(m)
+	return move_str
+
+## Décode séquentiellement la variante PV de Stockfish coup par coup en français naturel
+static func format_pv_natural_text(fen: String, pv_moves: Array, max_moves: int = 5) -> String:
+	if pv_moves.is_empty():
+		return "Aucune variante calculée."
+
+	var sim_game = ChessGame.new(fen)
+	var lines: PackedStringArray = []
+	var count = mini(pv_moves.size(), max_moves)
+
+	for i in range(count):
+		var token = str(pv_moves[i]).strip_edges()
+		if token == "":
+			continue
+		var m = sim_game.find_move(token)
+		if not m:
+			lines.append("  %d. %s" % [i + 1, token])
+			continue
+
+		var icon = "⚪" if m.color == ChessPiece.PieceColor.WHITE else "⚫"
+		var col_name = "Blancs" if m.color == ChessPiece.PieceColor.WHITE else "Noirs"
+		var desc = sim_game.describe_move_natural(m)
+		lines.append("  %d. %s %s : %s (%s)" % [i + 1, icon, col_name, desc, m.san])
+		sim_game.make_move(m)
+
+	return "\n".join(lines)
+
