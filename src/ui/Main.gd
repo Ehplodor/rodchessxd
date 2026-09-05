@@ -82,30 +82,30 @@ func _on_btn_flip_pressed() -> void:
 
 # --- MODALES D'IMPORT & GESTION ---
 
+var current_modal: Window = null
+
+func _open_modal(modal_node: Window) -> void:
+	if current_modal and is_instance_valid(current_modal):
+		current_modal.hide()
+		current_modal.queue_free()
+	current_modal = modal_node
+	add_child(modal_node)
+	modal_node.popup_centered()
+
 func _on_btn_import_png_pressed() -> void:
-	var modal: OCREditorModal = OCREditorModal.new()
-	add_child(modal)
-	modal.popup_centered()
+	_open_modal(OCREditorModal.new())
 
 func _on_btn_import_pgn_pressed() -> void:
-	var modal: PGNModal = PGNModal.new()
-	add_child(modal)
-	modal.popup_centered()
+	_open_modal(PGNModal.new())
 
 func _on_btn_chess_com_pressed() -> void:
-	var modal: ChessComImportModal = ChessComImportModal.new()
-	add_child(modal)
-	modal.popup_centered()
+	_open_modal(ChessComImportModal.new())
 
 func _on_btn_engine_hub_pressed() -> void:
-	var hub: EngineHubModal = EngineHubModal.new()
-	add_child(hub)
-	hub.popup_centered()
+	_open_modal(EngineHubModal.new())
 
 func _on_btn_settings_pressed() -> void:
-	var modal: SettingsModal = SettingsModal.new()
-	add_child(modal)
-	modal.popup_centered()
+	_open_modal(SettingsModal.new())
 
 # --- ANALYSE DE PARTIE ---
 

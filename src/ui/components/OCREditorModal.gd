@@ -30,23 +30,30 @@ func _ready() -> void:
 	_reset_board()
 
 func _setup_ui() -> void:
+	var scroll = ScrollContainer.new()
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_left = 8
+	scroll.offset_top = 8
+	scroll.offset_right = -8
+	scroll.offset_bottom = -8
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
+
 	var main_vbox = VBoxContainer.new()
+	main_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main_vbox.add_theme_constant_override("separation", 8)
-	main_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	main_vbox.offset_left = 8
-	main_vbox.offset_top = 8
-	main_vbox.offset_right = -8
-	main_vbox.offset_bottom = -8
-	add_child(main_vbox)
+	scroll.add_child(main_vbox)
 
 	# 1. Bouton Sélectionner Image
 	var btn_choose = Button.new()
 	btn_choose.text = "📁 Sélectionner une image PNG / Capture"
+	btn_choose.custom_minimum_size = Vector2(0, 36)
 	btn_choose.pressed.connect(_open_file_dialog)
 	main_vbox.add_child(btn_choose)
 
 	# 2. Grille 8x8 interactive pour vérification / correction
 	var grid_panel = CenterContainer.new()
+	grid_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main_vbox.add_child(grid_panel)
 
 	grid_container = GridContainer.new()
@@ -72,35 +79,52 @@ func _setup_ui() -> void:
 			grid_container.add_child(btn)
 			square_buttons.append(btn)
 
-	# 3. Palette de pièces rapides
+	# 3. Palette de pièces rapides en deux rangées confortables
 	var palette_lbl = Label.new()
-	palette_lbl.text = "Palette de correction rapide (cliquez une pièce puis une case) :"
+	palette_lbl.text = "Palette de correction rapide :"
+	palette_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	palette_lbl.add_theme_font_size_override("font_size", 11)
 	palette_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
 	main_vbox.add_child(palette_lbl)
 
-	var palette_box = HBoxContainer.new()
-	palette_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	palette_box.add_theme_constant_override("separation", 4)
-	main_vbox.add_child(palette_box)
+	# Rangée Blancs
+	var row_white = HBoxContainer.new()
+	row_white.alignment = BoxContainer.ALIGNMENT_CENTER
+	row_white.add_theme_constant_override("separation", 6)
+	main_vbox.add_child(row_white)
 
-	# Pièces blanches
+	var lbl_w = Label.new()
+	lbl_w.text = "⚪"
+	lbl_w.add_theme_font_size_override("font_size", 12)
+	row_white.add_child(lbl_w)
+
 	for t in [ChessPiece.Type.PAWN, ChessPiece.Type.KNIGHT, ChessPiece.Type.BISHOP, ChessPiece.Type.ROOK, ChessPiece.Type.QUEEN, ChessPiece.Type.KING]:
-		_add_palette_btn(palette_box, t, ChessPiece.PieceColor.WHITE)
+		_add_palette_btn(row_white, t, ChessPiece.PieceColor.WHITE)
 
-	# Pièces noires
+	# Rangée Noirs + Gomme
+	var row_black = HBoxContainer.new()
+	row_black.alignment = BoxContainer.ALIGNMENT_CENTER
+	row_black.add_theme_constant_override("separation", 6)
+	main_vbox.add_child(row_black)
+
+	var lbl_b = Label.new()
+	lbl_b.text = "⚫"
+	lbl_b.add_theme_font_size_override("font_size", 12)
+	row_black.add_child(lbl_b)
+
 	for t in [ChessPiece.Type.PAWN, ChessPiece.Type.KNIGHT, ChessPiece.Type.BISHOP, ChessPiece.Type.ROOK, ChessPiece.Type.QUEEN, ChessPiece.Type.KING]:
-		_add_palette_btn(palette_box, t, ChessPiece.PieceColor.BLACK)
+		_add_palette_btn(row_black, t, ChessPiece.PieceColor.BLACK)
 
-	# Bouton gomme (case vide)
 	var btn_empty = Button.new()
-	btn_empty.text = "Vide"
-	btn_empty.add_theme_font_size_override("font_size", 11)
+	btn_empty.text = "🗑️ Vide"
+	btn_empty.custom_minimum_size = Vector2(50, 32)
+	btn_empty.add_theme_font_size_override("font_size", 10)
 	btn_empty.pressed.connect(func(): selected_palette_piece = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE})
-	palette_box.add_child(btn_empty)
+	row_black.add_child(btn_empty)
 
 	# 4. Trait et options
 	var opt_row = HBoxContainer.new()
+	opt_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	opt_row.add_theme_constant_override("separation", 10)
 	main_vbox.add_child(opt_row)
 
@@ -116,6 +140,7 @@ func _setup_ui() -> void:
 
 	# 5. Champ FEN
 	fen_input = LineEdit.new()
+	fen_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	fen_input.placeholder_text = "Notation FEN..."
 	fen_input.text_submitted.connect(_on_fen_text_submitted)
 	main_vbox.add_child(fen_input)
@@ -123,7 +148,8 @@ func _setup_ui() -> void:
 	# 6. Bouton Valider
 	var btn_validate = Button.new()
 	btn_validate.text = "🚀 Valider & Lancer l'Analyse"
-	btn_validate.custom_minimum_size = Vector2(0, 44)
+	btn_validate.custom_minimum_size = Vector2(0, 42)
+	btn_validate.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_validate.pressed.connect(_on_validate_pressed)
 	main_vbox.add_child(btn_validate)
 
@@ -137,7 +163,7 @@ func _setup_ui() -> void:
 
 func _add_palette_btn(parent: Node, type: int, color: int) -> void:
 	var btn = Button.new()
-	btn.custom_minimum_size = Vector2(28, 28)
+	btn.custom_minimum_size = Vector2(32, 32)
 	var path = ChessPiece.asset_path(type, color)
 	if ResourceLoader.exists(path):
 		btn.icon = load(path)

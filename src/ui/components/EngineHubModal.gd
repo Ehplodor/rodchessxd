@@ -26,48 +26,63 @@ func _setup_ui() -> void:
 	vbox.offset_top = 10
 	vbox.offset_right = -10
 	vbox.offset_bottom = -10
-	vbox.add_theme_constant_override("separation", 10)
+	vbox.add_theme_constant_override("separation", 8)
 	add_child(vbox)
 
 	var desc = Label.new()
 	desc.text = "Téléchargez directement des réseaux et moteurs additionnels spécialisés dans l'analyse humaine ou grand-maître."
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.add_theme_font_size_override("font_size", 12)
+	desc.add_theme_font_size_override("font_size", 11)
 	desc.add_theme_color_override("font_color", Color("#94a3b8"))
 	vbox.add_child(desc)
 
 	# Barre de téléchargement
 	download_progress_bar = ProgressBar.new()
 	download_progress_bar.custom_minimum_size = Vector2(0, 16)
+	download_progress_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	download_progress_bar.visible = false
 	vbox.add_child(download_progress_bar)
 
 	status_lbl = Label.new()
 	status_lbl.text = ""
+	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_lbl.add_theme_font_size_override("font_size", 11)
 	status_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
 	vbox.add_child(status_lbl)
 
-	# Liste des moteurs
+	# Liste des moteurs dans un ScrollContainer sécurisé
+	var scroll = ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vbox.add_child(scroll)
+
+	var engines_list = VBoxContainer.new()
+	engines_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	engines_list.add_theme_constant_override("separation", 8)
+	scroll.add_child(engines_list)
+
 	# 1. Stockfish Packagé
-	_add_engine_card(vbox, "Stockfish 18 (Intégré)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. Prêt à l'emploi.", true, "")
+	_add_engine_card(engines_list, "Stockfish 18 (Intégré)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. Prêt à l'emploi.", true, "")
 
 	# 2. Modèles Maia Chess
 	for name in EngineManager.DOWNLOADABLE_ENGINES.keys():
 		var data = EngineManager.DOWNLOADABLE_ENGINES[name]
 		var local_file = OS.get_user_data_dir() + "/engines/" + data["filename"]
 		var is_installed = FileAccess.file_exists(local_file)
-		_add_engine_card(vbox, name, data["desc"], is_installed, data["url"])
+		_add_engine_card(engines_list, name, data["desc"], is_installed, data["url"])
 
 	# Bouton Fermer
 	var btn_close = Button.new()
 	btn_close.text = "Fermer"
-	btn_close.custom_minimum_size = Vector2(0, 40)
+	btn_close.custom_minimum_size = Vector2(0, 36)
+	btn_close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
 
 func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bool, download_url: String) -> void:
 	var panel = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var style = StyleBoxFlat.new()
 	style.bg_color = Color("#1e293b")
 	style.corner_radius_top_left = 8
@@ -81,15 +96,20 @@ func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bo
 	panel.add_theme_stylebox_override("panel", style)
 
 	var row = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
 	panel.add_child(row)
 
 	var text_box = VBoxContainer.new()
 	text_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_box.add_theme_constant_override("separation", 2)
 	row.add_child(text_box)
 
 	var title_lbl = Label.new()
 	title_lbl.text = name
-	title_lbl.add_theme_font_size_override("font_size", 13)
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	title_lbl.add_theme_font_size_override("font_size", 12)
 	title_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
 	text_box.add_child(title_lbl)
 
@@ -101,8 +121,10 @@ func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bo
 	text_box.add_child(desc_lbl)
 
 	var action_btn = Button.new()
+	action_btn.custom_minimum_size = Vector2(85, 30)
+	action_btn.add_theme_font_size_override("font_size", 10)
 	if is_installed:
-		action_btn.text = "Actif"
+		action_btn.text = "✓ Actif"
 		action_btn.disabled = true
 	else:
 		action_btn.text = "Télécharger"

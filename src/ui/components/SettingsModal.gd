@@ -16,6 +16,7 @@ func _setup_ui() -> void:
 	scroll.offset_top = 10
 	scroll.offset_right = -10
 	scroll.offset_bottom = -10
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
 
 	var vbox = VBoxContainer.new()
@@ -28,9 +29,12 @@ func _setup_ui() -> void:
 
 	# Threads
 	var threads_row = HBoxContainer.new()
+	threads_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var threads_lbl = Label.new()
 	threads_lbl.text = "Cœurs CPU alloués (Threads) :"
 	threads_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	threads_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	threads_lbl.add_theme_font_size_override("font_size", 11)
 	threads_row.add_child(threads_lbl)
 
 	var threads_spin = SpinBox.new()
@@ -43,9 +47,12 @@ func _setup_ui() -> void:
 
 	# Profondeur
 	var depth_row = HBoxContainer.new()
+	depth_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var depth_lbl = Label.new()
 	depth_lbl.text = "Profondeur cible (Depth) :"
 	depth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	depth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	depth_lbl.add_theme_font_size_override("font_size", 11)
 	depth_row.add_child(depth_lbl)
 
 	var depth_spin = SpinBox.new()
@@ -60,23 +67,36 @@ func _setup_ui() -> void:
 
 	var hub_btn = Button.new()
 	hub_btn.text = "⚡ Gérer les Modèles IA & Coûts en direct..."
-	hub_btn.add_theme_font_size_override("font_size", 12)
+	hub_btn.custom_minimum_size = Vector2(0, 36)
+	hub_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hub_btn.add_theme_font_size_override("font_size", 11)
 	hub_btn.pressed.connect(func():
+		hide()
 		var hub = ModelHubModal.new()
-		get_tree().root.add_child(hub)
+		var p = get_parent()
+		if p:
+			p.add_child(hub)
+		else:
+			get_tree().root.add_child(hub)
 		hub.popup_centered()
+		hub.close_requested.connect(func():
+			if is_instance_valid(self):
+				show()
+		)
 	)
 	vbox.add_child(hub_btn)
 
 	# Fournisseur IA
 	var prov_lbl = Label.new()
 	prov_lbl.text = "Mode de Coach IA :"
+	prov_lbl.add_theme_font_size_override("font_size", 11)
 	vbox.add_child(prov_lbl)
 
 	var prov_opt = OptionButton.new()
-	prov_opt.add_item("Cloud Gratuit (Google Gemini / Groq)", 0)
-	prov_opt.add_item("SLM Local (100% Hors-ligne / Ollama)", 1)
-	prov_opt.add_item("Clé API Personnelle (OpenAI / Claude / DeepSeek)", 2)
+	prov_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	prov_opt.add_item("Cloud Gratuit (OpenRouter / Gemini)", 0)
+	prov_opt.add_item("SLM Local (Ollama hors-ligne)", 1)
+	prov_opt.add_item("Clés API Directes (OpenAI / DeepSeek / Claude)", 2)
 	
 	var cur_prov = SettingsManager.get_setting("ai_provider", "free_cloud")
 	match cur_prov:
@@ -95,9 +115,11 @@ func _setup_ui() -> void:
 	# Personnalité
 	var pers_lbl = Label.new()
 	pers_lbl.text = "Personnalité du Coach :"
+	pers_lbl.add_theme_font_size_override("font_size", 11)
 	vbox.add_child(pers_lbl)
 
 	var pers_opt = OptionButton.new()
+	pers_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pers_opt.add_item("Grand-Maître Mentor (Équilibré)", 0)
 	pers_opt.add_item("Chasseur de Gaffes (Tactique & Direct)", 1)
 	pers_opt.add_item("Pédagogue Débutant / Enfant (Simple)", 2)
@@ -117,20 +139,23 @@ func _setup_ui() -> void:
 	vbox.add_child(pers_opt)
 
 	# Clés API
+	_add_api_key_field(vbox, "Clé OpenRouter (Modèles gratuits & économiques) :", "api_key_openrouter")
 	_add_api_key_field(vbox, "Clé Google Gemini (Gratuite / Payante) :", "api_key_gemini")
 	_add_api_key_field(vbox, "Clé Groq Cloud (Gratuite) :", "api_key_groq")
+	_add_api_key_field(vbox, "Clé DeepSeek (V4 Flash / R1) :", "api_key_deepseek")
 	_add_api_key_field(vbox, "Clé OpenAI (GPT-4o) :", "api_key_openai")
 	_add_api_key_field(vbox, "Clé Anthropic (Claude 3.5) :", "api_key_anthropic")
-	_add_api_key_field(vbox, "Clé DeepSeek (R1 / V3) :", "api_key_deepseek")
 
 	# --- SECTION APPARENCE & AUDIO ---
 	_add_section_header(vbox, "🎨 Thème & Sons")
 
 	var theme_lbl = Label.new()
 	theme_lbl.text = "Thème de l'échiquier :"
+	theme_lbl.add_theme_font_size_override("font_size", 11)
 	vbox.add_child(theme_lbl)
 
 	var theme_opt = OptionButton.new()
+	theme_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	theme_opt.add_item("Dark Modern (Ardoise & Néon)", 0)
 	theme_opt.add_item("Émeraude (Lichess Classique)", 1)
 	theme_opt.add_item("Bois Naturel (Tournoi)", 2)
@@ -160,27 +185,47 @@ func _setup_ui() -> void:
 	var btn_close = Button.new()
 	btn_close.text = "Fermer & Enregistrer"
 	btn_close.custom_minimum_size = Vector2(0, 40)
+	btn_close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
 
 func _add_section_header(parent: Node, title_text: String) -> void:
 	var lbl = Label.new()
 	lbl.text = title_text
-	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.add_theme_font_size_override("font_size", 13)
 	lbl.add_theme_color_override("font_color", Color("#38bdf8"))
 	parent.add_child(lbl)
 
 func _add_api_key_field(parent: Node, label_text: String, setting_key: String) -> void:
 	var row = VBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 2)
+
 	var lbl = Label.new()
 	lbl.text = label_text
-	lbl.add_theme_font_size_override("font_size", 11)
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.add_theme_font_size_override("font_size", 10)
 	lbl.add_theme_color_override("font_color", Color("#94a3b8"))
 	row.add_child(lbl)
 
+	var edit_box = HBoxContainer.new()
+	edit_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	edit_box.add_theme_constant_override("separation", 4)
+	row.add_child(edit_box)
+
 	var input = LineEdit.new()
 	input.secret = true
+	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	input.text = SettingsManager.get_setting(setting_key, "")
+	input.placeholder_text = "sk-..."
+	input.add_theme_font_size_override("font_size", 10)
 	input.text_changed.connect(func(new_text): SettingsManager.set_setting(setting_key, new_text.strip_edges()))
-	row.add_child(input)
+	edit_box.add_child(input)
+
+	var show_btn = Button.new()
+	show_btn.text = "👁️"
+	show_btn.pressed.connect(func(): input.secret = not input.secret)
+	edit_box.add_child(show_btn)
+
 	parent.add_child(row)

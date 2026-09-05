@@ -56,20 +56,22 @@ func _setup_ui() -> void:
 	# 2. Label de statut
 	status_lbl = Label.new()
 	status_lbl.text = "Entrez un pseudo pour charger les dernières parties officielles."
+	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_lbl.add_theme_font_size_override("font_size", 11)
 	status_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
 	vbox.add_child(status_lbl)
 
 	# 3. Filtres de cadence (Blitz, Rapide, Bullet, etc.)
 	var filters_row = HBoxContainer.new()
-	filters_row.add_theme_constant_override("separation", 6)
+	filters_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	filters_row.add_theme_constant_override("separation", 4)
 	vbox.add_child(filters_row)
 
-	_add_filter_btn(filters_row, "Toutes", "all")
+	_add_filter_btn(filters_row, "Tout", "all")
 	_add_filter_btn(filters_row, "⚡ Blitz", "blitz")
 	_add_filter_btn(filters_row, "⏱️ Rapide", "rapid")
 	_add_filter_btn(filters_row, "🚅 Bullet", "bullet")
-	_add_filter_btn(filters_row, "♟️ Quotidien", "daily")
+	_add_filter_btn(filters_row, "♟️ Différé", "daily")
 
 	# 4. Liste déroulante des parties
 	var scroll = ScrollContainer.new()
@@ -92,6 +94,7 @@ func _setup_ui() -> void:
 func _add_filter_btn(parent: Node, label_text: String, filter_key: String) -> void:
 	var btn = Button.new()
 	btn.text = label_text
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.add_theme_font_size_override("font_size", 10)
 	btn.pressed.connect(func():
 		active_filter = filter_key
@@ -147,6 +150,7 @@ func _render_games_list() -> void:
 
 func _add_game_card(game_data: Dictionary) -> void:
 	var panel = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var style = StyleBoxFlat.new()
 	style.bg_color = Color("#1e293b")
 	style.border_width_left = 1
@@ -165,11 +169,14 @@ func _add_game_card(game_data: Dictionary) -> void:
 	panel.add_theme_stylebox_override("panel", style)
 
 	var row = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
 	panel.add_child(row)
 
-	# Info joueurs
+	# Info joueurs & détails (colonne gauche fluide)
 	var text_col = VBoxContainer.new()
 	text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_col.add_theme_constant_override("separation", 2)
 	row.add_child(text_col)
 
 	var players_lbl = Label.new()
@@ -177,9 +184,16 @@ func _add_game_card(game_data: Dictionary) -> void:
 		game_data["white_user"], game_data["white_rating"],
 		game_data["black_user"], game_data["black_rating"]
 	]
-	players_lbl.add_theme_font_size_override("font_size", 12)
+	players_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	players_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	players_lbl.add_theme_font_size_override("font_size", 11)
 	players_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
 	text_col.add_child(players_lbl)
+
+	var details_row = HBoxContainer.new()
+	details_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details_row.add_theme_constant_override("separation", 8)
+	text_col.add_child(details_row)
 
 	var details_lbl = Label.new()
 	var cadence = game_data.get("time_class", "").capitalize()
@@ -187,27 +201,28 @@ func _add_game_card(game_data: Dictionary) -> void:
 	details_lbl.text = "%s (%s)" % [cadence, tc]
 	details_lbl.add_theme_font_size_override("font_size", 10)
 	details_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
-	text_col.add_child(details_lbl)
+	details_row.add_child(details_lbl)
 
 	# Badge Résultat
 	var badge_res = Label.new()
 	var res = game_data.get("user_result", "draw")
 	match res:
 		"win":
-			badge_res.text = "Victoire"
+			badge_res.text = "• Victoire"
 			badge_res.add_theme_color_override("font_color", Color("#22c55e"))
 		"loss":
-			badge_res.text = "Défaite"
+			badge_res.text = "• Défaite"
 			badge_res.add_theme_color_override("font_color", Color("#ef4444"))
 		_:
-			badge_res.text = "Nulle"
+			badge_res.text = "• Nulle"
 			badge_res.add_theme_color_override("font_color", Color("#94a3b8"))
-	badge_res.add_theme_font_size_override("font_size", 11)
-	row.add_child(badge_res)
+	badge_res.add_theme_font_size_override("font_size", 10)
+	details_row.add_child(badge_res)
 
-	# Bouton Analyser
+	# Bouton Analyser (colonne droite fixe, toujours visible)
 	var btn_analyze = Button.new()
 	btn_analyze.text = "Analyser"
+	btn_analyze.custom_minimum_size = Vector2(74, 30)
 	btn_analyze.add_theme_font_size_override("font_size", 11)
 	var pgn = game_data.get("pgn", "")
 	btn_analyze.pressed.connect(func():

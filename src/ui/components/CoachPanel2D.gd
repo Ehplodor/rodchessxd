@@ -49,26 +49,30 @@ func _setup_ui() -> void:
 
 	# 1. En-tête Coach avec Badge Modèle Cliquable
 	var header = HBoxContainer.new()
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_theme_constant_override("separation", 6)
 	vbox.add_child(header)
 
 	var title = Label.new()
 	title.text = "🤖 Coach IA"
-	title.add_theme_font_size_override("font_size", 13)
+	title.add_theme_font_size_override("font_size", 12)
 	title.add_theme_color_override("font_color", Color("#38bdf8"))
 	header.add_child(title)
 
 	model_badge_btn = Button.new()
 	model_badge_btn.text = "⚡ Modèle"
 	model_badge_btn.tooltip_text = "Cliquer pour ouvrir le Hub des Modèles IA (Changer de modèle, tester les clés, SLM local)"
-	model_badge_btn.add_theme_font_size_override("font_size", 10)
+	model_badge_btn.custom_minimum_size = Vector2(0, 24)
+	model_badge_btn.add_theme_font_size_override("font_size", 9)
 	model_badge_btn.pressed.connect(_open_model_hub)
 	header.add_child(model_badge_btn)
 
 	status_label = Label.new()
 	status_label.text = "Prêt"
 	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	status_label.add_theme_font_size_override("font_size", 11)
+	status_label.add_theme_font_size_override("font_size", 10)
 	status_label.add_theme_color_override("font_color", Color("#64748b"))
 	header.add_child(status_label)
 
@@ -82,6 +86,8 @@ func _setup_ui() -> void:
 
 	# 3. Puces d'actions rapides avec défilement horizontal tactile
 	var scroll_chips = ScrollContainer.new()
+	scroll_chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll_chips.custom_minimum_size = Vector2(0, 32)
 	scroll_chips.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll_chips.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	vbox.add_child(scroll_chips)
@@ -99,6 +105,7 @@ func _setup_ui() -> void:
 
 	# 4. Ligne de saisie de question libre
 	var input_row = HBoxContainer.new()
+	input_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	input_row.add_theme_constant_override("separation", 6)
 	vbox.add_child(input_row)
 
@@ -110,6 +117,8 @@ func _setup_ui() -> void:
 
 	send_button = Button.new()
 	send_button.text = "Envoyer"
+	send_button.custom_minimum_size = Vector2(65, 32)
+	send_button.add_theme_font_size_override("font_size", 11)
 	send_button.pressed.connect(func(): _on_submit_question(question_input.text))
 	input_row.add_child(send_button)
 
@@ -119,8 +128,8 @@ func _update_model_badge() -> void:
 	var active_id = SettingsManager.get_setting("active_model_id", "z-ai/glm-5.3-flash:free")
 	var model_info = ModelCatalog.find_model_by_id(active_id)
 	var name_short = model_info.get("name", active_id)
-	if name_short.length() > 22:
-		name_short = name_short.substr(0, 20) + "..."
+	if name_short.length() > 14:
+		name_short = name_short.substr(0, 12) + ".."
 	
 	var prefix = "⚡"
 	if model_info.get("modality", 0) == ModelCatalog.Modality.LOCAL_SLM:
@@ -131,9 +140,13 @@ func _update_model_badge() -> void:
 	model_badge_btn.text = "%s %s" % [prefix, name_short]
 
 func _open_model_hub() -> void:
-	var modal = ModelHubModal.new()
-	get_tree().root.add_child(modal)
-	modal.popup_centered()
+	var main = find_parent("Main")
+	if main and main.has_method("_open_modal"):
+		main._open_modal(ModelHubModal.new())
+	else:
+		var modal = ModelHubModal.new()
+		add_child(modal)
+		modal.popup_centered()
 
 func _add_quick_chip(label_text: String, question: String) -> void:
 	var btn = Button.new()

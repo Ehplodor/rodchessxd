@@ -53,19 +53,19 @@ theme_override_constants/separation = 4
 
 [node name="TopBar" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 3
 
 [node name="MarginContainer" type="MarginContainer" parent="VBox/TopBar"]
 layout_mode = 2
-theme_override_constants/margin_left = 6
-theme_override_constants/margin_top = 4
+theme_override_constants/margin_left = 4
+theme_override_constants/margin_top = 2
 theme_override_constants/margin_right = 2
-theme_override_constants/margin_bottom = 4
+theme_override_constants/margin_bottom = 2
 
 [node name="AppTitle" type="Label" parent="VBox/TopBar/MarginContainer"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.941176, 0.960784, 0.980392, 1)
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 13
 text = "♟️ RodChess"
 
 [node name="EvalBadge" type="PanelContainer" parent="VBox/TopBar"]
@@ -83,31 +83,37 @@ layout_mode = 2
 size_flags_horizontal = 3
 
 [node name="BtnImportPNG" type="Button" parent="VBox/TopBar"]
+custom_minimum_size = Vector2(0, 26)
 layout_mode = 2
 theme_override_font_sizes/font_size = 10
 text = "PNG"
 
 [node name="BtnImportPGN" type="Button" parent="VBox/TopBar"]
+custom_minimum_size = Vector2(0, 26)
 layout_mode = 2
 theme_override_font_sizes/font_size = 10
 text = "PGN"
 
 [node name="BtnChessCom" type="Button" parent="VBox/TopBar"]
+custom_minimum_size = Vector2(0, 26)
 layout_mode = 2
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 text = "Chess.com"
 
 [node name="BtnFlip" type="Button" parent="VBox/TopBar"]
+custom_minimum_size = Vector2(26, 26)
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "🔄"
 
 [node name="BtnEngineHub" type="Button" parent="VBox/TopBar"]
+custom_minimum_size = Vector2(26, 26)
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "⚡"
 
 [node name="BtnSettings" type="Button" parent="VBox/TopBar"]
+custom_minimum_size = Vector2(26, 26)
 layout_mode = 2
 theme_override_font_sizes/font_size = 11
 text = "⚙️"
