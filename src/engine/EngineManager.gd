@@ -172,6 +172,19 @@ func _find_binary_path(names: PackedStringArray, custom_key: String) -> String:
 		if FileAccess.file_exists(user_engine):
 			return user_engine
 
+	# 2bis. Android : binaire embarqué en lib native (extrait dans le dossier lib/ exécutable)
+	if OS.has_feature("android"):
+		var exe_dir := OS.get_executable_path().get_base_dir()
+		var native_dirs: PackedStringArray
+		if exe_dir != "":
+			native_dirs.append(exe_dir)
+			native_dirs.append(exe_dir.path_join("lib/arm64-v8a"))
+		for dir in native_dirs:
+			for n in names:
+				var native_engine := dir.path_join(n)
+				if FileAccess.file_exists(native_engine):
+					return native_engine
+
 	# 3. Vérifier dans res://bin/ (binaire embarqué avec l'application)
 	for n in names:
 		var res_bin = "res://bin/" + n
