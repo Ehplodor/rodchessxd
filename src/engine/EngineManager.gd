@@ -167,14 +167,10 @@ func _find_binary_path(names: PackedStringArray, custom_key: String) -> String:
 	if custom_path != "" and FileAccess.file_exists(custom_path):
 		return custom_path
 
-	# 1bis. Android : privilégier la lib native embarquée (extrait par l'installeur avec droits d'exécution)
+	# 1bis. Android : privilégier la lib native embarquée dans l'APK (libstockfish.so en jniLibs,
+	# extraite par l'installeur dans nativeLibraryDir avec droits d'exécution).
 	if OS.has_feature("android"):
-		var exe_dir := OS.get_executable_path().get_base_dir()
-		var native_dirs: PackedStringArray
-		if exe_dir != "":
-			native_dirs.append(exe_dir)
-			native_dirs.append(exe_dir.path_join("lib/arm64-v8a"))
-		for dir in native_dirs:
+		for dir in _android_engine_dirs():
 			for n in names:
 				var native_engine := dir.path_join(n)
 				if FileAccess.file_exists(native_engine):
@@ -206,6 +202,48 @@ func _find_binary_path(names: PackedStringArray, custom_key: String) -> String:
 func _get_engine_executable_path() -> String:
 	return _find_binary_path(_engine_binary_names(), _custom_engine_path())
 
+## Répertoires candidats contenant le moteur natif embarqué dans l'APK (Android uniquement).
+func _android_engine_dirs() -> PackedStringArray:
+	var dirs := PackedStringArray()
+	# Répertoire réel des bibliothèques natives (nativeLibraryDir), localisé via /proc/self/maps.
+	# OS.get_executable_path() est inutilisable ici : sur Android il retourne le chemin du
+	# processus hôte (ex. /system/bin/app_process64), pas celui des libs de l'APK.
+	var native_dir := _android_native_lib_dir()
+	if native_dir != "":
+		dirs.append(native_dir)
+	# Repli : voisinage de l'exécutable (éditeur Android, exports exotiques).
+	var exe_dir := OS.get_executable_path().get_base_dir()
+	if exe_dir != "" and not dirs.has(exe_dir):
+		dirs.append(exe_dir)
+		dirs.append(exe_dir.path_join("lib/arm64-v8a"))
+	return dirs
+
+func _android_native_lib_dir() -> String:
+	var f := FileAccess.open("/proc/self/maps", FileAccess.READ)
+	if f == null:
+		return ""
+	var maps := f.get_as_text()
+	f.close()
+	return _native_lib_dir_from_maps(maps)
+
+## Extrait le répertoire des bibliothèques natives depuis le contenu de /proc/self/maps,
+## en repérant libgodot_android.so (toujours chargée, extraite dans nativeLibraryDir).
+## Fonction pure : testable hors Android.
+static func _native_lib_dir_from_maps(maps: String) -> String:
+	for line in maps.split("\n", false):
+		if line.find("libgodot_android.so") == -1 and line.find("libc++_shared.so") == -1:
+			continue
+		var slash := line.find("/")
+		if slash == -1:
+			continue
+		var path := line.substr(slash).strip_edges()
+		# Chemin de la forme "base.apk!lib/arm64-v8a/..." = lib mappée depuis l'APK
+		# (extractNativeLibs=false) : aucun fichier exécutable n'existe sur le disque.
+		if path == "" or path.contains("!"):
+			continue
+		return path.get_base_dir()
+	return ""
+
 func _extract_engine_to_user_dir(name: String) -> String:
 	var src = "res://bin/" + name
 	var dst = OS.get_user_data_dir() + "/engines/" + name
@@ -221,7 +259,17 @@ func _extract_engine_to_user_dir(name: String) -> String:
 		dst_file.store_buffer(chunk)
 	src_file.close()
 	dst_file.close()
+	_make_executable(dst)
 	return dst if FileAccess.file_exists(dst) else ""
+
+## Donne les droits d'exécution (rwxr-xr-x) à un binaire extrait/téléchargé (no-op sous Windows).
+func _make_executable(path: String) -> void:
+	if OS.get_name() == "Windows" or not FileAccess.file_exists(path):
+		return
+	const PERMS_755: int = FileAccess.UNIX_READ_OWNER | FileAccess.UNIX_WRITE_OWNER | FileAccess.UNIX_EXECUTE_OWNER \
+		| FileAccess.UNIX_READ_GROUP | FileAccess.UNIX_EXECUTE_GROUP \
+		| FileAccess.UNIX_READ_OTHER | FileAccess.UNIX_EXECUTE_OTHER
+	FileAccess.set_unix_permissions(path, PERMS_755)
 
 func is_engine_available() -> bool:
 	state_mutex.lock()
