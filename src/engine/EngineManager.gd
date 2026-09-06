@@ -70,6 +70,7 @@ var _install_last_bytes := 0
 var cancel_eval_requested := false
 var _received_any_output := false
 var _started_msec := 0
+var _current_engine_path := ""
 
 func _ready() -> void:
 	command_mutex = Mutex.new()
@@ -82,8 +83,8 @@ func _ready() -> void:
 	call_deferred("_ensure_engine_started")
 
 func _process(_delta: float) -> void:
-	if is_engine_running and not should_stop_thread and _started_msec > 0 and not _received_any_output and Time.get_ticks_msec() - _started_msec > 6000:
-		_handle_engine_dead("Le moteur d'échecs ne répond pas (aucune sortie UCI reçue). Vérifiez que le binaire est exécutable sur cet appareil (architecture/noexec).")
+	if is_engine_running and not should_stop_thread and _started_msec > 0 and not _received_any_output and Time.get_ticks_msec() - _started_msec > 15000:
+		_handle_engine_dead("Le moteur d'échecs ne répond pas (aucune sortie UCI en 15 s depuis « %s »). Binaire probablement non exécutable sur cet appareil (architecture/noexec) ou processus suspendu." % _current_engine_path)
 	if not _installing_engine or install_http == null:
 		return
 	var total := install_http.get_body_size()
@@ -166,13 +167,7 @@ func _find_binary_path(names: PackedStringArray, custom_key: String) -> String:
 	if custom_path != "" and FileAccess.file_exists(custom_path):
 		return custom_path
 
-	# 2. Vérifier dans user://engines/ (binaire réellement présent sur le disque)
-	for n in names:
-		var user_engine = OS.get_user_data_dir() + "/engines/" + n
-		if FileAccess.file_exists(user_engine):
-			return user_engine
-
-	# 2bis. Android : binaire embarqué en lib native (extrait dans le dossier lib/ exécutable)
+	# 1bis. Android : privilégier la lib native embarquée (extrait par l'installeur avec droits d'exécution)
 	if OS.has_feature("android"):
 		var exe_dir := OS.get_executable_path().get_base_dir()
 		var native_dirs: PackedStringArray
@@ -184,6 +179,12 @@ func _find_binary_path(names: PackedStringArray, custom_key: String) -> String:
 				var native_engine := dir.path_join(n)
 				if FileAccess.file_exists(native_engine):
 					return native_engine
+
+	# 2. Vérifier dans user://engines/ (binaire réellement présent sur le disque)
+	for n in names:
+		var user_engine = OS.get_user_data_dir() + "/engines/" + n
+		if FileAccess.file_exists(user_engine):
+			return user_engine
 
 	# 3. Vérifier dans res://bin/ (binaire embarqué avec l'application)
 	for n in names:
@@ -469,6 +470,7 @@ func start_engine() -> bool:
 
 	var is_lc0 = is_lc0_profile()
 	var exe_path = _get_engine_executable_path()
+	_current_engine_path = exe_path
 	if exe_path == "":
 		var hint = _engine_missing_hint()
 		print("EngineManager: Aucun exécutable de moteur trouvé. ", hint)
@@ -655,7 +657,7 @@ func _engine_reader_loop() -> void:
 		OS.delay_msec(5)
 
 	if not should_stop_thread:
-		call_deferred("_handle_engine_dead", "Le processus moteur s'est arrêté inopinément (binaire non exécutable ou arrêté sur cet appareil).")
+		call_deferred("_handle_engine_dead", "Le processus moteur s'est arrêté inopinément (binaire « %s » non exécutable ou arrêté)." % _current_engine_path)
 
 func _handle_engine_dead(msg: String) -> void:
 	state_mutex.lock()
