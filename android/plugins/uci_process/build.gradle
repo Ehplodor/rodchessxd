@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.library' version '8.9.2'
+}
+
+def pluginName = "RodChessUci"
+
+android {
+    namespace 'org.rodchess.uci'
+    compileSdk 36
+
+    defaultConfig {
+        minSdk 24
+        setProperty("archivesBaseName", pluginName)
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Godot Android library (GodotPlugin base class). Provided at runtime by the app APK.
+    compileOnly files('libs/godot-lib.aar')
+}
+
+def copyDebugAAR = tasks.register('copyDebugAARToAddons', Copy) {
+    from('build/outputs/aar')
+    include("${pluginName}-debug.aar")
+    into('../../../addons/RodChessUci/bin/debug')
+}
+
+def copyReleaseAAR = tasks.register('copyReleaseAARToAddons', Copy) {
+    from('build/outputs/aar')
+    include("${pluginName}-release.aar")
+    into('../../../addons/RodChessUci/bin/release')
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name == 'assembleDebug') {
+        task.finalizedBy(copyDebugAAR)
+    } else if (task.name == 'assembleRelease') {
+        task.finalizedBy(copyReleaseAAR)
+    }
+}

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+        v2 Godot Android plugin registration:
+        - android:name must use the "org.godotengine.plugin.v2." prefix followed by the
+          plugin name returned by getPluginName().
+        - android:value is the classpath of the plugin initializer.
+        -->
+        <meta-data
+            android:name="org.godotengine.plugin.v2.RodChessUci"
+            android:value="org.rodchess.uci.RodChessUciPlugin" />
+    </application>
+
+</manifest>
