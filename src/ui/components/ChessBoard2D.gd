@@ -908,17 +908,8 @@ func _redraw_board_and_overlays() -> void:
 	queue_redraw()
 
 func _resolve_local_pos(event: InputEvent) -> Vector2:
-	if event is InputEventMouse:
+	if event is InputEventMouse or event is InputEventScreenTouch or event is InputEventScreenDrag:
 		return event.position
-	elif event is InputEventScreenTouch or event is InputEventScreenDrag:
-		var p: Vector2 = event.position
-		var local_rect := Rect2(Vector2.ZERO, Vector2(board_size, board_size))
-		if local_rect.grow(40.0).has_point(p):
-			return p
-		var glob_rect := get_global_rect()
-		if glob_rect.grow(40.0).has_point(p):
-			return to_local(p)
-		return p
 	return get_local_mouse_position()
 
 func _gui_input(event: InputEvent) -> void:
