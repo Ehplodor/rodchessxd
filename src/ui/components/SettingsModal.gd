@@ -87,13 +87,22 @@ func _setup_ui() -> void:
 	vbox.add_child(live_depth_row)
 
 	# Mode d'Analyse de Partie
-	var mode_row = VBoxContainer.new()
-	mode_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mode_row.add_theme_constant_override("separation", 2)
+	# Mode d'Analyse de Partie
+	var mode_card = PanelContainer.new()
+	mode_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var mode_card_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM, DesignTokens.BORDER, 1, Vector2(12, 10))
+	mode_card.add_theme_stylebox_override("panel", mode_card_style)
+	
+	var mode_card_vbox = VBoxContainer.new()
+	mode_card_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mode_card_vbox.add_theme_constant_override("separation", 8)
+	mode_card.add_child(mode_card_vbox)
+
 	var mode_lbl = Label.new()
-	mode_lbl.text = "Mode d'analyse de partie :"
+	mode_lbl.text = "Mode actif pour l'analyse de partie :"
 	mode_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	mode_row.add_child(mode_lbl)
+	mode_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	mode_card_vbox.add_child(mode_lbl)
 
 	var mode_opt = OptionButton.new()
 	mode_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -109,15 +118,19 @@ func _setup_ui() -> void:
 		"time": mode_opt.selected = 1
 		"depth": mode_opt.selected = 2
 		_: mode_opt.selected = 0
-	mode_row.add_child(mode_opt)
-	vbox.add_child(mode_row)
+	mode_card_vbox.add_child(mode_opt)
 
-	# Lignes de paramètres conditionnelles selon le mode
-	# 1. Dynamique : temps base et temps max
+	# --- 1. Paramètres Mode Dynamique ---
+	var dyn_header = Label.new()
+	dyn_header.text = "⚡ Paramètres Mode Dynamique :"
+	dyn_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	dyn_header.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	mode_card_vbox.add_child(dyn_header)
+
 	var dyn_base_row = HBoxContainer.new()
 	dyn_base_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var dyn_base_lbl = Label.new()
-	dyn_base_lbl.text = "Temps de base par coup (s) :"
+	dyn_base_lbl.text = "• Temps base par coup (s) :"
 	dyn_base_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	dyn_base_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dyn_base_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -128,16 +141,18 @@ func _setup_ui() -> void:
 	dyn_base_spin.max_value = 0.50
 	dyn_base_spin.step = 0.05
 	dyn_base_spin.value = SettingsManager.get_setting("analysis_dynamic_base", 0.15)
-	dyn_base_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_dynamic_base", float(val)))
-	dyn_base_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	dyn_base_spin.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
 	dyn_base_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if dyn_base_spin.get_line_edit():
+		dyn_base_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dyn_base_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_dynamic_base", float(val)))
 	dyn_base_row.add_child(dyn_base_spin)
-	vbox.add_child(dyn_base_row)
+	mode_card_vbox.add_child(dyn_base_row)
 
 	var dyn_max_row = HBoxContainer.new()
 	dyn_max_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var dyn_max_lbl = Label.new()
-	dyn_max_lbl.text = "Temps max sur coups critiques (s) :"
+	dyn_max_lbl.text = "• Temps max sur coups critiques (s) :"
 	dyn_max_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	dyn_max_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dyn_max_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -148,17 +163,25 @@ func _setup_ui() -> void:
 	dyn_max_spin.max_value = 3.00
 	dyn_max_spin.step = 0.10
 	dyn_max_spin.value = SettingsManager.get_setting("analysis_dynamic_max", 0.80)
-	dyn_max_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_dynamic_max", float(val)))
-	dyn_max_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	dyn_max_spin.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
 	dyn_max_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if dyn_max_spin.get_line_edit():
+		dyn_max_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dyn_max_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_dynamic_max", float(val)))
 	dyn_max_row.add_child(dyn_max_spin)
-	vbox.add_child(dyn_max_row)
+	mode_card_vbox.add_child(dyn_max_row)
 
-	# 2. Temps fixe par coup
+	# --- 2. Paramètre Mode Temps fixe ---
+	var time_header = Label.new()
+	time_header.text = "⏱️ Paramètre Mode Temps fixe :"
+	time_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	time_header.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	mode_card_vbox.add_child(time_header)
+
 	var time_row = HBoxContainer.new()
 	time_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var time_lbl = Label.new()
-	time_lbl.text = "Temps par demi-coup (s) :"
+	time_lbl.text = "• Temps par demi-coup (s) :"
 	time_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	time_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	time_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -169,18 +192,26 @@ func _setup_ui() -> void:
 	time_spin.max_value = 3.00
 	time_spin.step = 0.05
 	time_spin.value = SettingsManager.get_setting("analysis_time_per_move", 0.30)
-	time_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_time_per_move", float(val)))
-	time_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	time_spin.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
 	time_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if time_spin.get_line_edit():
+		time_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
+	time_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_time_per_move", float(val)))
 	time_row.add_child(time_spin)
-	vbox.add_child(time_row)
+	mode_card_vbox.add_child(time_row)
 
-	# 3. Profondeur Analyse Globale (Bilan de partie)
+	# --- 3. Paramètre Mode Profondeur fixe ---
+	var depth_header = Label.new()
+	depth_header.text = "🎯 Paramètre Mode Profondeur fixe :"
+	depth_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	depth_header.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	mode_card_vbox.add_child(depth_header)
+
 	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
 	var anal_depth_row = HBoxContainer.new()
 	anal_depth_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var anal_depth_lbl = Label.new()
-	anal_depth_lbl.text = "Profondeur fixe (Bilan) :"
+	anal_depth_lbl.text = "• Profondeur fixe (Bilan) :"
 	anal_depth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	anal_depth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	anal_depth_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -190,27 +221,22 @@ func _setup_ui() -> void:
 	anal_depth_spin.min_value = 10
 	anal_depth_spin.max_value = 26
 	anal_depth_spin.value = SettingsManager.get_setting("analysis_depth", def_anal)
-	anal_depth_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_depth", int(val)))
-	anal_depth_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	anal_depth_spin.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
 	anal_depth_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if anal_depth_spin.get_line_edit():
+		anal_depth_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
+	anal_depth_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_depth", int(val)))
 	anal_depth_row.add_child(anal_depth_spin)
-	vbox.add_child(anal_depth_row)
-
-	var update_mode_visibility = func(mode_idx: int):
-		dyn_base_row.visible = (mode_idx == 0)
-		dyn_max_row.visible = (mode_idx == 0)
-		time_row.visible = (mode_idx == 1)
-		anal_depth_row.visible = (mode_idx == 2)
-	
-	update_mode_visibility.call(mode_opt.selected)
+	mode_card_vbox.add_child(anal_depth_row)
 
 	mode_opt.item_selected.connect(func(idx):
 		match idx:
 			0: SettingsManager.set_setting("analysis_mode", "dynamic")
 			1: SettingsManager.set_setting("analysis_mode", "time")
 			2: SettingsManager.set_setting("analysis_mode", "depth")
-		update_mode_visibility.call(idx)
 	)
+
+	vbox.add_child(mode_card)
 
 	# Mémoire (Hash) — Stockfish
 	var hash_row = HBoxContainer.new()

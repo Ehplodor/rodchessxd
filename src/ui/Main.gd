@@ -22,7 +22,16 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 @onready var analyse_overlay: Control = $AnalyseOverlay
 @onready var coach_overlay: Control = $CoachOverlay
 
-@onready var stats_label: Label = $VBox/Dashboard/StatsLabel
+@onready var stats_panel: PanelContainer = $VBox/Dashboard/StatsPanel
+@onready var stats_grid: HBoxContainer = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid
+@onready var label_white_stats: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColPlayers/LabelWhiteStats
+@onready var label_black_stats: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColPlayers/LabelBlackStats
+@onready var label_delta: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColDelta/DeltaBox/LabelDelta
+@onready var label_pvalue: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColDelta/DeltaBox/LabelPValue
+@onready var stats_label: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsLabel
+
+@onready var btn_analyze_game: Button = $VBox/NavRow/BtnAnalyzeGame
+@onready var btn_toggle_live: Button = $VBox/NavRow/BtnToggleLive
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
 
 @onready var player_top_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerTop
@@ -42,6 +51,7 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 
 var analyzer: GameAnalyzer
 var analysis_thread: Thread = null
+var live_eval_enabled: bool = true
 
 var error_label: Label = null
 var _error_token := 0
@@ -58,12 +68,29 @@ func _ready() -> void:
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
 	GameController.position_changed.connect(_on_game_position_changed)
-	GameController.move_navigated.connect(func(_idx): _update_player_labels())
-	GameController.move_made.connect(func(_m): _update_player_labels())
+	GameController.move_navigated.connect(func(_idx):
+		_update_player_labels()
+		_trigger_live_eval()
+	)
+	GameController.move_made.connect(func(_m):
+		_update_player_labels()
+		_trigger_live_eval()
+	)
 	
 	if EngineManager != null:
 		EngineManager.evaluation_updated.connect(_on_engine_eval)
 		EngineManager.engine_error.connect(_show_error_banner)
+		EngineManager.engine_ready.connect(func():
+			_trigger_live_eval()
+		)
+
+	if advantage_graph != null:
+		advantage_graph.analysis_selected.connect(_on_stored_analysis_selected)
+
+	if btn_toggle_live != null and not btn_toggle_live.pressed.is_connected(_on_btn_toggle_live_pressed):
+		btn_toggle_live.pressed.connect(_on_btn_toggle_live_pressed)
+	if btn_analyze_game != null and not btn_analyze_game.pressed.is_connected(_on_btn_analyze_game_pressed):
+		btn_analyze_game.pressed.connect(_on_btn_analyze_game_pressed)
 	
 	var slm = get_node_or_null("/root/LocalSLMManager")
 	if slm:
@@ -76,7 +103,14 @@ func _ready() -> void:
 		get_window().size_changed.connect(_apply_safe_insets)
 		_apply_safe_insets()
 	_update_player_labels()
+	_update_live_button_style()
 	call_deferred("_start_initial_eval")
+
+func _exit_tree() -> void:
+	if analyzer != null and analyzer.is_analyzing:
+		analyzer.cancel_analysis()
+	if analysis_thread != null and analysis_thread.is_started():
+		analysis_thread.wait_to_finish()
 
 func _notification(what: int) -> void:
 	# Les barres système (gestes) peuvent apparaître/disparaître en cours de
@@ -118,10 +152,10 @@ func _apply_modern_theme() -> void:
 			child.add_theme_color_override("font_pressed_color", font_color_normal)
 			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
-	# Boutons de navigation sous le plateau (sauf le bouton Analyser)
+	# Boutons de navigation sous le plateau (sauf Analyser et Live)
 	var nav_row = $VBox/NavRow
 	for child in nav_row.get_children():
-		if child is Button and child != nav_row.get_node("BtnAnalyzeGame"):
+		if child is Button and child != btn_analyze_game and child != btn_toggle_live:
 			child.add_theme_stylebox_override("normal", btn_normal)
 			child.add_theme_stylebox_override("hover", btn_hover)
 			child.add_theme_stylebox_override("pressed", btn_pressed)
@@ -130,21 +164,8 @@ func _apply_modern_theme() -> void:
 			child.add_theme_color_override("font_pressed_color", font_color_normal)
 			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
-	# Bouton Analyser Partie (accent émeraude, AA ≥ 4,5:1 sur normal et pressé)
-	var btn_analyze: Button = nav_row.get_node("BtnAnalyzeGame")
-	var analyze_normal := DesignTokens.flat(DesignTokens.PRIMARY_BG, DesignTokens.RADIUS_SMALL,
-			DesignTokens.PRIMARY_BORDER, 1, Vector2(10, 2))
-	var analyze_hover := analyze_normal.duplicate() as StyleBoxFlat
-	analyze_hover.border_color = DesignTokens.TEXT_PRIMARY
-	var analyze_pressed := analyze_normal.duplicate() as StyleBoxFlat
-	analyze_pressed.bg_color = DesignTokens.PRIMARY_BG_PRESSED
-	btn_analyze.add_theme_stylebox_override("normal", analyze_normal)
-	btn_analyze.add_theme_stylebox_override("hover", analyze_hover)
-	btn_analyze.add_theme_stylebox_override("pressed", analyze_pressed)
-	btn_analyze.add_theme_color_override("font_color", DesignTokens.ON_PRIMARY)
-	btn_analyze.add_theme_color_override("font_hover_color", DesignTokens.ON_PRIMARY)
-	btn_analyze.add_theme_color_override("font_pressed_color", DesignTokens.ON_PRIMARY)
-	btn_analyze.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	_apply_analyze_button_style(false)
+	_update_live_button_style()
 
 	# Titre & badge d'évaluation
 	$VBox/TopBar/MarginContainer/AppTitle.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -161,11 +182,34 @@ func _apply_modern_theme() -> void:
 		top_eval_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		top_eval_label.add_theme_color_override("font_color", DesignTokens.ACCENT)
 
-	# Bandeau stats (textes longs → retour à la ligne)
-	var stats: Label = $VBox/Dashboard/StatsLabel
-	stats.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	stats.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
-	stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# Panneau des statistiques (grille 2x2 et libellé d'état)
+	if stats_panel:
+		var panel_style := DesignTokens.flat(
+			DesignTokens.SURFACE_ELEVATED,
+			DesignTokens.RADIUS_SMALL,
+			DesignTokens.BORDER,
+			1,
+			Vector2(10, 6)
+		)
+		stats_panel.add_theme_stylebox_override("panel", panel_style)
+
+	if label_white_stats:
+		label_white_stats.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		label_white_stats.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	if label_black_stats:
+		label_black_stats.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		label_black_stats.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	if label_delta:
+		label_delta.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+		label_delta.add_theme_color_override("font_color", Color("#38bdf8"))
+	if label_pvalue:
+		label_pvalue.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
+		label_pvalue.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+
+	if stats_label:
+		stats_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		stats_label.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+		stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	# Tuiles Analyse / Coach
 	for child in $VBox/Dashboard/Tiles.get_children():
@@ -198,13 +242,17 @@ func _on_game_position_changed() -> void:
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
 		advantage_graph.update_stored_analyses([])
-		stats_label.text = "Position de départ prête. Touchez « Analyser » sous le plateau."
+		if stats_grid:
+			stats_grid.visible = false
+		if stats_label:
+			stats_label.text = "Position de départ prête. Touchez « Analyser » sous le plateau."
 	else:
 		var dm = get_node_or_null("/root/DatabaseManager")
 		if dm and GameController.current_game_id != "":
 			var g = dm.get_game(GameController.current_game_id)
 			var ea = g.get("engine_analyses", [])
 			advantage_graph.update_stored_analyses(ea)
+	_trigger_live_eval()
 
 # --- LIBELLÉS JOUEURS EN HAUT / BAS DU PLATEAU ---
 
@@ -327,8 +375,146 @@ func _clip_player_name(name: String, max_chars := 24) -> String:
 	return name.substr(0, max_chars - 1) + "…"
 
 func _start_initial_eval() -> void:
-	if EngineManager != null and EngineManager.is_engine_running:
-		EngineManager.evaluate_position(GameController.game.get_fen())
+	_trigger_live_eval()
+
+func _trigger_live_eval() -> void:
+	if not is_instance_valid(self):
+		return
+	if analyzer != null and analyzer.is_analyzing:
+		return
+	if not live_eval_enabled:
+		return
+	if EngineManager == null or not EngineManager.is_engine_running:
+		return
+	if GameController == null or GameController.game == null:
+		return
+	EngineManager.evaluate_position(GameController.game.get_fen())
+
+func _apply_analyze_button_style(is_running: bool) -> void:
+	if btn_analyze_game == null:
+		return
+	if is_running:
+		var stop_normal := DesignTokens.flat(Color("#7f1d1d"), DesignTokens.RADIUS_SMALL,
+				Color("#ef4444"), 1, Vector2(10, 2))
+		var stop_hover := DesignTokens.flat(Color("#991b1b"), DesignTokens.RADIUS_SMALL,
+				Color("#f87171"), 1, Vector2(10, 2))
+		var stop_pressed := DesignTokens.flat(Color("#450a0a"), DesignTokens.RADIUS_SMALL,
+				Color("#ef4444"), 1, Vector2(10, 2))
+		btn_analyze_game.add_theme_stylebox_override("normal", stop_normal)
+		btn_analyze_game.add_theme_stylebox_override("hover", stop_hover)
+		btn_analyze_game.add_theme_stylebox_override("pressed", stop_pressed)
+		btn_analyze_game.add_theme_color_override("font_color", Color.WHITE)
+		btn_analyze_game.add_theme_color_override("font_hover_color", Color.WHITE)
+		btn_analyze_game.add_theme_color_override("font_pressed_color", Color.WHITE)
+	else:
+		var analyze_normal := DesignTokens.flat(DesignTokens.PRIMARY_BG, DesignTokens.RADIUS_SMALL,
+				DesignTokens.PRIMARY_BORDER, 1, Vector2(10, 2))
+		var analyze_hover := analyze_normal.duplicate() as StyleBoxFlat
+		analyze_hover.border_color = DesignTokens.TEXT_PRIMARY
+		var analyze_pressed := analyze_normal.duplicate() as StyleBoxFlat
+		analyze_pressed.bg_color = DesignTokens.PRIMARY_BG_PRESSED
+		btn_analyze_game.add_theme_stylebox_override("normal", analyze_normal)
+		btn_analyze_game.add_theme_stylebox_override("hover", analyze_hover)
+		btn_analyze_game.add_theme_stylebox_override("pressed", analyze_pressed)
+		btn_analyze_game.add_theme_color_override("font_color", DesignTokens.ON_PRIMARY)
+		btn_analyze_game.add_theme_color_override("font_hover_color", DesignTokens.ON_PRIMARY)
+		btn_analyze_game.add_theme_color_override("font_pressed_color", DesignTokens.ON_PRIMARY)
+	btn_analyze_game.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+
+func _update_live_button_style() -> void:
+	if btn_toggle_live == null:
+		return
+	if live_eval_enabled:
+		btn_toggle_live.text = "⚡ Live"
+		var live_normal := DesignTokens.flat(Color(0.06, 0.72, 0.51, 0.22), DesignTokens.RADIUS_SMALL,
+				Color("#10b981"), 1, Vector2(8, 2))
+		var live_hover := DesignTokens.flat(Color(0.06, 0.72, 0.51, 0.35), DesignTokens.RADIUS_SMALL,
+				Color("#34d399"), 1, Vector2(8, 2))
+		var live_pressed := DesignTokens.flat(Color(0.06, 0.72, 0.51, 0.45), DesignTokens.RADIUS_SMALL,
+				Color("#059669"), 1, Vector2(8, 2))
+		btn_toggle_live.add_theme_stylebox_override("normal", live_normal)
+		btn_toggle_live.add_theme_stylebox_override("hover", live_hover)
+		btn_toggle_live.add_theme_stylebox_override("pressed", live_pressed)
+		btn_toggle_live.add_theme_color_override("font_color", Color("#34d399"))
+		btn_toggle_live.add_theme_color_override("font_hover_color", Color.WHITE)
+		btn_toggle_live.add_theme_color_override("font_pressed_color", Color("#10b981"))
+	else:
+		btn_toggle_live.text = "⚡ Off"
+		var off_normal := DesignTokens.flat(DesignTokens.BTN_BG, DesignTokens.RADIUS_SMALL,
+				DesignTokens.BTN_BORDER, 1, Vector2(8, 2))
+		var off_hover := off_normal.duplicate() as StyleBoxFlat
+		off_hover.bg_color = DesignTokens.BTN_BG_HOVER
+		var off_pressed := off_normal.duplicate() as StyleBoxFlat
+		off_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
+		btn_toggle_live.add_theme_stylebox_override("normal", off_normal)
+		btn_toggle_live.add_theme_stylebox_override("hover", off_hover)
+		btn_toggle_live.add_theme_stylebox_override("pressed", off_pressed)
+		btn_toggle_live.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		btn_toggle_live.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
+		btn_toggle_live.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_MUTED)
+	btn_toggle_live.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+
+func _on_btn_toggle_live_pressed() -> void:
+	live_eval_enabled = not live_eval_enabled
+	_update_live_button_style()
+	if live_eval_enabled:
+		_trigger_live_eval()
+	else:
+		if EngineManager != null and not analyzer.is_analyzing:
+			EngineManager.stop_evaluation()
+		if chess_board:
+			chess_board.best_move_arrow_from = -1
+			chess_board.best_move_arrow_to = -1
+			if chess_board.arrow_overlay:
+				chess_board.arrow_overlay.queue_redraw()
+			chess_board.queue_redraw()
+		if top_eval_label:
+			top_eval_label.text = "Live off"
+
+func _display_analysis_stats(report_or_entry: Dictionary, is_partial: bool = false) -> void:
+	if stats_grid == null:
+		return
+
+	var w_acc: float = float(report_or_entry.get("white_accuracy", 0.0))
+	var b_acc: float = float(report_or_entry.get("black_accuracy", 0.0))
+	var w_elo: int = int(report_or_entry.get("white_estimated_elo", 1500))
+	var b_elo: int = int(report_or_entry.get("black_estimated_elo", 1500))
+	var w_ci: int = int(report_or_entry.get("white_elo_ci", 0))
+	var b_ci: int = int(report_or_entry.get("black_elo_ci", 0))
+	var comp: Dictionary = report_or_entry.get("elo_comparison", {})
+	var stars: String = comp.get("stars", "ns")
+	var p_val: float = float(comp.get("p_value", 1.0))
+	var diff_elo: int = int(comp.get("diff_elo", w_elo - b_elo))
+
+	var w_ci_str = " ±%d" % w_ci if w_ci > 0 else ""
+	var b_ci_str = " ±%d" % b_ci if b_ci > 0 else ""
+
+	# L1C1 : Blancs
+	if label_white_stats:
+		label_white_stats.text = "⚪ Blancs : %.1f%%  •  %d%s ELO" % [w_acc, w_elo, w_ci_str]
+	# L2C1 : Noirs
+	if label_black_stats:
+		label_black_stats.text = "⚫ Noirs  : %.1f%%  •  %d%s ELO" % [b_acc, b_elo, b_ci_str]
+
+	# Colonne 2 (1/3 droite, centrée) : Δ ELO en haut, p-value + significativité en bas
+	if label_delta:
+		label_delta.text = "Δ %+d ELO" % diff_elo
+	if label_pvalue:
+		var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
+		label_pvalue.text = "%s %s" % [p_str, stars]
+
+	stats_grid.visible = true
+
+	var total_moves = GameController.game.move_history.size() / 2 if GameController.game else 0
+	var short_sample = " • [Échantillon court]" if total_moves < 12 else ""
+	if is_partial:
+		var count = report_or_entry.get("evaluations", []).size()
+		stats_label.text = "⏹ Analyse arrêtée (%d demi-coups) • Données partielles conservées." % count
+	else:
+		stats_label.text = "Analyse complète SF19 terminée.%s" % short_sample
+
+func _on_stored_analysis_selected(analysis_entry: Dictionary) -> void:
+	_display_analysis_stats(analysis_entry, false)
 
 func _on_play_sound(sound_type: String) -> void:
 	if not SettingsManager.get_setting("sound_enabled", true):
@@ -338,13 +524,37 @@ func _on_play_sound(sound_type: String) -> void:
 		"capture": sfx_capture.play()
 		"check": sfx_check.play()
 
-func _on_engine_eval(score_cp: int, mate_in: int, _depth: int, _best_move: String, _pv: Array, _multipv: Array) -> void:
+func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
+	if analyzer != null and analyzer.is_analyzing:
+		return
+
 	if top_eval_label:
 		if mate_in != 0:
 			top_eval_label.text = "Mat %d" % mate_in
 		else:
 			var pawns = score_cp / 100.0
 			top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+
+	if eval_bar:
+		eval_bar.set_score(score_cp)
+
+	if chess_board:
+		if best_move.length() >= 4:
+			chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))
+			chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_move.substr(2, 2))
+		else:
+			chess_board.best_move_arrow_from = -1
+			chess_board.best_move_arrow_to = -1
+		if chess_board.arrow_overlay:
+			chess_board.arrow_overlay.queue_redraw()
+		chess_board.queue_redraw()
+
+	if live_eval_enabled and stats_label and stats_grid and (not stats_grid.visible):
+		var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
+		var pawns_val = score_cp / 100.0
+		var eval_str = ("Mat %d" % mate_in) if mate_in != 0 else (("%+0.1f" if pawns_val >= 0 else "%.1f") % pawns_val)
+		var best_str = best_move if best_move != "" else "—"
+		stats_label.text = "⚡ %s live (prof. %d) : Eval %s • Coup : %s" % [eng_name, depth, eval_str, best_str]
 
 # --- BANDEAU D'ERREURS À L'ÉCRAN ---
 
@@ -579,12 +789,7 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 	GameController.game.restore_state(ply_idx + 1)
 
 	if chess_board:
-		chess_board.reset_board_visuals()
-
-		# Flèche fine rouge carmin en pointillés du dernier coup joué
-		var move = GameController.game.move_history[ply_idx]
-		chess_board.last_move_from = move.from_sq
-		chess_board.last_move_to = move.to_sq
+		var move: ChessMove = GameController.game.move_history[ply_idx]
 
 		# Flèche tactique moderne cyan de la recommandation Stockfish
 		var best_uci: String = move_record.get("best_move", "")
@@ -595,7 +800,15 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 			chess_board.best_move_arrow_from = -1
 			chess_board.best_move_arrow_to = -1
 
-		chess_board.queue_redraw()
+		# Animation fluide avec effets de capture et sons
+		if move.captured_piece != ChessPiece.Type.NONE:
+			_on_play_sound("capture")
+		elif move.is_check:
+			_on_play_sound("check")
+		else:
+			_on_play_sound("move")
+
+		chess_board._animate_navigation_forward(move)
 
 	# 2. Mise à jour des libellés joueurs et badges (⭐ Au trait / Dernier coup)
 	_update_player_labels()
@@ -636,13 +849,22 @@ func _on_btn_analyze_game_pressed() -> void:
 		analyzer.cancel_analysis()
 		if EngineManager != null:
 			EngineManager.interrupt_evaluation()
-		stats_label.text = "Analyse interrompue par l'utilisateur."
+		btn_analyze_game.text = "🔍 Analyser"
+		_apply_analyze_button_style(false)
+		btn_toggle_live.disabled = false
+		stats_label.text = "Arrêt de l'analyse en cours..."
 		return
 
 	var moves_count = GameController.game.move_history.size()
 	if moves_count == 0:
 		stats_label.text = "Jouez ou importez des coups avant de lancer l'analyse globale."
 		return
+
+	btn_analyze_game.text = "⏹ STOP"
+	_apply_analyze_button_style(true)
+	btn_toggle_live.disabled = true
+	if stats_grid:
+		stats_grid.visible = false
 
 	var sm = get_node_or_null("/root/SettingsManager")
 	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
@@ -691,6 +913,8 @@ func _on_btn_analyze_game_pressed() -> void:
 		"dynamic_max": dynamic_max
 	}
 
+	analyzer.engine_manager = EngineManager
+	analyzer.settings_manager = sm
 	analyzer.is_analyzing = true
 	analysis_thread = Thread.new()
 	analysis_thread.start(func():
@@ -701,6 +925,12 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	if analysis_thread and analysis_thread.is_started():
 		analysis_thread.wait_to_finish()
 
+	if analyzer:
+		analyzer.is_analyzing = false
+	btn_analyze_game.text = "🔍 Analyser"
+	_apply_analyze_button_style(false)
+	btn_toggle_live.disabled = false
+
 	if report.has("error"):
 		var err: String = report["error"]
 		stats_label.text = "❌ %s" % err
@@ -710,34 +940,9 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	var evals = report.get("evaluations", [])
 	advantage_graph.set_evaluations(evals)
 
-	var w_acc = report.get("white_accuracy", 0.0)
-	var b_acc = report.get("black_accuracy", 0.0)
-	var w_elo = report.get("white_estimated_elo", 1500)
-	var b_elo = report.get("black_estimated_elo", 1500)
-	var w_ci = report.get("white_elo_ci", 0)
-	var b_ci = report.get("black_elo_ci", 0)
-	var comp = report.get("elo_comparison", {})
-	var stars: String = comp.get("stars", "ns")
-	var p_val: float = float(comp.get("p_value", 1.0))
-	var diff_elo: int = int(comp.get("diff_elo", w_elo - b_elo))
-
-	var total_moves = GameController.game.move_history.size() / 2
-	var short_sample = " • [Échantillon court]" if total_moves < 12 else ""
-
-	var stat_summary := ""
-	if not comp.is_empty():
-		var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
-		stat_summary = " • Δ %+d ELO [%s %s]" % [diff_elo, p_str, stars]
-
-	var w_ci_str = " ±%d" % w_ci if w_ci > 0 else ""
-	var b_ci_str = " ±%d" % b_ci if b_ci > 0 else ""
-
-	stats_label.text = "⚪ Blancs: %.1f%% (Est. %d%s ELO)  |  ⚫ Noirs: %.1f%% (Est. %d%s ELO)%s%s" % [
-		w_acc, w_elo, w_ci_str,
-		b_acc, b_elo, b_ci_str,
-		stat_summary,
-		short_sample
-	]
+	var total_moves = GameController.game.move_history.size() if GameController.game else 0
+	var is_partial = (evals.size() < total_moves)
+	_display_analysis_stats(report, is_partial)
 
 	# Archivage automatique dans DatabaseManager pour la partie active
 	var dm = get_node_or_null("/root/DatabaseManager")
@@ -752,13 +957,13 @@ func _on_analysis_finished(report: Dictionary) -> void:
 				"engine_name": EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
 				"depth": a_depth,
 				"mode": a_mode,
-				"white_accuracy": w_acc,
-				"black_accuracy": b_acc,
-				"white_estimated_elo": w_elo,
-				"black_estimated_elo": b_elo,
-				"white_elo_ci": w_ci,
-				"black_elo_ci": b_ci,
-				"elo_comparison": comp,
+				"white_accuracy": report.get("white_accuracy", 0.0),
+				"black_accuracy": report.get("black_accuracy", 0.0),
+				"white_estimated_elo": report.get("white_estimated_elo", 1500),
+				"black_estimated_elo": report.get("black_estimated_elo", 1500),
+				"white_elo_ci": report.get("white_elo_ci", 0),
+				"black_elo_ci": report.get("black_elo_ci", 0),
+				"elo_comparison": report.get("elo_comparison", {}),
 				"white_acpl": report.get("white_acpl", 0.0),
 				"black_acpl": report.get("black_acpl", 0.0),
 				"white_stats": report.get("white_stats", {}),
@@ -771,4 +976,6 @@ func _on_analysis_finished(report: Dictionary) -> void:
 
 	move_list.refresh()
 
-	# Le graphe permanent (sous l'échiquier) s'est mis à jour : on reste sur la vue principale.
+	# Reprise automatique du Live SF19 à la position courante
+	if live_eval_enabled:
+		_trigger_live_eval()

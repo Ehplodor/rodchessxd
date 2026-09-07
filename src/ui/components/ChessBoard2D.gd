@@ -322,7 +322,7 @@ func _clear_ghost_sprites() -> void:
 			child.queue_free()
 
 ## Réinitialisation graphique complète et propre du plateau
-func reset_board_visuals() -> void:
+func reset_board_visuals(preserve_best_move: bool = false) -> void:
 	_clear_active_tweens()
 	_clear_ghost_sprites()
 	is_animating_move = false
@@ -335,8 +335,9 @@ func reset_board_visuals() -> void:
 	if flying_piece:
 		flying_piece.visible = false
 	
-	best_move_arrow_from = -1
-	best_move_arrow_to = -1
+	if not preserve_best_move:
+		best_move_arrow_from = -1
+		best_move_arrow_to = -1
 	
 	var gc = _get_game_controller()
 	if gc and gc.current_ply_index >= 0 and gc.current_ply_index < gc.game.move_history.size():
@@ -509,7 +510,7 @@ func _animate_navigation_forward(move: ChessMove) -> void:
 		var gctl = _get_game_controller()
 		if gctl:
 			displayed_ply_index = gctl.current_ply_index
-		reset_board_visuals()
+		reset_board_visuals(true)
 	)
 	queue_redraw()
 
@@ -790,11 +791,31 @@ func _draw() -> void:
 
 func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 	var theme = _get_active_theme()
-	# 1. Flèche fine rouge carmin en pointillés du dernier coup joué
+	var gc = _get_game_controller()
+
+	# 1. Mise en valeur de la case sélectionnée et cibles légales au premier plan (z_index=5)
+	if gc:
+		if gc.selected_square != -1:
+			var sel_pos = _get_square_screen_pos(gc.selected_square)
+			var sel_rect = Rect2(sel_pos, Vector2(square_size, square_size))
+			ci.draw_rect(sel_rect, theme.get("selected", Color(0.14, 0.65, 0.95, 0.35)))
+			ci.draw_rect(sel_rect, theme.get("selected_border", Color("#0ea5e9")), false, 2.0)
+
+		for sq in gc.legal_destinations:
+			var center = _get_square_screen_pos(sq) + Vector2(square_size * 0.5, square_size * 0.5)
+			var piece_on_target = gc.game.get_piece(sq) if gc.game else null
+			if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
+				# Anneau de capture bien visible au-dessus de la pièce ennemie
+				ci.draw_arc(center, square_size * 0.43, 0, TAU, 48, theme.get("legal_ring", Color("#f59e0b")), 3.0)
+			else:
+				# Disque discret et lisible pour case vide
+				ci.draw_circle(center, square_size * 0.16, theme.get("legal_dot", Color("#38bdf888")))
+
+	# 2. Flèche fine rouge carmin en pointillés du dernier coup joué
 	if last_move_from != -1 and last_move_to != -1 and not is_animating_move:
 		_draw_last_move_arrow(last_move_from, last_move_to, theme, ci)
 	
-	# 2. Flèche tactique moderne pour l'analyse Stockfish (meilleur coup)
+	# 3. Flèche tactique moderne pour l'analyse Stockfish (meilleur coup)
 	if best_move_arrow_from != -1 and best_move_arrow_to != -1:
 		_draw_modern_move_arrow(best_move_arrow_from, best_move_arrow_to, theme, ci)
 
@@ -1053,6 +1074,11 @@ func _on_engine_eval(_score_cp: int, _mate_in: int, _depth: int, best_move: Stri
 	if best_move.length() >= 4:
 		best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))
 		best_move_arrow_to = ChessMove.coord_to_square(best_move.substr(2, 2))
-		queue_redraw()
+	else:
+		best_move_arrow_from = -1
+		best_move_arrow_to = -1
+	if arrow_overlay:
+		arrow_overlay.queue_redraw()
+	queue_redraw()
 
 

@@ -551,10 +551,10 @@ func make_move(move: ChessMove) -> bool:
 			move.is_check = true
 			move.san += "+"
 
-	# Historique
-	if history_index < move_history.size() - 1:
-		move_history = move_history.slice(0, history_index + 1)
-		state_history = state_history.slice(0, history_index + 2)
+	# Historique : si on joue un coup depuis une position antérieure (variante), tronquer proprement
+	if history_index < state_history.size() - 1:
+		move_history = move_history.slice(0, history_index)
+		state_history = state_history.slice(0, history_index + 1)
 	
 	move_history.append(move)
 	save_state_snapshot()

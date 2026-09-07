@@ -3,6 +3,7 @@ extends Control
 ## AdvantageGraph2D.gd - Graphe vectoriel interactif de la courbe d'avantage avec axes, HUD et zoom
 
 signal move_scrubbed(ply_index: int)
+signal analysis_selected(analysis_entry: Dictionary)
 
 var evaluations: Array = []
 var active_ply: int = -1
@@ -23,8 +24,10 @@ const SCRUB_NAV_MS := 90
 func _ready() -> void:
 	custom_minimum_size = Vector2(250, 130)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	GameController.move_navigated.connect(_on_move_navigated)
-	GameController.position_changed.connect(_on_position_changed)
+	var gc = get_node_or_null("/root/GameController")
+	if gc:
+		gc.move_navigated.connect(_on_move_navigated)
+		gc.position_changed.connect(_on_position_changed)
 
 	var em = get_node_or_null("/root/EngineManager")
 	if em:
@@ -182,29 +185,33 @@ func _cycle_analysis() -> void:
 	var cur = stored_analyses[current_analysis_idx]
 	set_evaluations(cur.get("evaluations", []))
 	_show_switch_analysis_button()
+	analysis_selected.emit(cur)
 	var main = find_parent("Main")
-	if main and main.stats_label:
-		var w_acc = cur.get("white_accuracy", 0.0)
-		var b_acc = cur.get("black_accuracy", 0.0)
-		var w_elo = cur.get("white_estimated_elo", 1500)
-		var b_elo = cur.get("black_estimated_elo", 1500)
-		var w_ci = cur.get("white_elo_ci", 0)
-		var b_ci = cur.get("black_elo_ci", 0)
-		var comp = cur.get("elo_comparison", {})
-		var stars: String = comp.get("stars", "")
-		var p_val: float = float(comp.get("p_value", 1.0))
-		var diff_elo: int = int(comp.get("diff_elo", w_elo - b_elo))
-		var stat_summary := ""
-		if not comp.is_empty():
-			var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
-			stat_summary = " • Δ %+d ELO [%s %s]" % [diff_elo, p_str, stars]
-		var w_ci_str = " ±%d" % w_ci if w_ci > 0 else ""
-		var b_ci_str = " ±%d" % b_ci if b_ci > 0 else ""
-		main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d%s ELO)  |  ⚫ Noirs: %.1f%% (Est. %d%s ELO)%s" % [
-			w_acc, w_elo, w_ci_str,
-			b_acc, b_elo, b_ci_str,
-			stat_summary
-		]
+	if main:
+		if main.has_method("_display_analysis_stats"):
+			main._display_analysis_stats(cur)
+		elif main.stats_label:
+			var w_acc = cur.get("white_accuracy", 0.0)
+			var b_acc = cur.get("black_accuracy", 0.0)
+			var w_elo = cur.get("white_estimated_elo", 1500)
+			var b_elo = cur.get("black_estimated_elo", 1500)
+			var w_ci = cur.get("white_elo_ci", 0)
+			var b_ci = cur.get("black_elo_ci", 0)
+			var comp = cur.get("elo_comparison", {})
+			var stars: String = comp.get("stars", "")
+			var p_val: float = float(comp.get("p_value", 1.0))
+			var diff_elo: int = int(comp.get("diff_elo", w_elo - b_elo))
+			var stat_summary := ""
+			if not comp.is_empty():
+				var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
+				stat_summary = " • Δ %+d ELO [%s %s]" % [diff_elo, p_str, stars]
+			var w_ci_str = " ±%d" % w_ci if w_ci > 0 else ""
+			var b_ci_str = " ±%d" % b_ci if b_ci > 0 else ""
+			main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d%s ELO)  |  ⚫ Noirs: %.1f%% (Est. %d%s ELO)%s" % [
+				w_acc, w_elo, w_ci_str,
+				b_acc, b_elo, b_ci_str,
+				stat_summary
+			]
 
 func prepare_live_analysis(total_plies: int) -> void:
 	evaluations.clear()
@@ -438,11 +445,15 @@ func _scrub_to(pos_x: float, force: bool) -> void:
 	var now := Time.get_ticks_msec()
 	if force or now - _last_nav_ms >= SCRUB_NAV_MS:
 		_last_nav_ms = now
-		GameController.navigate_to_ply(target)
+		var gc = get_node_or_null("/root/GameController")
+		if gc:
+			gc.navigate_to_ply(target)
 
 func _commit_scrub() -> void:
 	if active_ply >= 0:
-		GameController.navigate_to_ply(active_ply)
+		var gc = get_node_or_null("/root/GameController")
+		if gc:
+			gc.navigate_to_ply(active_ply)
 
 func _on_move_navigated(move_idx: int) -> void:
 	active_ply = move_idx

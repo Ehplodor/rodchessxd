@@ -28,9 +28,11 @@ var white_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good
 var black_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0}
 
 var engine_manager: Node = null
+var settings_manager: Node = null
 
 func _init() -> void:
 	engine_manager = _get_engine_manager()
+	settings_manager = _get_settings_manager()
 
 func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary = {}) -> Dictionary:
 	is_analyzing = true
@@ -224,14 +226,16 @@ func _increment_quality_stat(stats: Dictionary, q: ChessMove.Quality) -> void:
 func _win_percentage(score_cp: int) -> float:
 	return 100.0 / (1.0 + exp(-0.00368208 * float(score_cp)))
 
-## Précision CAPS2 (Chess.com / Lichess) calculée coup par coup
+## Précision CAPS2 (Chess.com / Lichess) calculée coup par coup avec pondération contextuelle
 func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> float:
 	var move_accuracies: Array[float] = []
+	var move_weights: Array[float] = []
 	var prev_cp = 20 # Score de départ égalité légère blanc
 
 	for ev in evals:
 		var cur_cp = ev.get("score_cp", 0)
 		var is_white_move = ev.get("is_white", true)
+		var ply_idx = ev.get("ply", 0)
 
 		if is_white_move == for_white:
 			var win_before: float
@@ -247,7 +251,20 @@ func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> floa
 			var win_loss = maxf(0.0, win_before - win_after)
 			# Formule officielle CAPS2 : 103.1668 * exp(-0.04354 * win_loss) - 3.1669
 			var acc = 103.1668 * exp(-0.04354 * win_loss) - 3.1669
-			move_accuracies.append(clampf(acc, 0.0, 100.0))
+			acc = clampf(acc, 0.0, 100.0)
+			move_accuracies.append(acc)
+
+			# Pondération contextuelle :
+			# 1. Les tous premiers coups d'ouverture théoriques (plies 0 à 6) ont un poids progressif
+			# pour éviter une sur-évaluation artificielle de 100% sur les débuts de partie.
+			var weight = 1.0
+			if ply_idx < 6:
+				weight = 0.65 + (float(ply_idx) / 6.0) * 0.35 # 0.65 -> 1.0
+			# 2. Les coups tactiques décisifs ou gaffes critiques comptent pleinement
+			var qual = ev.get("quality", ChessMove.Quality.NONE)
+			if qual == ChessMove.Quality.BLUNDER or qual == ChessMove.Quality.BRILLIANT:
+				weight *= 1.25
+			move_weights.append(weight)
 
 		prev_cp = cur_cp
 
@@ -255,9 +272,16 @@ func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> floa
 		return 50.0
 
 	var sum_acc = 0.0
-	for a in move_accuracies:
-		sum_acc += a
-	return clampf(sum_acc / float(move_accuracies.size()), 5.0, 99.8)
+	var sum_weights = 0.0
+	for j in range(move_accuracies.size()):
+		var w = move_weights[j]
+		sum_acc += move_accuracies[j] * w
+		sum_weights += w
+
+	if sum_weights <= 0.0:
+		return 50.0
+
+	return clampf(sum_acc / sum_weights, 5.0, 99.8)
 
 ## Modèle d'estimation ELO réaliste et étalonné
 ## Évite l'inflation absurde à 2800 ELO sur les ouvertures courtes
@@ -311,16 +335,22 @@ func _estimate_elo(accuracy: float, acpl: float, stats: Dictionary, moves_count:
 	return clampi(int(round(calibrated_elo)), 300, 2850)
 
 func _get_settings_manager() -> Node:
-	var tree = Engine.get_main_loop() as SceneTree
-	if tree and tree.root:
-		return tree.root.get_node_or_null("SettingsManager")
-	return null
+	if settings_manager != null:
+		return settings_manager
+	if OS.get_main_thread_id() == OS.get_thread_caller_id():
+		var tree = Engine.get_main_loop() as SceneTree
+		if tree and tree.root:
+			settings_manager = tree.root.get_node_or_null("SettingsManager")
+	return settings_manager
 
 func _get_engine_manager() -> Node:
-	var tree = Engine.get_main_loop() as SceneTree
-	if tree and tree.root:
-		return tree.root.get_node_or_null("EngineManager")
-	return null
+	if engine_manager != null:
+		return engine_manager
+	if OS.get_main_thread_id() == OS.get_thread_caller_id():
+		var tree = Engine.get_main_loop() as SceneTree
+		if tree and tree.root:
+			engine_manager = tree.root.get_node_or_null("EngineManager")
+	return engine_manager
 
 func _wait_for_engine() -> bool:
 	if not engine_manager:

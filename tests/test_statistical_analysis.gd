@@ -140,12 +140,47 @@ func _init() -> void:
 	}
 	main_node._on_analysis_finished(dummy_report)
 
-	assert(main_node.stats_label.text.contains("Est. 1820 ±55 ELO"), "StatsLabel doit formater l'ELO Blancs avec son IC 95%")
-	assert(main_node.stats_label.text.contains("Est. 1690 ±62 ELO"), "StatsLabel doit formater l'ELO Noirs avec son IC 95%")
-	assert(main_node.stats_label.text.contains("Δ +130 ELO"), "StatsLabel doit formater la différence ELO")
-	assert(main_node.stats_label.text.contains("*"), "StatsLabel doit afficher l'étoile de significativité statistique (*)")
-	print("    ✅ Rapport final complet avec IC 95% et étoiles scientifiques validé : ", main_node.stats_label.text)
+	assert(main_node.stats_grid.visible == true, "La grille 2x2 stats_grid doit être visible après analyse")
+	assert(main_node.label_white_stats.text.contains("92.4%") and main_node.label_white_stats.text.contains("1820 ±55 ELO"), "L1C1 Blancs doit contenir la précision 92.4% et l'ELO 1820 ±55")
+	assert(main_node.label_black_stats.text.contains("81.2%") and main_node.label_black_stats.text.contains("1690 ±62 ELO"), "L2C1 Noirs doit contenir la précision 81.2% et l'ELO 1690 ±62")
+	assert(main_node.label_delta.text == "Δ +130 ELO", "Cellule droite doit afficher le delta ELO centré")
+	assert(main_node.label_pvalue.text.contains("p=0.027") and main_node.label_pvalue.text.contains("*"), "Cellule droite doit afficher la p-value et les étoiles")
+	print("    ✅ Grille statistique 2x2 validée (Blancs: %s | Noirs: %s | Delta: %s %s)" % [
+		main_node.label_white_stats.text,
+		main_node.label_black_stats.text,
+		main_node.label_delta.text,
+		main_node.label_pvalue.text
+	])
 
+	# --- 5. Test du bouton STOP durant l'analyse et du bouton Live ---
+	print("  -> Test 5: Validation du bouton STOP et du bouton ⚡ Live...")
+	assert(main_node.btn_analyze_game.text == "🔍 Analyser", "Le bouton doit être sur 'Analyser' hors analyse")
+	assert(main_node.btn_toggle_live.text == "⚡ Live", "Le bouton Live doit être actif par défaut")
+	
+	main_node._on_btn_toggle_live_pressed()
+	assert(main_node.live_eval_enabled == false, "Live doit être désactivé après un clic")
+	assert(main_node.btn_toggle_live.text == "⚡ Off", "Le libellé doit être '⚡ Off'")
+	
+	main_node._on_btn_toggle_live_pressed()
+	assert(main_node.live_eval_enabled == true, "Live doit être réactivé après un deuxième clic")
+	assert(main_node.btn_toggle_live.text == "⚡ Live", "Le libellé doit revenir à '⚡ Live'")
+
+	# Démarrage de l'analyse : libellé doit passer à ⏹ STOP
+	gc.load_pgn("1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 d6 8. c3 O-O")
+	sm.set_setting("analysis_time_per_move", 1.0)
+	main_node._on_btn_analyze_game_pressed()
+	assert(main_node.btn_analyze_game.text == "⏹ STOP", "Le bouton doit afficher '⏹ STOP' pendant l'analyse")
+	assert(main_node.btn_toggle_live.disabled == true, "Le bouton Live doit être désactivé pendant l'analyse")
+
+	# Clic sur STOP : interruption sans perte des données acquises
+	main_node._on_btn_analyze_game_pressed()
+	assert(main_node.btn_analyze_game.text == "🔍 Analyser", "Le bouton doit revenir à 'Analyser'")
+	assert(main_node.btn_toggle_live.disabled == false, "Le bouton Live doit être réactivé après l'arrêt")
+	print("    ✅ Transitions d'état du bouton STOP et du toggle ⚡ Live validées.")
+
+	if main_node.analysis_thread and main_node.analysis_thread.is_started():
+		main_node.analysis_thread.wait_to_finish()
 	main_node.queue_free()
-	print("\n🎉 TOUS LES TESTS STATISTIQUES & D'ANIMATION EN DIRECT SONT VALIDÉS AVEC SUCCÈS !")
+	print("\n🎉 TOUS LES TESTS STATISTIQUES, LIVE SF19 & D'ANIMATION EN DIRECT SONT VALIDÉS AVEC SUCCÈS !")
 	quit(0)
+
