@@ -904,7 +904,7 @@ func _on_move_navigated(target_ply: int) -> void:
 
 func _on_position_changed() -> void:
 	var gc = _get_game_controller()
-	var flipped := gc.board_flipped if gc else false
+	var flipped := bool(gc.board_flipped) if gc else false
 	if flipped != _last_flipped_state:
 		_last_flipped_state = flipped
 		# Retournement pendant une animation : annuler proprement (M2 / D2).
