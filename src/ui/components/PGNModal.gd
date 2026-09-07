@@ -34,8 +34,8 @@ func _setup_ui() -> void:
 	var btn_paste = Button.new()
 	btn_paste.text = "📋 Coller"
 	btn_paste.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_paste.custom_minimum_size = Vector2(0, 32)
-	btn_paste.add_theme_font_size_override("font_size", 11)
+	btn_paste.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_paste.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_paste.pressed.connect(func():
 		var clip = DisplayServer.clipboard_get()
 		if clip != "":
@@ -46,16 +46,16 @@ func _setup_ui() -> void:
 	var btn_open_file = Button.new()
 	btn_open_file.text = "📁 Ouvrir .pgn"
 	btn_open_file.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_open_file.custom_minimum_size = Vector2(0, 32)
-	btn_open_file.add_theme_font_size_override("font_size", 11)
+	btn_open_file.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_open_file.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_open_file.pressed.connect(_open_file_dialog)
 	actions_row.add_child(btn_open_file)
 
 	var btn_copy = Button.new()
 	btn_copy.text = "💾 Copier PGN"
 	btn_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_copy.custom_minimum_size = Vector2(0, 32)
-	btn_copy.add_theme_font_size_override("font_size", 11)
+	btn_copy.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_copy.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_copy.pressed.connect(func():
 		var cur_pgn = GameController.game.export_pgn()
 		DisplayServer.clipboard_set(cur_pgn)
@@ -66,9 +66,11 @@ func _setup_ui() -> void:
 
 	# Zone de texte PGN
 	pgn_text_edit = TextEdit.new()
+	DesignTokens.touch_scroll(pgn_text_edit)
 	pgn_text_edit.placeholder_text = "Collez votre texte PGN ici...\n\nExemple:\n[Event \"Game\"]\n1. e4 e5 2. Nf3 Nc6..."
 	pgn_text_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pgn_text_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pgn_text_edit.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	vbox.add_child(pgn_text_edit)
 
 	# Pré-remplir avec la partie en cours si existante
@@ -79,15 +81,16 @@ func _setup_ui() -> void:
 	status_lbl.text = ""
 	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_lbl.add_theme_font_size_override("font_size", 11)
-	status_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+	status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	status_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	vbox.add_child(status_lbl)
 
 	# Bouton Charger
 	var btn_load = Button.new()
 	btn_load.text = "🚀 Charger & Analyser cette partie"
-	btn_load.custom_minimum_size = Vector2(0, 42)
+	btn_load.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_load.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_load.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_load.pressed.connect(_on_load_pressed)
 	vbox.add_child(btn_load)
 

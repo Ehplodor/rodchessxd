@@ -31,11 +31,12 @@ func _ready() -> void:
 
 func _setup_ui() -> void:
 	var scroll = ScrollContainer.new()
+	DesignTokens.touch_scroll(scroll)
 	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scroll.offset_left = 8
-	scroll.offset_top = 8
-	scroll.offset_right = -8
-	scroll.offset_bottom = -8
+	scroll.offset_left = DesignTokens.WINDOW_INSET
+	scroll.offset_top = DesignTokens.WINDOW_INSET
+	scroll.offset_right = -DesignTokens.WINDOW_INSET
+	scroll.offset_bottom = -DesignTokens.WINDOW_INSET
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	add_child(scroll)
 
@@ -47,7 +48,8 @@ func _setup_ui() -> void:
 	# 1. Bouton Sélectionner Image
 	var btn_choose = Button.new()
 	btn_choose.text = "📁 Sélectionner une image PNG / Capture"
-	btn_choose.custom_minimum_size = Vector2(0, 36)
+	btn_choose.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_choose.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_choose.pressed.connect(_open_file_dialog)
 	main_vbox.add_child(btn_choose)
 
@@ -66,10 +68,11 @@ func _setup_ui() -> void:
 		for f in range(8):
 			var sq = (7 - r) * 8 + f
 			var btn = Button.new()
-			btn.custom_minimum_size = Vector2(36, 36)
+			btn.custom_minimum_size = Vector2(47, 47)  # M1 : grille dense (8 colonnes, fenêtre 410 px)
 			btn.flat = false
+			btn.add_theme_font_size_override("font_size", 24)
 			var is_light = (r + f) % 2 == 0
-			var bg_col = Color("#334155") if is_light else Color("#1e293b")
+			var bg_col = DesignTokens.BORDER if is_light else DesignTokens.SURFACE_ELEVATED
 			var style = StyleBoxFlat.new()
 			style.bg_color = bg_col
 			btn.add_theme_stylebox_override("normal", style)
@@ -83,8 +86,8 @@ func _setup_ui() -> void:
 	var palette_lbl = Label.new()
 	palette_lbl.text = "Palette de correction rapide :"
 	palette_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	palette_lbl.add_theme_font_size_override("font_size", 11)
-	palette_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	palette_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	palette_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	main_vbox.add_child(palette_lbl)
 
 	# Rangée Blancs
@@ -95,7 +98,7 @@ func _setup_ui() -> void:
 
 	var lbl_w = Label.new()
 	lbl_w.text = "⚪"
-	lbl_w.add_theme_font_size_override("font_size", 12)
+	lbl_w.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	row_white.add_child(lbl_w)
 
 	for t in [ChessPiece.Type.PAWN, ChessPiece.Type.KNIGHT, ChessPiece.Type.BISHOP, ChessPiece.Type.ROOK, ChessPiece.Type.QUEEN, ChessPiece.Type.KING]:
@@ -109,7 +112,7 @@ func _setup_ui() -> void:
 
 	var lbl_b = Label.new()
 	lbl_b.text = "⚫"
-	lbl_b.add_theme_font_size_override("font_size", 12)
+	lbl_b.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	row_black.add_child(lbl_b)
 
 	for t in [ChessPiece.Type.PAWN, ChessPiece.Type.KNIGHT, ChessPiece.Type.BISHOP, ChessPiece.Type.ROOK, ChessPiece.Type.QUEEN, ChessPiece.Type.KING]:
@@ -117,8 +120,8 @@ func _setup_ui() -> void:
 
 	var btn_empty = Button.new()
 	btn_empty.text = "🗑️ Vide"
-	btn_empty.custom_minimum_size = Vector2(50, 32)
-	btn_empty.add_theme_font_size_override("font_size", 10)
+	btn_empty.custom_minimum_size = Vector2(50, DesignTokens.TOUCH_MIN)
+	btn_empty.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	btn_empty.pressed.connect(func(): selected_palette_piece = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE})
 	row_black.add_child(btn_empty)
 
@@ -131,6 +134,8 @@ func _setup_ui() -> void:
 	var btn_turn = CheckButton.new()
 	btn_turn.text = "Trait aux Blancs"
 	btn_turn.button_pressed = true
+	btn_turn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_turn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	btn_turn.toggled.connect(func(pressed):
 		active_turn = ChessPiece.PieceColor.WHITE if pressed else ChessPiece.PieceColor.BLACK
 		btn_turn.text = "Trait aux Blancs" if pressed else "Trait aux Noirs"
@@ -141,6 +146,8 @@ func _setup_ui() -> void:
 	# 5. Champ FEN
 	fen_input = LineEdit.new()
 	fen_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fen_input.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	fen_input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	fen_input.placeholder_text = "Notation FEN..."
 	fen_input.text_submitted.connect(_on_fen_text_submitted)
 	main_vbox.add_child(fen_input)
@@ -148,8 +155,9 @@ func _setup_ui() -> void:
 	# 6. Bouton Valider
 	var btn_validate = Button.new()
 	btn_validate.text = "🚀 Valider & Lancer l'Analyse"
-	btn_validate.custom_minimum_size = Vector2(0, 42)
+	btn_validate.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_validate.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_validate.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_validate.pressed.connect(_on_validate_pressed)
 	main_vbox.add_child(btn_validate)
 
@@ -163,7 +171,8 @@ func _setup_ui() -> void:
 
 func _add_palette_btn(parent: Node, type: int, color: int) -> void:
 	var btn = Button.new()
-	btn.custom_minimum_size = Vector2(32, 32)
+	# M1 : palette dense — 44 px ferait déborder la rangée noire (396 > 386 px), 40 px minimum retenu
+	btn.custom_minimum_size = Vector2(40, 40)
 	var path = ChessPiece.asset_path(type, color)
 	if ResourceLoader.exists(path):
 		btn.icon = load(path)

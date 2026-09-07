@@ -8,6 +8,7 @@ var move_buttons: Array[Button] = []
 func _ready() -> void:
 	custom_minimum_size = Vector2(200, 90)
 	horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	DesignTokens.touch_scroll(self)
 	
 	container = VBoxContainer.new()
 	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -39,16 +40,18 @@ func _refresh_moves() -> void:
 
 			var num_lbl = Label.new()
 			num_lbl.text = str(move_num) + "."
-			num_lbl.custom_minimum_size = Vector2(30, 0)
-			num_lbl.add_theme_color_override("font_color", Color("#64748b"))
-			num_lbl.add_theme_font_size_override("font_size", 12)
+			num_lbl.custom_minimum_size = Vector2(34, 0)
+			num_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+			num_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			current_row.add_child(num_lbl)
 
 		var btn = Button.new()
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.flat = true
 		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		btn.add_theme_font_size_override("font_size", 13)
+		# M1 : liste dense (2 coups par ligne) — cible 48 px, sous TOUCH_MIN par densité
+		btn.custom_minimum_size = Vector2(0, 48)
+		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 
 		var badge = ChessMove.quality_to_symbol(m.quality)
 		var text = m.san
@@ -60,13 +63,13 @@ func _refresh_moves() -> void:
 		if m.quality != ChessMove.Quality.NONE:
 			btn.add_theme_color_override("font_color", ChessMove.quality_to_color(m.quality))
 		else:
-			btn.add_theme_color_override("font_color", Color("#f1f5f9"))
+			btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 
 		if i == cur_ply:
-			btn.add_theme_color_override("font_color", Color("#38bdf8"))
+			btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
 			# Légère surbrillance de fond
 			var style = StyleBoxFlat.new()
-			style.bg_color = Color("#1e293b")
+			style.bg_color = DesignTokens.SURFACE_ELEVATED
 			style.corner_radius_top_left = 4
 			style.corner_radius_top_right = 4
 			style.corner_radius_bottom_left = 4

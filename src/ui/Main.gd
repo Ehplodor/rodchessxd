@@ -58,26 +58,31 @@ func _ready() -> void:
 	
 	_build_error_banner()
 	_apply_modern_theme()
+	_build_import_menu()
+	if OS.has_feature("android") or OS.has_feature("ios"):
+		get_window().size_changed.connect(_apply_safe_insets)
+		_apply_safe_insets()
 	call_deferred("_start_initial_eval")
 
+func _notification(what: int) -> void:
+	# Les barres système (gestes) peuvent apparaître/disparaître en cours de
+	# partie : on recalcule les marges sûres quand l'application reprend le focus.
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN \
+			and (OS.has_feature("android") or OS.has_feature("ios")):
+		_apply_safe_insets()
+
 func _apply_modern_theme() -> void:
-	var btn_normal = StyleBoxFlat.new()
-	btn_normal.bg_color = Color(0.12, 0.16, 0.23, 0.90)
-	btn_normal.border_color = Color(0.20, 0.27, 0.38, 0.85)
-	btn_normal.set_border_width_all(1)
-	btn_normal.set_corner_radius_all(6)
-	btn_normal.content_margin_left = 6
-	btn_normal.content_margin_right = 6
-	btn_normal.content_margin_top = 3
-	btn_normal.content_margin_bottom = 3
+	var btn_normal := DesignTokens.flat(DesignTokens.BTN_BG, DesignTokens.RADIUS_SMALL,
+			DesignTokens.BTN_BORDER, 1, Vector2(8, 2))
+	var btn_hover := btn_normal.duplicate() as StyleBoxFlat
+	btn_hover.bg_color = DesignTokens.BTN_BG_HOVER
+	btn_hover.border_color = DesignTokens.BTN_BORDER_ACTIVE
+	var btn_pressed := btn_normal.duplicate() as StyleBoxFlat
+	btn_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
+	btn_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
 
-	var btn_hover = btn_normal.duplicate() as StyleBoxFlat
-	btn_hover.bg_color = Color(0.16, 0.22, 0.32, 1.0)
-	btn_hover.border_color = Color(0.22, 0.74, 0.97, 0.80)
-
-	var btn_pressed = btn_normal.duplicate() as StyleBoxFlat
-	btn_pressed.bg_color = Color(0.08, 0.12, 0.18, 1.0)
-	btn_pressed.border_color = Color(0.22, 0.74, 0.97, 1.0)
+	var font_color_normal := DesignTokens.TEXT_PRIMARY
+	var font_color_hover := Color.WHITE
 
 	# Appliquer à tous les boutons de TopBar
 	var top_bar = $VBox/TopBar
@@ -86,8 +91,10 @@ func _apply_modern_theme() -> void:
 			child.add_theme_stylebox_override("normal", btn_normal)
 			child.add_theme_stylebox_override("hover", btn_hover)
 			child.add_theme_stylebox_override("pressed", btn_pressed)
-			child.add_theme_color_override("font_color", Color("#f1f5f9"))
-			child.add_theme_color_override("font_hover_color", Color("#ffffff"))
+			child.add_theme_color_override("font_color", font_color_normal)
+			child.add_theme_color_override("font_hover_color", font_color_hover)
+			child.add_theme_color_override("font_pressed_color", font_color_normal)
+			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 	# Appliquer aux boutons de navigation
 	var nav_row = $VBox/NavRow
@@ -96,28 +103,71 @@ func _apply_modern_theme() -> void:
 			child.add_theme_stylebox_override("normal", btn_normal)
 			child.add_theme_stylebox_override("hover", btn_hover)
 			child.add_theme_stylebox_override("pressed", btn_pressed)
-			child.add_theme_color_override("font_color", Color("#f1f5f9"))
+			child.add_theme_color_override("font_color", font_color_normal)
+			child.add_theme_color_override("font_hover_color", font_color_hover)
+			child.add_theme_color_override("font_pressed_color", font_color_normal)
+			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
-	# Bouton Analyser Partie (accent émeraude moderne)
+	# Bouton Analyser Partie (accent émeraude, AA ≥ 4,5:1 sur normal et pressé)
 	var btn_analyze = $VBox/NavRow/BtnAnalyzeGame
-	var analyze_normal = StyleBoxFlat.new()
-	analyze_normal.bg_color = Color("#059669")
-	analyze_normal.border_color = Color("#10b981")
-	analyze_normal.set_border_width_all(1)
-	analyze_normal.set_corner_radius_all(6)
-	analyze_normal.content_margin_left = 10
-	analyze_normal.content_margin_right = 10
-	analyze_normal.content_margin_top = 4
-	analyze_normal.content_margin_bottom = 4
-
-	var analyze_hover = analyze_normal.duplicate() as StyleBoxFlat
-	analyze_hover.bg_color = Color("#10b981")
-	analyze_hover.border_color = Color("#34d399")
+	var analyze_normal := DesignTokens.flat(DesignTokens.PRIMARY_BG, DesignTokens.RADIUS_SMALL,
+			DesignTokens.PRIMARY_BORDER, 1, Vector2(12, 2))
+	var analyze_hover := analyze_normal.duplicate() as StyleBoxFlat
+	analyze_hover.border_color = DesignTokens.TEXT_PRIMARY
+	var analyze_pressed := analyze_normal.duplicate() as StyleBoxFlat
+	analyze_pressed.bg_color = DesignTokens.PRIMARY_BG_PRESSED
 
 	btn_analyze.add_theme_stylebox_override("normal", analyze_normal)
 	btn_analyze.add_theme_stylebox_override("hover", analyze_hover)
-	btn_analyze.add_theme_stylebox_override("pressed", analyze_normal)
-	btn_analyze.add_theme_color_override("font_color", Color("#ffffff"))
+	btn_analyze.add_theme_stylebox_override("pressed", analyze_pressed)
+	btn_analyze.add_theme_color_override("font_color", DesignTokens.ON_PRIMARY)
+	btn_analyze.add_theme_color_override("font_hover_color", DesignTokens.ON_PRIMARY)
+	btn_analyze.add_theme_color_override("font_pressed_color", DesignTokens.ON_PRIMARY)
+	btn_analyze.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+
+	# Titre & badge d'évaluation
+	$VBox/TopBar/MarginContainer/AppTitle.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	$VBox/TopBar/MarginContainer/AppTitle.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	var eval_badge: PanelContainer = $VBox/TopBar/EvalBadge
+	eval_badge.add_theme_stylebox_override("panel",
+			DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			Color.TRANSPARENT, 0, Vector2(10, 4)))
+	$VBox/TopBar/EvalBadge/EvalText.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	$VBox/TopBar/EvalBadge/EvalText.add_theme_color_override("font_color", DesignTokens.ACCENT)
+
+	# Onglets inférieurs : cibles hautes (~56 px), libellés lisibles
+	var tab_selected := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM,
+			Color.TRANSPARENT, 0, Vector2(14, 20))
+	tab_selected.corner_radius_top_left = 12
+	tab_selected.corner_radius_top_right = 12
+	tab_selected.corner_radius_bottom_left = 0
+	tab_selected.corner_radius_bottom_right = 0
+	var tab_unselected := DesignTokens.flat(DesignTokens.BG_BASE, DesignTokens.RADIUS_MEDIUM,
+			Color.TRANSPARENT, 0, Vector2(14, 20))
+	tab_unselected.corner_radius_top_left = 12
+	tab_unselected.corner_radius_top_right = 12
+	tab_unselected.corner_radius_bottom_left = 0
+	tab_unselected.corner_radius_bottom_right = 0
+	var tab_hovered := tab_unselected.duplicate() as StyleBoxFlat
+	tab_hovered.bg_color = DesignTokens.SURFACE_ELEVATED
+
+	var tabs: TabContainer = $VBox/BottomTabs
+	tabs.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	tabs.add_theme_color_override("font_selected_color", DesignTokens.TEXT_PRIMARY)
+	tabs.add_theme_color_override("font_unselected_color", DesignTokens.TEXT_MUTED)
+	tabs.add_theme_color_override("font_hovered_color", DesignTokens.TEXT_SECONDARY)
+	tabs.add_theme_stylebox_override("tab_selected", tab_selected)
+	tabs.add_theme_stylebox_override("tab_unselected", tab_unselected)
+	tabs.add_theme_stylebox_override("tab_selected_hover", tab_hovered)
+	tabs.add_theme_stylebox_override("tab_unselected_hover", tab_hovered)
+	tabs.add_theme_stylebox_override("panel",
+			DesignTokens.flat(DesignTokens.SURFACE, 0, Color.TRANSPARENT, 0, Vector2(10, 10)))
+
+	# Bandeau de stats (textes longs → retour à la ligne)
+	var stats: Label = $VBox/BottomTabs/Bilan/StatsLabel
+	stats.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	stats.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 func _on_game_position_changed() -> void:
 	if GameController.game.move_history.is_empty():
@@ -157,8 +207,8 @@ func _build_error_banner() -> void:
 	if error_label != null:
 		return
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.50, 0.11, 0.13, 0.97)
-	style.border_color = Color(0.95, 0.45, 0.45, 0.9)
+	style.bg_color = DesignTokens.ERROR_BG
+	style.border_color = DesignTokens.DANGER
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(8)
 	style.set_content_margin_all(10)
@@ -172,8 +222,8 @@ func _build_error_banner() -> void:
 	error_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	error_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	error_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	error_label.add_theme_color_override("font_color", Color("#ffe3e3"))
-	error_label.add_theme_font_size_override("font_size", 14)
+	error_label.add_theme_color_override("font_color", DesignTokens.ERROR_TEXT)
+	error_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	error_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(error_label)
 	error_label.hide()
@@ -228,6 +278,89 @@ func _on_btn_last_pressed() -> void:
 
 func _on_btn_flip_pressed() -> void:
 	GameController.flip_board()
+
+# --- MENU « IMPORTER » (PNG / PGN / Chess.com) ---
+
+var import_menu: PopupMenu = null
+
+func _build_import_menu() -> void:
+	import_menu = PopupMenu.new()
+	import_menu.name = "ImportMenu"
+	import_menu.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	var item_style := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			Color.TRANSPARENT, 0, Vector2(14, 16))
+	import_menu.add_theme_stylebox_override("hover", item_style)
+	import_menu.add_theme_stylebox_override("selected", item_style)
+	var panel_style := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(4, 4))
+	import_menu.add_theme_stylebox_override("panel", panel_style)
+	import_menu.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	import_menu.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
+	import_menu.add_item("🖼️  Photo du plateau (PNG)")
+	import_menu.add_item("📄  Fichier / texte PGN")
+	import_menu.add_item("🌐  Synchroniser Chess.com")
+	import_menu.id_pressed.connect(_on_import_menu_id_pressed)
+	add_child(import_menu)
+
+func _on_import_menu_id_pressed(id: int) -> void:
+	match id:
+		0: _on_btn_import_png_pressed()
+		1: _on_btn_import_pgn_pressed()
+		2: _on_btn_chess_com_pressed()
+
+func _on_btn_more_pressed() -> void:
+	if import_menu == null:
+		_build_import_menu()
+	var btn: Button = $VBox/TopBar/BtnMore
+	var popup_pos: Vector2i = btn.get_screen_position()
+	popup_pos.y += btn.size.y - 4
+	import_menu.popup(Rect2i(popup_pos, Vector2i(0, 0)))
+
+# --- SAFE AREAS (encoche, barre de gestes) ---
+
+func _apply_safe_insets() -> void:
+	var vbox := $VBox
+	var win := get_window()
+	if win == null or not (OS.has_feature("android") or OS.has_feature("ios")):
+		vbox.offset_left = 0.0
+		vbox.offset_top = 0.0
+		vbox.offset_right = 0.0
+		vbox.offset_bottom = 0.0
+		return
+
+	var safe := DisplayServer.get_display_safe_area()
+	var win_size := win.size
+	var top_px := 0
+	var bottom_px := 0
+	var left_px := 0
+	var right_px := 0
+	if safe.size.x > 0 and safe.size.y > 0:
+		# La zone sûre couvre déjà l'encoche et les barres système : aucune
+		# addition des cutouts nécessaire (un trou de caméra centré ne doit pas
+		# créer de marge latérale).
+		top_px = maxi(0, safe.position.y)
+		bottom_px = maxi(0, win_size.y - (safe.position.y + safe.size.y))
+		left_px = maxi(0, safe.position.x)
+		right_px = maxi(0, win_size.x - (safe.position.x + safe.size.x))
+	elif not DisplayServer.get_display_cutouts().is_empty():
+		# Repli : pas de zone sûre rapportée — n'ajouter que le bas d'une
+		# encoche qui touche réellement le bord haut de la fenêtre.
+		for cutout in DisplayServer.get_display_cutouts():
+			if cutout.position.y <= 0.0:
+				top_px = maxi(top_px, int(cutout.position.y + cutout.size.y))
+
+	var vis := get_viewport().get_visible_rect().size
+	var scale_f := 1.0
+	if win_size.x > 0 and vis.x > 0.0:
+		scale_f = float(win_size.x) / vis.x
+
+	vbox.offset_left = float(left_px) / scale_f
+	vbox.offset_top = float(top_px) / scale_f
+	vbox.offset_right = -float(right_px) / scale_f
+	vbox.offset_bottom = -float(bottom_px) / scale_f
+	print("M1SA win=", win_size, " safe=", safe, " cutouts=", DisplayServer.get_display_cutouts(),
+			" vis=", vis, " scale=", scale_f, " insets=", Vector4(vbox.offset_left, vbox.offset_top,
+			vbox.offset_right, vbox.offset_bottom))
 
 # --- MODALES D'IMPORT & GESTION ---
 

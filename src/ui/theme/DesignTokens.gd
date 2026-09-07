@@ -1,0 +1,118 @@
+class_name DesignTokens
+## DesignTokens — tokens UI uniques de RodChessXD (jalon M1 « Ergonomie & accessibilité »).
+## Référentiel : téléphone 360 dp, viewport 450 × 800 px ≈ 1,25 px/dp (décision D1 du roadmap).
+## Toutes les tailles de l'interface s'expriment en px viewport via ces constantes :
+## remplacer les valeurs en dur par ces tokens dans le code de l'interface.
+## Contraste : les couleurs de texte respectent WCAG AA ≥ 4,5:1 sur les surfaces
+## sombres de l'application (vérifié par calcul de ratio, cf. plan M1).
+
+# --- Polices (px viewport) ---
+const FONT_BUTTON := 20   ## Libellés de boutons (≥ 16 sp)
+const FONT_BODY := 17     ## Texte courant (≥ 14 sp)
+const FONT_CAPTION := 15  ## Texte secondaire / légendes (minimum lisible AA)
+
+# --- Cibles tactiles (px) ---
+const TOUCH_MIN := 60      ## 48 dp — cible standard
+const TOUCH_DENSE := 56    ## Contrôles secondaires en rangées denses (chips, segments)
+
+# --- Espacements (px ; 8/12/16 dp → 10/15/20) ---
+const SPACE_XS := 6
+const SPACE_S := 10
+const WINDOW_INSET := 12   ## Marge intérieure des fenêtres/modales
+const CARD_PAD_H := 10
+const CARD_PAD_V := 8
+
+# --- Rayons de StyleBox ---
+const RADIUS_SMALL := 6
+const RADIUS_MEDIUM := 8
+
+# --- Surfaces (du plus sombre au plus clair) ---
+const BG_DEEP := Color("#090d16")          ## Fond des fenêtres / zones denses
+const BG_BASE := Color("#0b0f17")          ## Fond racine de l'application
+const SURFACE := Color("#0f172a")          ## Panneaux, cartes de base
+const SURFACE_ELEVATED := Color("#1e293b") ## Badges, cartes actives, chips
+const BORDER := Color("#334155")
+
+# --- Boutons chrome (barres, navigation) ---
+const BTN_BG := Color("#1f2937")
+const BTN_BG_HOVER := Color("#293852")
+const BTN_BG_PRESSED := Color("#141f2e")
+const BTN_BORDER := Color("#334155")
+const BTN_BORDER_ACTIVE := Color("#38bdf8")
+
+# --- Action primaire (AA : blanc ≥ 4,5:1 sur normal & pressé) ---
+const PRIMARY_BG := Color("#047857")
+const PRIMARY_BG_PRESSED := Color("#065f46")
+const PRIMARY_BORDER := Color("#34d399")
+const ON_PRIMARY := Color("#ffffff")
+
+# --- Textes (AA ≥ 4,5:1 sur BG_DEEP…SURFACE_ELEVATED) ---
+const TEXT_PRIMARY := Color("#f1f5f9")
+const TEXT_SECONDARY := Color("#cbd5e1")
+const TEXT_MUTED := Color("#94a3b8")
+
+# --- Couleurs sémantiques (texte sur fond sombre) ---
+const ACCENT := Color("#38bdf8")
+const SUCCESS := Color("#22c55e")
+const WARNING := Color("#fbbf24")
+const DANGER := Color("#f87171") ## Texte d'erreur lisible sur les surfaces (AA ≥ 5,2:1)
+const ERROR_BG := Color("#801c21")
+const ERROR_TEXT := Color("#ffe3e3")
+
+## StyleBox plat unique, depuis les tokens (bordures/rayons/marges explicites).
+static func flat(bg: Color, radius: int = RADIUS_SMALL, border: Color = Color.TRANSPARENT,
+		border_w: int = 0, margins: Vector2 = Vector2.ZERO) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_corner_radius_all(radius)
+	if border_w > 0:
+		sb.border_color = border
+		sb.set_border_width_all(border_w)
+	if margins.x > 0.0 or margins.y > 0.0:
+		sb.content_margin_left = margins.x
+		sb.content_margin_right = margins.x
+		sb.content_margin_top = margins.y
+		sb.content_margin_bottom = margins.y
+	return sb
+
+## StyleBox plat de carte : fond élevé, bordure discrète, rayons moyens, marges de carte.
+static func card() -> StyleBoxFlat:
+	return flat(SURFACE_ELEVATED, RADIUS_MEDIUM, BORDER, 1, Vector2(CARD_PAD_H, CARD_PAD_V))
+
+## Applique hauteur tactile minimale + police standard à un bouton.
+static func style_button(btn: Button, font_size: int = FONT_BUTTON, min_height: int = TOUCH_MIN) -> void:
+	btn.custom_minimum_size.y = maxf(btn.custom_minimum_size.y, float(min_height))
+	btn.add_theme_font_size_override("font_size", font_size)
+
+# --- Défilement tactile (M1, retours de test mobile) ---
+## Épaisseur des barres de défilement (px) : repère visuel mobile.
+const SCROLLBAR_W := 18
+## Distance (px) avant qu'un glissé devienne un défilement.
+const SCROLL_DEADZONE := 20
+
+## Rend un conteneur défilable adapté au tactile : ascenseurs épais,
+## démarrage du glissé réduit (ScrollContainer), et propagation du drag à
+## travers les boutons remplissant la zone (sinon ils absorbent le glissé).
+## Accepte aussi un TextEdit (barres de défilement épaisses uniquement).
+static func touch_scroll(ctrl: Control) -> void:
+	if ctrl is ScrollContainer:
+		var sc := ctrl as ScrollContainer
+		sc.scroll_deadzone = SCROLL_DEADZONE
+	scrollbar_big(ctrl)
+	_propagate_drag(ctrl)
+
+## Ascenseurs épais sur n'importe quel contrôle à barres internes
+## (ScrollContainer, TextEdit, RichTextLabel...).
+static func scrollbar_big(ctrl: Control, px: int = SCROLLBAR_W) -> void:
+	ctrl.add_theme_constant_override("h_scroll", px)
+	ctrl.add_theme_constant_override("v_scroll", px)
+
+## Laisse les événements tactiles traverser les boutons vers le conteneur
+## parent (le clic sur le bouton continue de fonctionner : le glissé n'annule
+## que si le doigt bouge).
+static func _propagate_drag(root: Node) -> void:
+	for c in root.get_children():
+		if c is BaseButton:
+			c.mouse_filter = Control.MOUSE_FILTER_PASS
+		elif c is Control:
+			_propagate_drag(c)

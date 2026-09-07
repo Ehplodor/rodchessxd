@@ -94,12 +94,8 @@ func _ready() -> void:
 func _setup_ui() -> void:
 	var root_panel = PanelContainer.new()
 	root_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var panel_style = StyleBoxFlat.new()
-	panel_style.bg_color = Color("#090d16")
-	panel_style.content_margin_left = 10
-	panel_style.content_margin_top = 8
-	panel_style.content_margin_right = 10
-	panel_style.content_margin_bottom = 8
+	var panel_style := DesignTokens.flat(DesignTokens.BG_DEEP, DesignTokens.RADIUS_SMALL,
+			Color.TRANSPARENT, 0, Vector2(DesignTokens.CARD_PAD_H, DesignTokens.CARD_PAD_V))
 	root_panel.add_theme_stylebox_override("panel", panel_style)
 	add_child(root_panel)
 
@@ -121,8 +117,8 @@ func _setup_ui() -> void:
 
 	var title_lbl = Label.new()
 	title_lbl.text = "🤖 Modèle Actif :"
-	title_lbl.add_theme_font_size_override("font_size", 12)
-	title_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	top_row.add_child(title_lbl)
 
 	var spacer = Control.new()
@@ -132,7 +128,7 @@ func _setup_ui() -> void:
 	update_btn = Button.new()
 	update_btn.text = "🔄 Actualiser"
 	update_btn.tooltip_text = "Rafraîchir les modèles et tarifs en ligne"
-	update_btn.add_theme_font_size_override("font_size", 10)
+	DesignTokens.style_button(update_btn)
 	update_btn.pressed.connect(_on_refresh_catalog_pressed)
 	top_row.add_child(update_btn)
 
@@ -140,8 +136,8 @@ func _setup_ui() -> void:
 	active_badge_lbl.text = "Chargement..."
 	active_badge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	active_badge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	active_badge_lbl.add_theme_font_size_override("font_size", 11)
-	active_badge_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+	active_badge_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	active_badge_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	header_box.add_child(active_badge_lbl)
 
 	update_status_lbl = Label.new()
@@ -149,11 +145,12 @@ func _setup_ui() -> void:
 	var last_sync = sm.get_setting("last_catalog_sync", "Jamais") if sm else "Jamais"
 	update_status_lbl.text = "Dernière synchro : %s" % (last_sync if last_sync != "" else "Catalogue initial")
 	update_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	update_status_lbl.add_theme_font_size_override("font_size", 9)
-	update_status_lbl.add_theme_color_override("font_color", Color("#64748b"))
+	update_status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	update_status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	header_box.add_child(update_status_lbl)
 
 	# 2. ONGLETS SEGMENTÉS MODERNES & RESPONSIVES (Garanti sans débordement)
+	# M1 : rangée dense
 	var tab_bar = HBoxContainer.new()
 	tab_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tab_bar.add_theme_constant_override("separation", 6)
@@ -162,21 +159,21 @@ func _setup_ui() -> void:
 	btn_tab_free = Button.new()
 	btn_tab_free.text = "⚡ Gratuit"
 	btn_tab_free.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_tab_free.add_theme_font_size_override("font_size", 11)
+	DesignTokens.style_button(btn_tab_free, DesignTokens.FONT_BODY, DesignTokens.TOUCH_DENSE)
 	btn_tab_free.pressed.connect(func(): _switch_tab(0))
 	tab_bar.add_child(btn_tab_free)
 
 	btn_tab_paid = Button.new()
 	btn_tab_paid.text = "🔑 Clés API"
 	btn_tab_paid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_tab_paid.add_theme_font_size_override("font_size", 11)
+	DesignTokens.style_button(btn_tab_paid, DesignTokens.FONT_BODY, DesignTokens.TOUCH_DENSE)
 	btn_tab_paid.pressed.connect(func(): _switch_tab(1))
 	tab_bar.add_child(btn_tab_paid)
 
 	btn_tab_local = Button.new()
 	btn_tab_local.text = "💻 Local"
 	btn_tab_local.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_tab_local.add_theme_font_size_override("font_size", 11)
+	DesignTokens.style_button(btn_tab_local, DesignTokens.FONT_BODY, DesignTokens.TOUCH_DENSE)
 	btn_tab_local.pressed.connect(func(): _switch_tab(2))
 	tab_bar.add_child(btn_tab_local)
 
@@ -184,21 +181,14 @@ func _setup_ui() -> void:
 	var tabs_content_area = PanelContainer.new()
 	tabs_content_area.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tabs_content_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var tab_bg = StyleBoxFlat.new()
-	tab_bg.bg_color = Color("#0b1120")
-	tab_bg.corner_radius_top_left = 6
-	tab_bg.corner_radius_top_right = 6
-	tab_bg.corner_radius_bottom_left = 6
-	tab_bg.corner_radius_bottom_right = 6
-	tab_bg.content_margin_left = 6
-	tab_bg.content_margin_top = 6
-	tab_bg.content_margin_right = 6
-	tab_bg.content_margin_bottom = 6
+	var tab_bg := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_SMALL,
+			Color.TRANSPARENT, 0, Vector2(DesignTokens.SPACE_XS, DesignTokens.SPACE_XS))
 	tabs_content_area.add_theme_stylebox_override("panel", tab_bg)
 	main_vbox.add_child(tabs_content_area)
 
 	# --- ONGLET 1 : GRATUIT ---
 	scroll_free = ScrollContainer.new()
+	DesignTokens.touch_scroll(scroll_free)
 	scroll_free.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll_free.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll_free.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -211,6 +201,7 @@ func _setup_ui() -> void:
 
 	# --- ONGLET 2 : CLÉ API ---
 	scroll_paid = ScrollContainer.new()
+	DesignTokens.touch_scroll(scroll_paid)
 	scroll_paid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll_paid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll_paid.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -223,6 +214,7 @@ func _setup_ui() -> void:
 
 	# --- ONGLET 3 : SLM LOCAL ---
 	scroll_local = ScrollContainer.new()
+	DesignTokens.touch_scroll(scroll_local)
 	scroll_local.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll_local.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll_local.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -246,14 +238,14 @@ func _setup_ui() -> void:
 	session_stats_lbl.text = "Session : %d req | ~%.4f $" % [q_cnt, q_cst]
 	session_stats_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	session_stats_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	session_stats_lbl.add_theme_font_size_override("font_size", 10)
-	session_stats_lbl.add_theme_color_override("font_color", Color("#a1a1aa"))
+	session_stats_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	session_stats_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	footer_box.add_child(session_stats_lbl)
 
 	var close_btn = Button.new()
 	close_btn.text = "Fermer"
-	close_btn.custom_minimum_size = Vector2(80, 30)
-	close_btn.add_theme_font_size_override("font_size", 11)
+	close_btn.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_MIN)
+	close_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	close_btn.pressed.connect(queue_free)
 	footer_box.add_child(close_btn)
 
@@ -270,18 +262,15 @@ func _switch_tab(idx: int) -> void:
 
 func _style_tab_button(btn: Button, is_selected: bool) -> void:
 	var style = StyleBoxFlat.new()
-	style.corner_radius_top_left = 6
-	style.corner_radius_top_right = 6
-	style.corner_radius_bottom_left = 6
-	style.corner_radius_bottom_right = 6
+	style.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
 	if is_selected:
-		style.bg_color = Color("#1e293b")
+		style.bg_color = DesignTokens.SURFACE_ELEVATED
 		style.border_width_bottom = 2
-		style.border_color = Color("#38bdf8")
-		btn.add_theme_color_override("font_color", Color("#38bdf8"))
+		style.border_color = DesignTokens.ACCENT
+		btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	else:
-		style.bg_color = Color("#0f172a")
-		btn.add_theme_color_override("font_color", Color("#94a3b8"))
+		style.bg_color = DesignTokens.SURFACE
+		btn.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	btn.add_theme_stylebox_override("normal", style)
 	btn.add_theme_stylebox_override("pressed", style)
 	btn.add_theme_stylebox_override("hover", style)
@@ -312,8 +301,8 @@ func _populate_free_tab() -> void:
 	var desc = Label.new()
 	desc.text = "Modèles gratuits sans carte bancaire ni frais récurrents. Vitesse extrême et explication humaine."
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.add_theme_font_size_override("font_size", 10)
-	desc.add_theme_color_override("font_color", Color("#94a3b8"))
+	desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	free_models_container.add_child(desc)
 
 	var cat = _get_catalog()
@@ -327,8 +316,9 @@ func _populate_free_tab() -> void:
 
 	var key_title = Label.new()
 	key_title.text = "🔑 Clés d'Accès Gratuites (Sans Carte Bancaire) :"
-	key_title.add_theme_font_size_override("font_size", 11)
-	key_title.add_theme_color_override("font_color", Color("#38bdf8"))
+	key_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	key_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	key_title.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	free_models_container.add_child(key_title)
 
 	_add_quick_key_input(free_models_container, "Clé OpenRouter (Pour modèles gratuits :free) :", "api_key_openrouter", "https://openrouter.ai/keys")
@@ -343,8 +333,8 @@ func _populate_paid_tab() -> void:
 	var desc = Label.new()
 	desc.text = "Modèles de pointe facturés à l'usage (quelques centièmes de centime par analyse)."
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.add_theme_font_size_override("font_size", 10)
-	desc.add_theme_color_override("font_color", Color("#94a3b8"))
+	desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	paid_models_container.add_child(desc)
 
 	var cat = _get_catalog()
@@ -358,8 +348,8 @@ func _populate_paid_tab() -> void:
 
 	var key_title = Label.new()
 	key_title.text = "🔑 Vos Clés API Personnelles :"
-	key_title.add_theme_font_size_override("font_size", 11)
-	key_title.add_theme_color_override("font_color", Color("#38bdf8"))
+	key_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	key_title.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	paid_models_container.add_child(key_title)
 
 	_add_quick_key_input(paid_models_container, "Clé OpenRouter Universelle :", "api_key_openrouter", "https://openrouter.ai/keys")
@@ -378,15 +368,16 @@ func _populate_local_tab() -> void:
 	# --- SECTION A : COACH AUTONOME EMBARQUÉ (SANS OLLAMA) ---
 	var native_title = Label.new()
 	native_title.text = "📦 Coach Autonome Embarqué (Sans Ollama) :"
-	native_title.add_theme_font_size_override("font_size", 11)
-	native_title.add_theme_color_override("font_color", Color("#38bdf8"))
+	native_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	native_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	native_title.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	local_models_container.add_child(native_title)
 
 	var native_desc = Label.new()
 	native_desc.text = "Modèles d'IA légers (GGUF) stockés sur votre appareil. 100% privé, 0 € à vie, sans connexion Internet et sans logiciel externe requis."
 	native_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	native_desc.add_theme_font_size_override("font_size", 10)
-	native_desc.add_theme_color_override("font_color", Color("#94a3b8"))
+	native_desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	native_desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	local_models_container.add_child(native_desc)
 
 	var cat = _get_catalog()
@@ -402,15 +393,16 @@ func _populate_local_tab() -> void:
 	# --- SECTION B : SERVEUR OLLAMA EXTERNE ---
 	var ollama_title = Label.new()
 	ollama_title.text = "🌐 Serveur Externe Ollama (Utilisateurs Avancés) :"
-	ollama_title.add_theme_font_size_override("font_size", 11)
+	ollama_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ollama_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	ollama_title.add_theme_color_override("font_color", Color("#c084fc"))
 	local_models_container.add_child(ollama_title)
 
 	var ollama_desc = Label.new()
 	ollama_desc.text = "Connectez RodChessXD à votre instance Ollama locale (127.0.0.1:11434)."
 	ollama_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	ollama_desc.add_theme_font_size_override("font_size", 10)
-	ollama_desc.add_theme_color_override("font_color", Color("#94a3b8"))
+	ollama_desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	ollama_desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	local_models_container.add_child(ollama_desc)
 
 	# Bouton détection Ollama
@@ -421,7 +413,7 @@ func _populate_local_tab() -> void:
 	var detect_btn = Button.new()
 	detect_btn.text = "🔍 Détecter mes modèles (Ollama)"
 	detect_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	detect_btn.add_theme_font_size_override("font_size", 11)
+	DesignTokens.style_button(detect_btn)
 	detect_btn.pressed.connect(func():
 		ollama_status_lbl.text = "Recherche d'Ollama sur 127.0.0.1:11434..."
 		var c = _get_catalog()
@@ -432,8 +424,8 @@ func _populate_local_tab() -> void:
 	ollama_status_lbl = Label.new()
 	ollama_status_lbl.text = "Cliquez ci-dessus pour scanner votre serveur Ollama local."
 	ollama_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	ollama_status_lbl.add_theme_font_size_override("font_size", 10)
-	ollama_status_lbl.add_theme_color_override("font_color", Color("#64748b"))
+	ollama_status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	ollama_status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	local_models_container.add_child(ollama_status_lbl)
 
 	if cat:
@@ -447,8 +439,9 @@ func _populate_local_tab() -> void:
 
 	var guide_lbl = Label.new()
 	guide_lbl.text = "💻 Commandes d'installation pour Ollama :"
-	guide_lbl.add_theme_font_size_override("font_size", 11)
-	guide_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+	guide_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	guide_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	guide_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	local_models_container.add_child(guide_lbl)
 
 	_add_copyable_command(local_models_container, "GLM 5.3 Flash (18B Actifs) :", "ollama run glm-5.3-flash")
@@ -469,21 +462,13 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 
 	var card = PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var card_style = StyleBoxFlat.new()
-	card_style.bg_color = Color("#0f172a") if not is_active else Color("#172554")
-	card_style.border_width_left = 2 if is_active else 1
-	card_style.border_width_top = 1
-	card_style.border_width_right = 1
-	card_style.border_width_bottom = 1
-	card_style.border_color = Color("#38bdf8") if is_active else Color("#334155")
-	card_style.corner_radius_top_left = 6
-	card_style.corner_radius_top_right = 6
-	card_style.corner_radius_bottom_left = 6
-	card_style.corner_radius_bottom_right = 6
-	card_style.content_margin_left = 8
-	card_style.content_margin_top = 6
-	card_style.content_margin_right = 8
-	card_style.content_margin_bottom = 6
+	var card_style := DesignTokens.flat(
+			DesignTokens.SURFACE_ELEVATED if not is_active else Color("#172554"),
+			DesignTokens.RADIUS_SMALL,
+			DesignTokens.ACCENT if is_active else DesignTokens.BORDER,
+			1, Vector2(DesignTokens.CARD_PAD_H, DesignTokens.CARD_PAD_V))
+	if is_active:
+		card_style.border_width_left = 2
 	card.add_theme_stylebox_override("panel", card_style)
 	parent.add_child(card)
 
@@ -501,24 +486,24 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 	name_lbl.text = ("⭐ " if model_dict.get("recommended", false) else "") + m_name
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	name_lbl.add_theme_font_size_override("font_size", 11)
-	name_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
+	name_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	name_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	top_row.add_child(name_lbl)
 
 	if is_installed:
 		var btn_select = Button.new()
 		btn_select.text = "✓ Actif" if is_active else "Choisir"
 		btn_select.disabled = is_active
-		btn_select.custom_minimum_size = Vector2(64, 24)
-		btn_select.add_theme_font_size_override("font_size", 10)
+		btn_select.custom_minimum_size = Vector2(64, DesignTokens.TOUCH_MIN)
+		btn_select.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 		btn_select.pressed.connect(func(): _select_model(m_id))
 		top_row.add_child(btn_select)
 
 		var btn_del = Button.new()
 		btn_del.text = "🗑️"
 		btn_del.tooltip_text = "Supprimer du disque"
-		btn_del.custom_minimum_size = Vector2(28, 24)
-		btn_del.add_theme_font_size_override("font_size", 10)
+		btn_del.custom_minimum_size = Vector2(48, DesignTokens.TOUCH_MIN) # M1 : bouton icône
+		btn_del.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 		btn_del.pressed.connect(func():
 			if downloader: downloader.delete_model(m_id)
 		)
@@ -526,8 +511,8 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 	elif is_currently_downloading:
 		var btn_cancel = Button.new()
 		btn_cancel.text = "❌ Annuler"
-		btn_cancel.custom_minimum_size = Vector2(75, 24)
-		btn_cancel.add_theme_font_size_override("font_size", 10)
+		btn_cancel.custom_minimum_size = Vector2(75, DesignTokens.TOUCH_MIN)
+		btn_cancel.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 		btn_cancel.pressed.connect(func():
 			if downloader: downloader.cancel_download()
 		)
@@ -538,8 +523,8 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 		if downloader and downloader.DOWNLOADABLE_SLM.has(m_id):
 			size_lbl = "⬇️ Installer (%s)" % downloader.DOWNLOADABLE_SLM[m_id].get("size_label", "")
 		btn_dl.text = size_lbl
-		btn_dl.custom_minimum_size = Vector2(110, 24)
-		btn_dl.add_theme_font_size_override("font_size", 10)
+		btn_dl.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
+		btn_dl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 		btn_dl.pressed.connect(func():
 			if downloader: downloader.start_download(m_id)
 		)
@@ -556,19 +541,22 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 
 		var status_lbl = Label.new()
 		status_lbl.text = "⬇️ Téléchargement en cours..."
-		status_lbl.add_theme_font_size_override("font_size", 9)
-		status_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+		status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		status_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 		vbox.add_child(status_lbl)
 		download_status_labels[m_id] = status_lbl
 	else:
 		var status_lbl = Label.new()
 		if is_installed:
 			status_lbl.text = "🟢 Installé sur l'appareil (100% hors-ligne • 0,00 €)"
-			status_lbl.add_theme_color_override("font_color", Color("#22c55e"))
+			status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 		else:
 			status_lbl.text = "⚪ Non installé • 0 € à vie (aucun abonnement ni clé API)"
-			status_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
-		status_lbl.add_theme_font_size_override("font_size", 9)
+			status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		vbox.add_child(status_lbl)
 
 	# Ligne 3 : Description
@@ -576,8 +564,8 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 		var desc_lbl = Label.new()
 		desc_lbl.text = m_desc
 		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		desc_lbl.add_theme_font_size_override("font_size", 9)
-		desc_lbl.add_theme_color_override("font_color", Color("#64748b"))
+		desc_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		desc_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		vbox.add_child(desc_lbl)
 
 ## Carte de présentation d'un modèle avec disposition multi-lignes 100% responsive
@@ -589,21 +577,13 @@ func _add_model_card(parent: Control, model_dict: Dictionary) -> void:
 
 	var card = PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var card_style = StyleBoxFlat.new()
-	card_style.bg_color = Color("#131b2e") if not is_active else Color("#172554")
-	card_style.border_width_left = 2 if is_active else 1
-	card_style.border_width_top = 1
-	card_style.border_width_right = 1
-	card_style.border_width_bottom = 1
-	card_style.border_color = Color("#38bdf8") if is_active else Color("#1e293b")
-	card_style.corner_radius_top_left = 6
-	card_style.corner_radius_top_right = 6
-	card_style.corner_radius_bottom_left = 6
-	card_style.corner_radius_bottom_right = 6
-	card_style.content_margin_left = 8
-	card_style.content_margin_top = 6
-	card_style.content_margin_right = 8
-	card_style.content_margin_bottom = 6
+	var card_style := DesignTokens.flat(
+			DesignTokens.SURFACE_ELEVATED if not is_active else Color("#172554"),
+			DesignTokens.RADIUS_SMALL,
+			DesignTokens.ACCENT if is_active else DesignTokens.BORDER,
+			1, Vector2(DesignTokens.CARD_PAD_H, DesignTokens.CARD_PAD_V))
+	if is_active:
+		card_style.border_width_left = 2
 	card.add_theme_stylebox_override("panel", card_style)
 	parent.add_child(card)
 
@@ -621,15 +601,15 @@ func _add_model_card(parent: Control, model_dict: Dictionary) -> void:
 	name_lbl.text = ("⭐ " if model_dict.get("recommended", false) else "") + m_name
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	name_lbl.add_theme_font_size_override("font_size", 11)
-	name_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
+	name_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	name_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	title_row.add_child(name_lbl)
 
 	var btn_select = Button.new()
 	btn_select.text = "✓ Actif" if is_active else "Choisir"
 	btn_select.disabled = is_active
-	btn_select.custom_minimum_size = Vector2(64, 24)
-	btn_select.add_theme_font_size_override("font_size", 10)
+	btn_select.custom_minimum_size = Vector2(64, DesignTokens.TOUCH_MIN)
+	btn_select.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_select.pressed.connect(func(): _select_model(m_id))
 	title_row.add_child(btn_select)
 
@@ -640,11 +620,11 @@ func _add_model_card(parent: Control, model_dict: Dictionary) -> void:
 		var cost_info = cat.get_cost_estimate(model_dict)
 		if cost_info.per_query_usd == 0.0:
 			cost_lbl.text = "🟢 0,00 € (Gratuit)"
-			cost_lbl.add_theme_color_override("font_color", Color("#22c55e"))
+			cost_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 		else:
 			cost_lbl.text = "🟡 %s (%s / 1000)" % [cost_info.label_per_query, cost_info.label_per_1000]
-			cost_lbl.add_theme_color_override("font_color", Color("#fbbf24"))
-	cost_lbl.add_theme_font_size_override("font_size", 9)
+			cost_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
+	cost_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	vbox.add_child(cost_lbl)
 
 	# Ligne 3 : Description avec retour à la ligne
@@ -652,8 +632,8 @@ func _add_model_card(parent: Control, model_dict: Dictionary) -> void:
 		var desc_lbl = Label.new()
 		desc_lbl.text = m_desc
 		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		desc_lbl.add_theme_font_size_override("font_size", 9)
-		desc_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+		desc_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		desc_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		vbox.add_child(desc_lbl)
 
 func _select_model(m_id: String) -> void:
@@ -687,8 +667,8 @@ func _add_quick_key_input(parent: Control, label_text: String, setting_key: Stri
 	var lbl = Label.new()
 	lbl.text = label_text
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lbl.add_theme_font_size_override("font_size", 10)
-	lbl.add_theme_color_override("font_color", Color("#cbd5e1"))
+	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 	box.add_child(lbl)
 
 	var edit_row = HBoxContainer.new()
@@ -698,7 +678,8 @@ func _add_quick_key_input(parent: Control, label_text: String, setting_key: Stri
 	var input = LineEdit.new()
 	input.secret = true
 	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	input.add_theme_font_size_override("font_size", 10)
+	input.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	var sm = _get_settings()
 	input.text = sm.get_setting(setting_key, "") if sm else ""
 	input.text_changed.connect(func(val):
@@ -711,6 +692,8 @@ func _add_quick_key_input(parent: Control, label_text: String, setting_key: Stri
 	var show_btn = Button.new()
 	show_btn.text = "👁️"
 	show_btn.tooltip_text = "Afficher/Masquer la clé"
+	show_btn.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_MIN) # M1 : bouton icône
+	show_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	show_btn.pressed.connect(func(): input.secret = not input.secret)
 	edit_row.add_child(show_btn)
 
@@ -723,8 +706,8 @@ func _add_copyable_command(parent: Control, label_text: String, command_text: St
 	var lbl = Label.new()
 	lbl.text = label_text
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lbl.add_theme_font_size_override("font_size", 10)
-	lbl.add_theme_color_override("font_color", Color("#cbd5e1"))
+	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 	box.add_child(lbl)
 
 	var cmd_row = HBoxContainer.new()
@@ -735,12 +718,13 @@ func _add_copyable_command(parent: Control, label_text: String, command_text: St
 	cmd_lbl.editable = false
 	cmd_lbl.text = command_text
 	cmd_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cmd_lbl.add_theme_font_size_override("font_size", 9)
+	cmd_lbl.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	cmd_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	cmd_row.add_child(cmd_lbl)
 
 	var copy_btn = Button.new()
 	copy_btn.text = "📋 Copier"
-	copy_btn.add_theme_font_size_override("font_size", 9)
+	DesignTokens.style_button(copy_btn)
 	copy_btn.pressed.connect(func(): DisplayServer.clipboard_set(command_text))
 	cmd_row.add_child(copy_btn)
 
@@ -749,7 +733,7 @@ func _add_copyable_command(parent: Control, label_text: String, command_text: St
 func _on_refresh_catalog_pressed() -> void:
 	update_btn.disabled = true
 	update_status_lbl.text = "⏳ Téléchargement des derniers modèles et tarifs..."
-	update_status_lbl.add_theme_color_override("font_color", Color("#fbbf24"))
+	update_status_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
 	var cat = _get_catalog()
 	if cat:
 		cat.fetch_online_catalog()
@@ -757,23 +741,23 @@ func _on_refresh_catalog_pressed() -> void:
 func _on_catalog_updated(count: int) -> void:
 	update_btn.disabled = false
 	update_status_lbl.text = "✓ %d modèles synchronisés à l'instant !" % count
-	update_status_lbl.add_theme_color_override("font_color", Color("#22c55e"))
+	update_status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 	_populate_all_tabs()
 	_refresh_active_badge()
 
 func _on_catalog_update_failed(err_msg: String) -> void:
 	update_btn.disabled = false
 	update_status_lbl.text = "⚠️ " + err_msg
-	update_status_lbl.add_theme_color_override("font_color", Color("#ef4444"))
+	update_status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
 
 func _on_ollama_detected(models_found: Array) -> void:
 	if models_found.size() > 0:
 		ollama_status_lbl.text = "✓ En ligne (%d modèles détectés)" % models_found.size()
-		ollama_status_lbl.add_theme_color_override("font_color", Color("#22c55e"))
+		ollama_status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 		_populate_local_tab()
 	else:
 		ollama_status_lbl.text = "Ollama non détecté (Démarrer avec 'ollama serve')"
-		ollama_status_lbl.add_theme_color_override("font_color", Color("#ef4444"))
+		ollama_status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
 
 func _on_slm_download_progress(model_id: String, received_bytes: int, total_bytes: int, percentage: float, speed_mb_s: float) -> void:
 	if download_progress_bars.has(model_id):

@@ -44,12 +44,15 @@ func _setup_ui() -> void:
 	username_input = LineEdit.new()
 	username_input.placeholder_text = "Pseudo Chess.com (ex: hikaru, magnuscarlsen)..."
 	username_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	username_input.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	username_input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	username_input.text = SettingsManager.get_setting("last_chesscom_user", "")
 	username_input.text_submitted.connect(func(_t): _start_fetch())
 	input_row.add_child(username_input)
 
 	var btn_fetch = Button.new()
 	btn_fetch.text = "🔍 Récupérer"
+	DesignTokens.style_button(btn_fetch)
 	btn_fetch.pressed.connect(_start_fetch)
 	input_row.add_child(btn_fetch)
 
@@ -57,8 +60,8 @@ func _setup_ui() -> void:
 	status_lbl = Label.new()
 	status_lbl.text = "Entrez un pseudo pour charger les dernières parties officielles."
 	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_lbl.add_theme_font_size_override("font_size", 11)
-	status_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	vbox.add_child(status_lbl)
 
 	# 3. Filtres de cadence (Blitz, Rapide, Bullet, etc.)
@@ -75,6 +78,7 @@ func _setup_ui() -> void:
 
 	# 4. Liste déroulante des parties
 	var scroll = ScrollContainer.new()
+	DesignTokens.touch_scroll(scroll)
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vbox.add_child(scroll)
@@ -87,7 +91,8 @@ func _setup_ui() -> void:
 	# Bouton Fermer
 	var btn_close = Button.new()
 	btn_close.text = "Fermer"
-	btn_close.custom_minimum_size = Vector2(0, 36)
+	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
 
@@ -95,7 +100,8 @@ func _add_filter_btn(parent: Node, label_text: String, filter_key: String) -> vo
 	var btn = Button.new()
 	btn.text = label_text
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.add_theme_font_size_override("font_size", 10)
+	btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	btn.pressed.connect(func():
 		active_filter = filter_key
 		_render_games_list()
@@ -106,12 +112,12 @@ func _start_fetch() -> void:
 	var user = username_input.text.strip_edges()
 	if user == "":
 		status_lbl.text = "Veuillez entrer un pseudo."
-		status_lbl.add_theme_color_override("font_color", Color("#ef4444"))
+		status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
 		return
 
 	SettingsManager.set_setting("last_chesscom_user", user)
 	status_lbl.text = "⏳ Connexion à Chess.com et récupération des parties de %s..." % user
-	status_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+	status_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	
 	for child in games_container.get_children():
 		child.queue_free()
@@ -121,7 +127,7 @@ func _start_fetch() -> void:
 func _on_games_fetched(games: Array[Dictionary]) -> void:
 	all_games = games
 	status_lbl.text = "✅ %d parties récupérées pour %s." % [games.size(), username_input.text]
-	status_lbl.add_theme_color_override("font_color", Color("#22c55e"))
+	status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 
 	# Sauvegarde automatique dans la bibliothèque locale DatabaseManager
 	var tree = Engine.get_main_loop() as SceneTree
@@ -134,7 +140,7 @@ func _on_games_fetched(games: Array[Dictionary]) -> void:
 
 func _on_fetch_error(msg: String) -> void:
 	status_lbl.text = "❌ " + msg
-	status_lbl.add_theme_color_override("font_color", Color("#ef4444"))
+	status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
 
 func _render_games_list() -> void:
 	for child in games_container.get_children():
@@ -148,7 +154,8 @@ func _render_games_list() -> void:
 	if filtered.is_empty():
 		var empty_lbl = Label.new()
 		empty_lbl.text = "Aucune partie ne correspond à ce filtre."
-		empty_lbl.add_theme_color_override("font_color", Color("#64748b"))
+		empty_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		empty_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		games_container.add_child(empty_lbl)
 		return
@@ -159,21 +166,7 @@ func _render_games_list() -> void:
 func _add_game_card(game_data: Dictionary) -> void:
 	var panel = PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color("#1e293b")
-	style.border_width_left = 1
-	style.border_width_top = 1
-	style.border_width_right = 1
-	style.border_width_bottom = 1
-	style.border_color = Color("#334155")
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	style.content_margin_left = 10
-	style.content_margin_top = 8
-	style.content_margin_right = 10
-	style.content_margin_bottom = 8
+	var style = DesignTokens.card()
 	panel.add_theme_stylebox_override("panel", style)
 
 	var row = HBoxContainer.new()
@@ -193,9 +186,10 @@ func _add_game_card(game_data: Dictionary) -> void:
 		game_data["black_user"], game_data["black_rating"]
 	]
 	players_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	players_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	players_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	players_lbl.add_theme_font_size_override("font_size", 11)
-	players_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
+	players_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	players_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	text_col.add_child(players_lbl)
 
 	var details_row = HBoxContainer.new()
@@ -207,8 +201,8 @@ func _add_game_card(game_data: Dictionary) -> void:
 	var cadence = game_data.get("time_class", "").capitalize()
 	var tc = game_data.get("time_control", "")
 	details_lbl.text = "%s (%s)" % [cadence, tc]
-	details_lbl.add_theme_font_size_override("font_size", 10)
-	details_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	details_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	details_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	details_row.add_child(details_lbl)
 
 	# Badge Résultat
@@ -217,21 +211,21 @@ func _add_game_card(game_data: Dictionary) -> void:
 	match res:
 		"win":
 			badge_res.text = "• Victoire"
-			badge_res.add_theme_color_override("font_color", Color("#22c55e"))
+			badge_res.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 		"loss":
 			badge_res.text = "• Défaite"
-			badge_res.add_theme_color_override("font_color", Color("#ef4444"))
+			badge_res.add_theme_color_override("font_color", DesignTokens.DANGER)
 		_:
 			badge_res.text = "• Nulle"
-			badge_res.add_theme_color_override("font_color", Color("#94a3b8"))
-	badge_res.add_theme_font_size_override("font_size", 10)
+			badge_res.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	badge_res.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	details_row.add_child(badge_res)
 
 	# Bouton Analyser (colonne droite fixe, toujours visible)
 	var btn_analyze = Button.new()
 	btn_analyze.text = "Analyser"
-	btn_analyze.custom_minimum_size = Vector2(74, 30)
-	btn_analyze.add_theme_font_size_override("font_size", 11)
+	btn_analyze.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_analyze.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	var pgn = game_data.get("pgn", "")
 	btn_analyze.pressed.connect(func():
 		GameController.load_pgn(pgn)

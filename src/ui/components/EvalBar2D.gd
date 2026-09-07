@@ -22,8 +22,9 @@ func _ready() -> void:
 	score_label = Label.new()
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	score_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	score_label.add_theme_font_size_override("font_size", 10)
-	score_label.add_theme_color_override("font_color", Color("#0f172a"))
+	# M1 : barre étroite (≤ 20 px) — police plafonnée à 12 px
+	score_label.add_theme_font_size_override("font_size", 12)
+	score_label.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	add_child(score_label)
 	
 	var engine_mgr = get_node_or_null("/root/EngineManager")
@@ -113,7 +114,6 @@ func _on_engine_eval(score_cp: int, mate_in: int, _depth: int, _best_move: Strin
 			score_label.add_theme_color_override("font_color", Color("#090d16"))
 		else:
 			score_label.add_theme_color_override("font_color", Color("#f8fafc"))
-
 	# Animation fluide de la jauge
 	if tween and tween.is_valid():
 		tween.kill()

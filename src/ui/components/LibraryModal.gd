@@ -22,7 +22,7 @@ func _setup_ui() -> void:
 	var panel = PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var bg_style = StyleBoxFlat.new()
-	bg_style.bg_color = Color("#0b0f19")
+	bg_style.bg_color = DesignTokens.BG_DEEP
 	panel.add_theme_stylebox_override("panel", bg_style)
 	add_child(panel)
 
@@ -44,13 +44,15 @@ func _setup_ui() -> void:
 	search_input = LineEdit.new()
 	search_input.placeholder_text = "🔍 Rechercher (joueur, tournoi, date)..."
 	search_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	search_input.custom_minimum_size = Vector2(0, 32)
+	search_input.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	search_input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	search_input.text_changed.connect(func(_t): _refresh_games_list())
 	search_row.add_child(search_input)
 
 	var btn_clear = Button.new()
 	btn_clear.text = "✖"
-	btn_clear.custom_minimum_size = Vector2(32, 32)
+	btn_clear.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_MIN)
+	btn_clear.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_clear.pressed.connect(func():
 		search_input.clear()
 		_refresh_games_list()
@@ -70,12 +72,13 @@ func _setup_ui() -> void:
 
 	status_lbl = Label.new()
 	status_lbl.text = ""
-	status_lbl.add_theme_font_size_override("font_size", 10)
-	status_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	vbox.add_child(status_lbl)
 
 	# 3. Liste des parties avec défilement
 	var scroll = ScrollContainer.new()
+	DesignTokens.touch_scroll(scroll)
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(scroll)
@@ -88,7 +91,8 @@ func _setup_ui() -> void:
 	# 4. Pied de page
 	var btn_close = Button.new()
 	btn_close.text = "Fermer"
-	btn_close.custom_minimum_size = Vector2(0, 34)
+	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
 
@@ -96,8 +100,8 @@ func _add_filter_btn(parent: Node, label_text: String, filter_key: String) -> vo
 	var btn = Button.new()
 	btn.text = label_text
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.custom_minimum_size = Vector2(0, 26)
-	btn.add_theme_font_size_override("font_size", 10)
+	btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	btn.pressed.connect(func():
 		active_filter = filter_key
 		_refresh_games_list()
@@ -134,7 +138,7 @@ func _refresh_games_list() -> void:
 		empty_lbl.text = "Aucune partie ne correspond aux critères de recherche.\nImportez des PGN ou vos parties Chess.com pour les retrouver ici !"
 		empty_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		empty_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		empty_lbl.add_theme_color_override("font_color", Color("#64748b"))
+		empty_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		games_container.add_child(empty_lbl)
 		return
 
@@ -143,21 +147,7 @@ func _refresh_games_list() -> void:
 
 func _create_game_card(item: Dictionary) -> void:
 	var card = PanelContainer.new()
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color("#131c2e")
-	style.border_width_left = 1
-	style.border_width_top = 1
-	style.border_width_right = 1
-	style.border_width_bottom = 1
-	style.border_color = Color("#1e293b")
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	style.content_margin_left = 10
-	style.content_margin_top = 8
-	style.content_margin_right = 10
-	style.content_margin_bottom = 8
+	var style = DesignTokens.card()
 	card.add_theme_stylebox_override("panel", style)
 
 	var row = HBoxContainer.new()
@@ -179,8 +169,9 @@ func _create_game_card(item: Dictionary) -> void:
 	var w_str = "%s (%d)" % [w, w_elo] if w_elo > 0 else w
 	var b_str = "%s (%d)" % [b, b_elo] if b_elo > 0 else b
 	title_lbl.text = "⚪ %s  vs  ⚫ %s" % [w_str, b_str]
-	title_lbl.add_theme_font_size_override("font_size", 11)
-	title_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	col.add_child(title_lbl)
 
 	var meta_lbl = Label.new()
@@ -188,29 +179,31 @@ func _create_game_card(item: Dictionary) -> void:
 	var res = item.get("result", "*")
 	var moves_cnt = item.get("moves_count", 0)
 	meta_lbl.text = "%s • %s coups • Résultat: %s" % [date_val, str(moves_cnt / 2), res]
-	meta_lbl.add_theme_font_size_override("font_size", 9)
-	meta_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	meta_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	meta_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	meta_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	col.add_child(meta_lbl)
 
-	# Badges d'analyses
-	var badges_row = HBoxContainer.new()
-	badges_row.add_theme_constant_override("separation", 6)
+	# Badges d'analyses (empilés : deux badges à 15 px ne tiennent pas côte à côte
+	# dans la colonne de 262 px — ils passeraient sous les boutons d'action)
+	var badges_row = VBoxContainer.new()
+	badges_row.add_theme_constant_override("separation", 2)
 	col.add_child(badges_row)
 
 	var eng_cnt = item.get("engine_analyses_count", 0)
 	if eng_cnt > 0:
 		var b_eng = Label.new()
 		b_eng.text = "⚡ %d analyse(s) Stockfish" % eng_cnt
-		b_eng.add_theme_font_size_override("font_size", 9)
-		b_eng.add_theme_color_override("font_color", Color("#22c55e"))
+		b_eng.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		b_eng.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 		badges_row.add_child(b_eng)
 
 	var coach_cnt = item.get("coach_analyses_count", 0)
 	if coach_cnt > 0:
 		var b_coach = Label.new()
 		b_coach.text = "🤖 %d note(s) Coach" % coach_cnt
-		b_coach.add_theme_font_size_override("font_size", 9)
-		b_coach.add_theme_color_override("font_color", Color("#fbbf24"))
+		b_coach.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		b_coach.add_theme_color_override("font_color", DesignTokens.WARNING)
 		badges_row.add_child(b_coach)
 
 	# Colonne actions
@@ -221,17 +214,17 @@ func _create_game_card(item: Dictionary) -> void:
 
 	var btn_load = Button.new()
 	btn_load.text = "🚀 Charger"
-	btn_load.custom_minimum_size = Vector2(70, 26)
-	btn_load.add_theme_font_size_override("font_size", 10)
+	btn_load.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_load.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	var gid = item.get("id", "")
 	btn_load.pressed.connect(func(): _load_game(gid))
 	act_col.add_child(btn_load)
 
 	var btn_del = Button.new()
 	btn_del.text = "🗑️"
-	btn_del.custom_minimum_size = Vector2(30, 24)
+	btn_del.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_MIN)
 	btn_del.tooltip_text = "Supprimer définitivement cette partie et ses analyses"
-	btn_del.add_theme_font_size_override("font_size", 10)
+	btn_del.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_del.pressed.connect(func():
 		var tree = Engine.get_main_loop() as SceneTree
 		var dm = tree.root.get_node_or_null("DatabaseManager") if (tree and tree.root) else null

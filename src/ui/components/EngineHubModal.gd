@@ -29,14 +29,14 @@ func _add_engine_selector(parent: Node) -> void:
 		var a_note := Label.new()
 		a_note.text = "Sur Android, l'analyse utilise Stockfish. Maia (via lc0) n'est pas exécutable sur mobile."
 		a_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		a_note.add_theme_font_size_override("font_size", 10)
-		a_note.add_theme_color_override("font_color", Color("#94a3b8"))
+		a_note.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		a_note.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		parent.add_child(a_note)
 		return
 	var title := Label.new()
 	title.text = "Moteur d'analyse (Maia via lc0)"
-	title.add_theme_font_size_override("font_size", 11)
-	title.add_theme_color_override("font_color", Color("#cbd5e1"))
+	title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	title.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 	parent.add_child(title)
 
 	var flow := HFlowContainer.new()
@@ -57,8 +57,8 @@ func _add_engine_selector(parent: Node) -> void:
 			var note := Label.new()
 			note.text = "⚠ Pour analyser avec Maia : placez le binaire lc0 (\"lc0\" ou \"lc0.exe\") dans user://engines/ ou res://bin/."
 			note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			note.add_theme_font_size_override("font_size", 10)
-			note.add_theme_color_override("font_color", Color("#fbbf24"))
+			note.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+			note.add_theme_color_override("font_color", DesignTokens.WARNING)
 			parent.add_child(note)
 		return
 
@@ -87,14 +87,14 @@ func _start_lc0_download() -> void:
 func _make_choice_button(label_text: String) -> Button:
 	var btn := Button.new()
 	btn.text = label_text
-	btn.custom_minimum_size = Vector2(0, 30)
+	btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	var st := StyleBoxFlat.new()
-	st.bg_color = Color("#1e293b")
-	st.set_corner_radius_all(6)
-	st.content_margin_left = 10
-	st.content_margin_right = 10
+	st.bg_color = DesignTokens.SURFACE_ELEVATED
+	st.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
+	st.content_margin_left = DesignTokens.SPACE_S
+	st.content_margin_right = DesignTokens.SPACE_S
 	btn.add_theme_stylebox_override("normal", st)
-	btn.add_theme_font_size_override("font_size", 11)
+	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	return btn
 
 func _pick_engine(profile: String, maia_fn: String) -> void:
@@ -119,8 +119,8 @@ func _setup_ui() -> void:
 	var desc = Label.new()
 	desc.text = "Téléchargez directement des réseaux et moteurs additionnels spécialisés dans l'analyse humaine ou grand-maître."
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.add_theme_font_size_override("font_size", 11)
-	desc.add_theme_color_override("font_color", Color("#94a3b8"))
+	desc.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	vbox.add_child(desc)
 
 	# Barre de téléchargement
@@ -133,14 +133,15 @@ func _setup_ui() -> void:
 	status_lbl = Label.new()
 	status_lbl.text = ""
 	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_lbl.add_theme_font_size_override("font_size", 11)
-	status_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+	status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	status_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	vbox.add_child(status_lbl)
 
 	_add_engine_selector(vbox)
 
 	# Liste des moteurs dans un ScrollContainer sécurisé
 	var scroll = ScrollContainer.new()
+	DesignTokens.touch_scroll(scroll)
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -169,8 +170,8 @@ func _setup_ui() -> void:
 		var maia_note = Label.new()
 		maia_note.text = "ℹ Maia (réseaux neuronaux humains) n'est pas proposé sur Android : il nécessite le moteur lc0, non exécutable sur mobile."
 		maia_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		maia_note.add_theme_font_size_override("font_size", 10)
-		maia_note.add_theme_color_override("font_color", Color("#94a3b8"))
+		maia_note.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		maia_note.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		engines_list.add_child(maia_note)
 	else:
 		for name in EngineManager.DOWNLOADABLE_ENGINES.keys():
@@ -182,24 +183,17 @@ func _setup_ui() -> void:
 	# Bouton Fermer
 	var btn_close = Button.new()
 	btn_close.text = "Fermer"
-	btn_close.custom_minimum_size = Vector2(0, 36)
+	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
 
 func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bool, download_url: String, on_download: Callable = Callable(), action_label: String = "Télécharger") -> void:
 	var panel = PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color("#1e293b")
-	style.corner_radius_top_left = 8
-	style.corner_radius_top_right = 8
-	style.corner_radius_bottom_left = 8
-	style.corner_radius_bottom_right = 8
-	style.content_margin_left = 10
-	style.content_margin_top = 8
-	style.content_margin_right = 10
-	style.content_margin_bottom = 8
+	var style := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
+			Color.TRANSPARENT, 0, Vector2(DesignTokens.CARD_PAD_H, DesignTokens.CARD_PAD_V))
 	panel.add_theme_stylebox_override("panel", style)
 
 	var row = HBoxContainer.new()
@@ -216,20 +210,20 @@ func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bo
 	title_lbl.text = name
 	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	title_lbl.add_theme_font_size_override("font_size", 12)
-	title_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	text_box.add_child(title_lbl)
 
 	var desc_lbl = Label.new()
 	desc_lbl.text = desc
 	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc_lbl.add_theme_font_size_override("font_size", 10)
-	desc_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	desc_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	desc_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	text_box.add_child(desc_lbl)
 
 	var action_btn = Button.new()
-	action_btn.custom_minimum_size = Vector2(85, 30)
-	action_btn.add_theme_font_size_override("font_size", 10)
+	action_btn.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
+	action_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	if is_installed:
 		action_btn.text = "✓ Actif"
 		action_btn.disabled = true

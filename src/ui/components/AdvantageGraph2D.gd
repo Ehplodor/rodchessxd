@@ -22,19 +22,35 @@ func _ready() -> void:
 	_setup_expand_button()
 
 func _setup_expand_button() -> void:
+	var chip_normal := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			DesignTokens.BORDER, 1, Vector2(8, 2))
+	var chip_hover := chip_normal.duplicate() as StyleBoxFlat
+	chip_hover.bg_color = DesignTokens.BTN_BG_HOVER
+	var chip_pressed := chip_normal.duplicate() as StyleBoxFlat
+	chip_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
+
 	btn_expand = Button.new()
 	btn_expand.text = "📐 Agrandir"
 	btn_expand.tooltip_text = "Agrandir / Réduire la vue détaillée du graphe"
-	btn_expand.add_theme_font_size_override("font_size", 9)
-	btn_expand.custom_minimum_size = Vector2(68, 22)
+	# M1 : boutons superposés au graphe (40 px max pour ne pas masquer la courbe)
+	btn_expand.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	btn_expand.custom_minimum_size = Vector2(108, 40)
+	btn_expand.add_theme_stylebox_override("normal", chip_normal)
+	btn_expand.add_theme_stylebox_override("hover", chip_hover)
+	btn_expand.add_theme_stylebox_override("pressed", chip_pressed)
+	btn_expand.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	btn_expand.pressed.connect(_toggle_expand)
 	add_child(btn_expand)
 
 	btn_switch_analysis = Button.new()
 	btn_switch_analysis.visible = false
-	btn_switch_analysis.add_theme_font_size_override("font_size", 9)
-	btn_switch_analysis.custom_minimum_size = Vector2(0, 22)
+	btn_switch_analysis.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	btn_switch_analysis.custom_minimum_size = Vector2(0, 40)
 	btn_switch_analysis.tooltip_text = "Cliquer pour basculer entre les différentes analyses de moteurs enregistrées"
+	btn_switch_analysis.add_theme_stylebox_override("normal", chip_normal)
+	btn_switch_analysis.add_theme_stylebox_override("hover", chip_hover)
+	btn_switch_analysis.add_theme_stylebox_override("pressed", chip_pressed)
+	btn_switch_analysis.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	btn_switch_analysis.pressed.connect(_cycle_analysis)
 	add_child(btn_switch_analysis)
 
@@ -57,6 +73,7 @@ func _update_button_positions() -> void:
 		right_cursor -= (btn_expand.size.x + 6)
 	if btn_switch_analysis and btn_switch_analysis.visible:
 		btn_switch_analysis.position = Vector2(right_cursor - btn_switch_analysis.size.x, 6)
+		btn_switch_analysis.reset_size()
 
 func update_stored_analyses(analyses: Array) -> void:
 	stored_analyses = analyses
@@ -131,27 +148,31 @@ func _draw() -> void:
 	var minus3_y = mid_y + (300.0 * scale_y)
 
 	var default_font = ThemeDB.fallback_font
-	var font_size = 8
+	# M1 : légendes d'axe compactes dans un graphe de 90-180 px (12 px max)
+	var font_size = 12
 
 	# Ligne +3 pions (Avantage Blancs)
 	draw_line(Vector2(left_margin, plus3_y), Vector2(w - right_margin, plus3_y), Color("#33415555"), 1.0)
-	draw_string(default_font, Vector2(4, plus3_y + 3), "+3.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color("#94a3b8"))
+	draw_string(default_font, Vector2(4, plus3_y + 3), "+3.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.TEXT_MUTED)
 
 	# Ligne 0.0 (Parité / Égalité)
 	draw_line(Vector2(left_margin, mid_y), Vector2(w - right_margin, mid_y), Color("#38bdf866"), 1.5)
-	draw_string(default_font, Vector2(6, mid_y + 3), " 0.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color("#38bdf8"))
+	draw_string(default_font, Vector2(6, mid_y + 3), " 0.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.ACCENT)
 
 	# Ligne -3 pions (Avantage Noirs)
 	draw_line(Vector2(left_margin, minus3_y), Vector2(w - right_margin, minus3_y), Color("#33415555"), 1.0)
-	draw_string(default_font, Vector2(4, minus3_y + 3), "-3.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color("#94a3b8"))
+	draw_string(default_font, Vector2(4, minus3_y + 3), "-3.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.TEXT_MUTED)
 
 	# 3. État sans données : Affichage explicite du mode d'emploi
 	var total_points = evaluations.size()
 	if total_points < 2:
 		var msg1 = "📈 Courbe d'Avantage Stockfish"
 		var msg2 = "Cliquez sur '🔍 Analyser Partie' pour tracer l'évaluation coup par coup"
-		draw_string(default_font, Vector2(w * 0.5 - 90, mid_y - 4), msg1, HORIZONTAL_ALIGNMENT_CENTER, -1, 11, Color("#cbd5e1"))
-		draw_string(default_font, Vector2(w * 0.5 - 145, mid_y + 14), msg2, HORIZONTAL_ALIGNMENT_CENTER, -1, 9, Color("#64748b"))
+		var msg1_w = default_font.get_string_size(msg1, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var msg2_w = default_font.get_string_size(msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		# M1 : texte d'état sur deux lignes dans 90 px de hauteur (msg2 à 13 px max)
+		draw_string(default_font, Vector2((w - msg1_w) * 0.5, mid_y - 4), msg1, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, DesignTokens.TEXT_SECONDARY)
+		draw_string(default_font, Vector2((w - msg2_w) * 0.5, mid_y + 18), msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DesignTokens.TEXT_MUTED)
 		return
 
 	# 4. Calcul des coordonnées des points
@@ -220,17 +241,17 @@ func _draw() -> void:
 		var hud_text = "%s  (%s)" % [ply_label, eval_str]
 
 		# Dessin du badge HUD
-		var badge_w = 110.0
-		var badge_h = 20.0
+		var badge_w = 160.0
+		var badge_h = 28.0
 		var badge_x = clampf(cursor_pt.x - badge_w * 0.5, left_margin + 2, w - right_margin - badge_w - 2)
-		var badge_y = cursor_pt.y - 28.0
+		var badge_y = cursor_pt.y - 34.0
 		if badge_y < top_margin + 2:
-			badge_y = cursor_pt.y + 12.0
+			badge_y = cursor_pt.y + 16.0
 
 		var badge_rect = Rect2(badge_x, badge_y, badge_w, badge_h)
 		draw_rect(badge_rect, Color("#0f172aee"), true)
 		draw_rect(badge_rect, Color("#38bdf888"), false, 1.0)
-		draw_string(default_font, Vector2(badge_x + 6, badge_y + 14), hud_text, HORIZONTAL_ALIGNMENT_CENTER, int(badge_w - 12), 10, Color("#f8fafc"))
+		draw_string(default_font, Vector2(badge_x + 6, badge_y + 19), hud_text, HORIZONTAL_ALIGNMENT_CENTER, int(badge_w - 12), 13, DesignTokens.TEXT_PRIMARY)
 
 # --- SCRUBBING TACTILE & NAVIGATION ---
 
