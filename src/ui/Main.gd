@@ -68,7 +68,8 @@ func _ready() -> void:
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
 	GameController.position_changed.connect(_on_game_position_changed)
-	GameController.move_navigated.connect(func(_idx):
+	GameController.move_navigated.connect(func(ply_idx):
+		_sync_eval_to_ply(ply_idx)
 		_update_player_labels()
 		_trigger_live_eval()
 	)
@@ -86,6 +87,9 @@ func _ready() -> void:
 
 	if advantage_graph != null:
 		advantage_graph.analysis_selected.connect(_on_stored_analysis_selected)
+		advantage_graph.move_scrubbed.connect(func(ply_idx):
+			_sync_eval_to_ply(ply_idx)
+		)
 
 	if btn_toggle_live != null and not btn_toggle_live.pressed.is_connected(_on_btn_toggle_live_pressed):
 		btn_toggle_live.pressed.connect(_on_btn_toggle_live_pressed)
@@ -515,6 +519,46 @@ func _display_analysis_stats(report_or_entry: Dictionary, is_partial: bool = fal
 
 func _on_stored_analysis_selected(analysis_entry: Dictionary) -> void:
 	_display_analysis_stats(analysis_entry, false)
+	var cur_ply = GameController.current_ply_index if GameController else -1
+	_sync_eval_to_ply(cur_ply)
+
+func _sync_eval_to_ply(ply_idx: int) -> void:
+	if advantage_graph != null and not advantage_graph.evaluations.is_empty():
+		if ply_idx >= 0 and ply_idx < advantage_graph.evaluations.size():
+			var rec: Dictionary = advantage_graph.evaluations[ply_idx]
+			var score_cp: int = rec.get("score_cp", 0)
+			var mate_in: int = rec.get("mate_in", 0)
+			if eval_bar:
+				eval_bar.set_score(score_cp, mate_in)
+			if top_eval_label:
+				if mate_in != 0:
+					top_eval_label.text = "Mat %d" % mate_in
+				else:
+					var pawns = score_cp / 100.0
+					top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+			
+			var best_uci: String = rec.get("best_move", "")
+			if chess_board:
+				if best_uci.length() >= 4:
+					chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_uci.substr(0, 2))
+					chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_uci.substr(2, 2))
+				else:
+					chess_board.best_move_arrow_from = -1
+					chess_board.best_move_arrow_to = -1
+				if chess_board.arrow_overlay:
+					chess_board.arrow_overlay.queue_redraw()
+				chess_board.queue_redraw()
+		elif ply_idx == -1:
+			if eval_bar:
+				eval_bar.set_score(20, 0)
+			if top_eval_label:
+				top_eval_label.text = "+0.2"
+			if chess_board:
+				chess_board.best_move_arrow_from = -1
+				chess_board.best_move_arrow_to = -1
+				if chess_board.arrow_overlay:
+					chess_board.arrow_overlay.queue_redraw()
+				chess_board.queue_redraw()
 
 func _on_play_sound(sound_type: String) -> void:
 	if not SettingsManager.get_setting("sound_enabled", true):
@@ -528,26 +572,37 @@ func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String,
 	if analyzer != null and analyzer.is_analyzing:
 		return
 
-	if top_eval_label:
-		if mate_in != 0:
-			top_eval_label.text = "Mat %d" % mate_in
-		else:
-			var pawns = score_cp / 100.0
-			top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+	# Si la position actuelle correspond à un coup déjà analysé dans le graphe,
+	# on préserve la synchronisation stricte avec l'analyse pré-calculée.
+	var cur_ply = GameController.current_ply_index if GameController else -1
+	var has_stored_eval = false
+	if advantage_graph != null and not advantage_graph.evaluations.is_empty():
+		if cur_ply >= 0 and cur_ply < advantage_graph.evaluations.size():
+			has_stored_eval = true
+		elif cur_ply == -1:
+			has_stored_eval = true
 
-	if eval_bar:
-		eval_bar.set_score(score_cp)
+	if not has_stored_eval:
+		if top_eval_label:
+			if mate_in != 0:
+				top_eval_label.text = "Mat %d" % mate_in
+			else:
+				var pawns = score_cp / 100.0
+				top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
 
-	if chess_board:
-		if best_move.length() >= 4:
-			chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))
-			chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_move.substr(2, 2))
-		else:
-			chess_board.best_move_arrow_from = -1
-			chess_board.best_move_arrow_to = -1
-		if chess_board.arrow_overlay:
-			chess_board.arrow_overlay.queue_redraw()
-		chess_board.queue_redraw()
+		if eval_bar:
+			eval_bar.set_score(score_cp, mate_in)
+
+		if chess_board:
+			if best_move.length() >= 4:
+				chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))
+				chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_move.substr(2, 2))
+			else:
+				chess_board.best_move_arrow_from = -1
+				chess_board.best_move_arrow_to = -1
+			if chess_board.arrow_overlay:
+				chess_board.arrow_overlay.queue_redraw()
+			chess_board.queue_redraw()
 
 	if live_eval_enabled and stats_label and stats_grid and (not stats_grid.visible):
 		var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
@@ -939,6 +994,8 @@ func _on_analysis_finished(report: Dictionary) -> void:
 
 	var evals = report.get("evaluations", [])
 	advantage_graph.set_evaluations(evals)
+	var cur_ply = GameController.current_ply_index if GameController else -1
+	_sync_eval_to_ply(cur_ply)
 
 	var total_moves = GameController.game.move_history.size() if GameController.game else 0
 	var is_partial = (evals.size() < total_moves)

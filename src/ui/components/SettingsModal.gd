@@ -9,7 +9,12 @@ var _init_analysis_depth: int = 18
 
 func _ready() -> void:
 	title = "Paramètres & Clés IA"
-	size = Vector2i(410, 620)
+	var vp = DisplayServer.window_get_size()
+	if vp.x <= 0:
+		vp = Vector2i(400, 700)
+	var target_w = int(clampf(vp.x * 0.94, 280.0, 420.0))
+	var target_h = int(clampf(vp.y * 0.90, 440.0, 700.0))
+	size = Vector2i(target_w, target_h)
 	exclusive = true
 	close_requested.connect(_on_save_and_close)
 	_init_threads = SettingsManager.get_setting("engine_threads", 2)
@@ -27,8 +32,14 @@ func _setup_ui() -> void:
 	root_vbox.offset_top = 10
 	root_vbox.offset_right = -10
 	root_vbox.offset_bottom = -10
+	root_vbox.size = Vector2(size.x - 20, size.y - 20)
 	root_vbox.add_theme_constant_override("separation", 8)
 	add_child(root_vbox)
+
+	size_changed.connect(func():
+		if is_instance_valid(root_vbox):
+			root_vbox.size = Vector2(size.x - 20, size.y - 20)
+	)
 
 	var scroll = ScrollContainer.new()
 	DesignTokens.touch_scroll(scroll)
@@ -49,7 +60,8 @@ func _setup_ui() -> void:
 	var threads_row = HBoxContainer.new()
 	threads_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var threads_lbl = Label.new()
-	threads_lbl.text = "Cœurs CPU alloués (Threads) :"
+	threads_lbl.text = "Cœurs CPU (Threads) :"
+	threads_lbl.custom_minimum_size = Vector2(50, 0)
 	threads_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	threads_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	threads_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -60,8 +72,10 @@ func _setup_ui() -> void:
 	threads_spin.max_value = 8
 	threads_spin.value = SettingsManager.get_setting("engine_threads", 2)
 	threads_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_threads", int(val)))
-	threads_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	threads_spin.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
 	threads_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if threads_spin.get_line_edit():
+		threads_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
 	threads_row.add_child(threads_spin)
 	vbox.add_child(threads_row)
 
@@ -71,6 +85,7 @@ func _setup_ui() -> void:
 	live_depth_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var live_depth_lbl = Label.new()
 	live_depth_lbl.text = "Profondeur en direct (Live) :"
+	live_depth_lbl.custom_minimum_size = Vector2(50, 0)
 	live_depth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	live_depth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	live_depth_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -81,12 +96,13 @@ func _setup_ui() -> void:
 	live_depth_spin.max_value = 24
 	live_depth_spin.value = SettingsManager.get_setting("engine_depth", def_live)
 	live_depth_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_depth", int(val)))
-	live_depth_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	live_depth_spin.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
 	live_depth_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if live_depth_spin.get_line_edit():
+		live_depth_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
 	live_depth_row.add_child(live_depth_spin)
 	vbox.add_child(live_depth_row)
 
-	# Mode d'Analyse de Partie
 	# Mode d'Analyse de Partie
 	var mode_card = PanelContainer.new()
 	mode_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -99,7 +115,7 @@ func _setup_ui() -> void:
 	mode_card.add_child(mode_card_vbox)
 
 	var mode_lbl = Label.new()
-	mode_lbl.text = "Mode actif pour l'analyse de partie :"
+	mode_lbl.text = "Mode d'analyse de partie :"
 	mode_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	mode_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	mode_card_vbox.add_child(mode_lbl)
@@ -107,10 +123,11 @@ func _setup_ui() -> void:
 	var mode_opt = OptionButton.new()
 	mode_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mode_opt.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	mode_opt.clip_text = true
 	mode_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	mode_opt.add_item("⚡ Dynamique adaptatif (rapide + approfondi sur coups critiques)", 0)
-	mode_opt.add_item("⏱️ Temps fixe par demi-coup", 1)
-	mode_opt.add_item("🎯 Profondeur fixe (UCI depth)", 2)
+	mode_opt.add_item("⚡ Dynamique adaptatif", 0)
+	mode_opt.add_item("⏱️ Temps fixe", 1)
+	mode_opt.add_item("🎯 Profondeur fixe", 2)
 
 	var cur_mode = SettingsManager.get_setting("analysis_mode", "dynamic")
 	match cur_mode:
@@ -131,6 +148,7 @@ func _setup_ui() -> void:
 	dyn_base_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var dyn_base_lbl = Label.new()
 	dyn_base_lbl.text = "• Temps base par coup (s) :"
+	dyn_base_lbl.custom_minimum_size = Vector2(50, 0)
 	dyn_base_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	dyn_base_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dyn_base_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -141,7 +159,7 @@ func _setup_ui() -> void:
 	dyn_base_spin.max_value = 0.50
 	dyn_base_spin.step = 0.05
 	dyn_base_spin.value = SettingsManager.get_setting("analysis_dynamic_base", 0.15)
-	dyn_base_spin.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
+	dyn_base_spin.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
 	dyn_base_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	if dyn_base_spin.get_line_edit():
 		dyn_base_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -152,7 +170,8 @@ func _setup_ui() -> void:
 	var dyn_max_row = HBoxContainer.new()
 	dyn_max_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var dyn_max_lbl = Label.new()
-	dyn_max_lbl.text = "• Temps max sur coups critiques (s) :"
+	dyn_max_lbl.text = "• Temps max critiques (s) :"
+	dyn_max_lbl.custom_minimum_size = Vector2(50, 0)
 	dyn_max_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	dyn_max_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	dyn_max_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -163,7 +182,7 @@ func _setup_ui() -> void:
 	dyn_max_spin.max_value = 3.00
 	dyn_max_spin.step = 0.10
 	dyn_max_spin.value = SettingsManager.get_setting("analysis_dynamic_max", 0.80)
-	dyn_max_spin.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
+	dyn_max_spin.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
 	dyn_max_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	if dyn_max_spin.get_line_edit():
 		dyn_max_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -181,7 +200,8 @@ func _setup_ui() -> void:
 	var time_row = HBoxContainer.new()
 	time_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var time_lbl = Label.new()
-	time_lbl.text = "• Temps par demi-coup (s) :"
+	time_lbl.text = "• Temps par coup (s) :"
+	time_lbl.custom_minimum_size = Vector2(50, 0)
 	time_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	time_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	time_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -192,7 +212,7 @@ func _setup_ui() -> void:
 	time_spin.max_value = 3.00
 	time_spin.step = 0.05
 	time_spin.value = SettingsManager.get_setting("analysis_time_per_move", 0.30)
-	time_spin.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
+	time_spin.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
 	time_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	if time_spin.get_line_edit():
 		time_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -212,6 +232,7 @@ func _setup_ui() -> void:
 	anal_depth_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var anal_depth_lbl = Label.new()
 	anal_depth_lbl.text = "• Profondeur fixe (Bilan) :"
+	anal_depth_lbl.custom_minimum_size = Vector2(50, 0)
 	anal_depth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	anal_depth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	anal_depth_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -221,7 +242,7 @@ func _setup_ui() -> void:
 	anal_depth_spin.min_value = 10
 	anal_depth_spin.max_value = 26
 	anal_depth_spin.value = SettingsManager.get_setting("analysis_depth", def_anal)
-	anal_depth_spin.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
+	anal_depth_spin.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
 	anal_depth_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	if anal_depth_spin.get_line_edit():
 		anal_depth_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -242,7 +263,8 @@ func _setup_ui() -> void:
 	var hash_row = HBoxContainer.new()
 	hash_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var hash_lbl = Label.new()
-	hash_lbl.text = "Mémoire de transposition (Hash Mo) :"
+	hash_lbl.text = "Mémoire cache (Hash Mo) :"
+	hash_lbl.custom_minimum_size = Vector2(50, 0)
 	hash_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hash_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hash_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -254,8 +276,10 @@ func _setup_ui() -> void:
 	hash_spin.step = 16
 	hash_spin.value = SettingsManager.get_setting("engine_hash_mb", 32)
 	hash_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_hash_mb", int(val)))
-	hash_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	hash_spin.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
 	hash_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if hash_spin.get_line_edit():
+		hash_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hash_row.add_child(hash_spin)
 	vbox.add_child(hash_row)
 
@@ -269,7 +293,8 @@ func _setup_ui() -> void:
 	_add_section_header(vbox, "🤖 Intelligence Artificielle & Coach")
 
 	var hub_btn = Button.new()
-	hub_btn.text = "⚡ Gérer les Modèles IA & Coûts en direct..."
+	hub_btn.text = "⚡ Gérer les Modèles IA & Coûts..."
+	hub_btn.clip_text = true
 	hub_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	hub_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hub_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -298,10 +323,11 @@ func _setup_ui() -> void:
 	var prov_opt = OptionButton.new()
 	prov_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	prov_opt.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	prov_opt.clip_text = true
 	prov_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	prov_opt.add_item("Cloud Gratuit (OpenRouter / Gemini)", 0)
-	prov_opt.add_item("SLM Local (Ollama hors-ligne)", 1)
-	prov_opt.add_item("Clés API Directes (OpenAI / DeepSeek / Claude)", 2)
+	prov_opt.add_item("Cloud Gratuit (OpenRouter)", 0)
+	prov_opt.add_item("SLM Local (Ollama)", 1)
+	prov_opt.add_item("Clés API Directes", 2)
 	
 	var cur_prov = SettingsManager.get_setting("ai_provider", "free_cloud")
 	match cur_prov:
@@ -326,10 +352,11 @@ func _setup_ui() -> void:
 	var pers_opt = OptionButton.new()
 	pers_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pers_opt.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	pers_opt.clip_text = true
 	pers_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	pers_opt.add_item("Grand-Maître Mentor (Équilibré)", 0)
-	pers_opt.add_item("Chasseur de Gaffes (Tactique & Direct)", 1)
-	pers_opt.add_item("Pédagogue Débutant / Enfant (Simple)", 2)
+	pers_opt.add_item("Grand-Maître Mentor", 0)
+	pers_opt.add_item("Chasseur de Gaffes", 1)
+	pers_opt.add_item("Pédagogue Débutant", 2)
 	
 	var cur_pers = SettingsManager.get_setting("coach_personality", "mentor")
 	match cur_pers:
@@ -346,8 +373,8 @@ func _setup_ui() -> void:
 	vbox.add_child(pers_opt)
 
 	# Clés API
-	_add_api_key_field(vbox, "Clé OpenRouter (Modèles gratuits & économiques) :", "api_key_openrouter")
-	_add_api_key_field(vbox, "Clé Google Gemini (Gratuite / Payante) :", "api_key_gemini")
+	_add_api_key_field(vbox, "Clé OpenRouter (Gratuit/Économique) :", "api_key_openrouter")
+	_add_api_key_field(vbox, "Clé Google Gemini (Gratuite) :", "api_key_gemini")
 	_add_api_key_field(vbox, "Clé Groq Cloud (Gratuite) :", "api_key_groq")
 	_add_api_key_field(vbox, "Clé DeepSeek (V4 Flash / R1) :", "api_key_deepseek")
 	_add_api_key_field(vbox, "Clé OpenAI (GPT-4o) :", "api_key_openai")
@@ -364,9 +391,10 @@ func _setup_ui() -> void:
 	var theme_opt = OptionButton.new()
 	theme_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	theme_opt.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	theme_opt.clip_text = true
 	theme_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	theme_opt.add_item("Dark Modern (Ardoise & Néon)", 0)
-	theme_opt.add_item("Émeraude (Lichess Classique)", 1)
+	theme_opt.add_item("Émeraude (Lichess)", 1)
 	theme_opt.add_item("Bois Naturel (Tournoi)", 2)
 
 	var cur_theme = SettingsManager.get_setting("board_theme", "dark_modern")
@@ -426,6 +454,7 @@ func _setup_ui() -> void:
 
 	var btn_close = Button.new()
 	btn_close.text = "💾 Fermer & Enregistrer"
+	btn_close.clip_text = true
 	btn_close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
@@ -512,7 +541,7 @@ func _add_api_key_field(parent: Node, label_text: String, setting_key: String) -
 	var input = LineEdit.new()
 	input.secret = true
 	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	input.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	input.custom_minimum_size = Vector2(50, DesignTokens.TOUCH_MIN)
 	input.text = SettingsManager.get_setting(setting_key, "")
 	input.placeholder_text = "sk-..."
 	input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)

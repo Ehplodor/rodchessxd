@@ -26,10 +26,6 @@ func _ready() -> void:
 	score_label.add_theme_font_size_override("font_size", 12)
 	score_label.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	add_child(score_label)
-	
-	var engine_mgr = get_node_or_null("/root/EngineManager")
-	if engine_mgr != null:
-		engine_mgr.evaluation_updated.connect(_on_engine_eval)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
@@ -116,16 +112,20 @@ func _on_engine_eval(score_cp: int, mate_in: int, _depth: int, _best_move: Strin
 	if score_label:
 		score_label.text = display_score_text
 		# Texte sombre sur fond clair, ou blanc sur fond sombre selon la position du badge
-		if current_ratio > 0.5:
+		if target_ratio > 0.5:
 			score_label.add_theme_color_override("font_color", Color("#090d16"))
 		else:
 			score_label.add_theme_color_override("font_color", Color("#f8fafc"))
-	# Animation fluide de la jauge
+
+	# Animation fluide de la jauge à 60 FPS
 	if tween and tween.is_valid():
 		tween.kill()
 	
 	tween = create_tween()
-	tween.tween_property(self, "current_ratio", target_ratio, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tween.parallel().tween_callback(queue_redraw)
-	tween.parallel().tween_callback(_update_label_position)
+	tween.tween_method(func(val: float):
+		current_ratio = val
+		_update_label_position()
+		queue_redraw()
+	, current_ratio, target_ratio, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
 

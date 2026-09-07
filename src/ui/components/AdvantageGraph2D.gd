@@ -371,28 +371,40 @@ func _draw() -> void:
 		draw_line(Vector2(cursor_pt.x, top_margin), Vector2(cursor_pt.x, h - bottom_margin), Color("#facc15aa"), 1.8)
 		draw_circle(cursor_pt, 5.0, Color("#facc15"))
 		draw_arc(cursor_pt, 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
+	elif active_ply == -1 and not points.is_empty():
+		# Curseur positionné sur le bord gauche de départ
+		draw_line(Vector2(left_margin, top_margin), Vector2(left_margin, h - bottom_margin), Color("#facc15aa"), 1.8)
+		draw_circle(Vector2(left_margin, mid_y - (20.0 * scale_y)), 5.0, Color("#facc15"))
+		draw_arc(Vector2(left_margin, mid_y - (20.0 * scale_y)), 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
 
 	# 10. Libellé du coup courant dans la bande basse avec IC (hors de la courbe).
-	var rec = evaluations[active_ply] if active_ply >= 0 and active_ply < evaluations.size() else {}
-	if not rec.is_empty():
-		var score_cp = rec.get("score_cp", 0)
-		var pawns_val = score_cp / 100.0
-		var eval_str = ("+%.1f" if pawns_val >= 0 else "%.1f") % pawns_val
-		var margin_pawns = float(rec.get("ci_margin", 0.0)) / 100.0
-		var ci_str = " [±%.1f]" % margin_pawns if margin_pawns > 0.0 else ""
-		var move_num = rec.get("move_number", 1)
-		var san = rec.get("san", "")
-		var is_w = rec.get("is_white", true)
-		var qual = rec.get("quality", ChessMove.Quality.NONE)
-		var badge_sym = ChessMove.quality_to_symbol(qual)
-		var ply_label = ("%d. %s" if is_w else "%d... %s") % [move_num, san]
-		if badge_sym != "":
-			ply_label += " " + badge_sym
-		var caption = "%s   (%s%s)" % [ply_label, eval_str, ci_str]
+	if active_ply == -1 and not evaluations.is_empty():
+		var caption = "Position initiale   (+0.2)"
 		draw_rect(Rect2(left_margin, h - 24, graph_w, 20), Color("#0f172acc"), true)
 		var cap_w = graph_w - 8.0
 		draw_string(default_font, Vector2(left_margin + 4, h - 7), caption,
 				HORIZONTAL_ALIGNMENT_LEFT, int(cap_w), 13, DesignTokens.TEXT_PRIMARY)
+	else:
+		var rec = evaluations[active_ply] if active_ply >= 0 and active_ply < evaluations.size() else {}
+		if not rec.is_empty():
+			var score_cp = rec.get("score_cp", 0)
+			var pawns_val = score_cp / 100.0
+			var eval_str = ("+%.1f" if pawns_val >= 0 else "%.1f") % pawns_val
+			var margin_pawns = float(rec.get("ci_margin", 0.0)) / 100.0
+			var ci_str = " [±%.1f]" % margin_pawns if margin_pawns > 0.0 else ""
+			var move_num = rec.get("move_number", 1)
+			var san = rec.get("san", "")
+			var is_w = rec.get("is_white", true)
+			var qual = rec.get("quality", ChessMove.Quality.NONE)
+			var badge_sym = ChessMove.quality_to_symbol(qual)
+			var ply_label = ("%d. %s" if is_w else "%d... %s") % [move_num, san]
+			if badge_sym != "":
+				ply_label += " " + badge_sym
+			var caption = "%s   (%s%s)" % [ply_label, eval_str, ci_str]
+			draw_rect(Rect2(left_margin, h - 24, graph_w, 20), Color("#0f172acc"), true)
+			var cap_w = graph_w - 8.0
+			draw_string(default_font, Vector2(left_margin + 4, h - 7), caption,
+					HORIZONTAL_ALIGNMENT_LEFT, int(cap_w), 13, DesignTokens.TEXT_PRIMARY)
 
 # --- SCRUBBING TACTILE & NAVIGATION ---
 
