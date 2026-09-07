@@ -29,6 +29,7 @@ LocalSLMManager="*res://src/ai/LocalSLMManager.gd"
 GameController="*res://src/core/GameController.gd"
 EngineManager="*res://src/engine/EngineManager.gd"
 AICoach="*res://src/ai/AICoach.gd"
+AppLogger="*res://src/core/AppLogger.gd"
 
 [display]
 

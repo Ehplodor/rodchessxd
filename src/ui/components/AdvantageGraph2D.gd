@@ -14,6 +14,11 @@ var stored_analyses: Array = []
 var current_analysis_idx: int = 0
 var btn_switch_analysis: Button
 
+# Scrubbing M2 : marqueur instantané, navigation moteur throttlée + 1 commit final.
+var _scrubbing := false
+var _last_nav_ms := 0
+const SCRUB_NAV_MS := 90
+
 func _ready() -> void:
 	custom_minimum_size = Vector2(250, 90)
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -259,34 +264,56 @@ func _gui_input(event: InputEvent) -> void:
 	if evaluations.is_empty():
 		return
 
-	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-			_scrub_to_pos(event.position.x)
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_scrubbing = true
+			_scrub_to(event.position.x, true)
+		else:
+			_scrubbing = false
+			_commit_scrub()
 	elif event is InputEventMouseMotion:
-		if event.button_mask & MOUSE_BUTTON_MASK_LEFT:
-			_scrub_to_pos(event.position.x)
-	elif event is InputEventScreenTouch and event.pressed:
-		_scrub_to_pos(event.position.x)
-	elif event is InputEventScreenDrag:
-		_scrub_to_pos(event.position.x)
+		if _scrubbing and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+			_scrub_to(event.position.x, false)
+	elif event is InputEventScreenTouch:
+		if event.pressed:
+			_scrubbing = true
+			_scrub_to(event.position.x, true)
+		else:
+			_scrubbing = false
+			_commit_scrub()
+	elif event is InputEventScreenDrag and _scrubbing:
+		_scrub_to(event.position.x, false)
 
-func _scrub_to_pos(pos_x: float) -> void:
+## Ply sous le doigt (hors de la colonne d'échelle de gauche).
+func _ply_at(pos_x: float) -> int:
 	var total_points = evaluations.size()
 	if total_points == 0:
-		return
-
+		return -1
 	var left_margin = 32.0
 	var right_margin = 12.0
 	var graph_w = maxf(1.0, size.x - left_margin - right_margin)
-	
 	var ratio = clampf((pos_x - left_margin) / graph_w, 0.0, 1.0)
-	var target_ply = int(round(ratio * (total_points - 1)))
+	return clampi(int(round(ratio * (total_points - 1))), 0, total_points - 1)
 
-	if target_ply != active_ply:
-		active_ply = target_ply
-		queue_redraw()
-		move_scrubbed.emit(target_ply)
-		GameController.navigate_to_ply(target_ply)
+## Scrubbing (M2) : le marqueur suit le doigt à chaque événement (instantané),
+## mais la navigation moteur est throttlée (~90 ms) pour éviter les rafales
+## d'animations / le flash et les évaluations en double ; un unique navigate
+## final est validé au relâchement (_commit_scrub).
+func _scrub_to(pos_x: float, force: bool) -> void:
+	var target = _ply_at(pos_x)
+	if target < 0 or target == active_ply:
+		return
+	active_ply = target
+	queue_redraw()
+	move_scrubbed.emit(target)
+	var now := Time.get_ticks_msec()
+	if force or now - _last_nav_ms >= SCRUB_NAV_MS:
+		_last_nav_ms = now
+		GameController.navigate_to_ply(target)
+
+func _commit_scrub() -> void:
+	if active_ply >= 0:
+		GameController.navigate_to_ply(active_ply)
 
 func _on_move_navigated(move_idx: int) -> void:
 	active_ply = move_idx

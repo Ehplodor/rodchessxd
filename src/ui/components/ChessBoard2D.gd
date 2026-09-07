@@ -147,6 +147,7 @@ var is_animating_move: bool = false
 var pending_drag_move: bool = false
 var drag_release_pos: Vector2 = Vector2.ZERO
 var displayed_ply_index: int = -1
+var _last_flipped_state := false
 
 func _get_game_controller() -> Node:
 	var tree = Engine.get_main_loop() as SceneTree
@@ -178,6 +179,7 @@ func _ready() -> void:
 	var gc = _get_game_controller()
 	if gc:
 		displayed_ply_index = gc.current_ply_index
+		_last_flipped_state = gc.board_flipped
 		gc.move_navigated.connect(_on_move_navigated)
 		gc.move_made.connect(_on_move_made)
 		gc.position_changed.connect(_on_position_changed)
@@ -866,8 +868,15 @@ func _on_game_reset() -> void:
 	displayed_ply_index = -1
 	reset_board_visuals()
 
+## Journalisation nav (M8) : observable depuis le beta pour diagnostiquer M2.
+func _nav_log(msg: String) -> void:
+	var t := get_tree()
+	if t and t.root and t.root.has_node("AppLogger"):
+		t.root.get_node("AppLogger").log("NAV", msg)
+
 func _on_move_navigated(target_ply: int) -> void:
-	print("[DEBUG_NAV] _on_move_navigated target_ply=", target_ply, " displayed_ply_index=", displayed_ply_index)
+	_nav_log("board ply=%d disp=%d anim=%s" % [
+		target_ply, displayed_ply_index, str(is_animating_move)])
 	var gc = _get_game_controller()
 	if not gc or not gc.game:
 		displayed_ply_index = target_ply
@@ -894,9 +903,16 @@ func _on_move_navigated(target_ply: int) -> void:
 	reset_board_visuals()
 
 func _on_position_changed() -> void:
-	if is_animating_move:
-		return
 	var gc = _get_game_controller()
+	var flipped := gc.board_flipped if gc else false
+	if flipped != _last_flipped_state:
+		_last_flipped_state = flipped
+		# Retournement pendant une animation : annuler proprement (M2 / D2).
+		if is_animating_move:
+			_clear_active_tweens()
+			is_animating_move = false
+	elif is_animating_move:
+		return
 	if gc:
 		displayed_ply_index = gc.current_ply_index
 	reset_board_visuals()

@@ -222,6 +222,31 @@ func _setup_ui() -> void:
 	sound_check.toggled.connect(func(val): SettingsManager.set_setting("sound_enabled", val))
 	vbox.add_child(sound_check)
 
+	# --- SECTION À PROPOS & LOGS (M8 / observabilité beta) ---
+	_add_section_header(vbox, "🛠️ À propos & Logs")
+
+	var about_lbl = Label.new()
+	about_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	about_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	about_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	about_lbl.text = _app_info_text()
+	vbox.add_child(about_lbl)
+
+	var export_btn = Button.new()
+	export_btn.text = "📤 Exporter les logs"
+	export_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	export_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	export_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	export_btn.pressed.connect(func():
+		var export_feedback = Label.new()
+		export_feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		export_feedback.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		export_feedback.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+		export_feedback.text = _export_logs()
+		vbox.add_child(export_feedback)
+	)
+	vbox.add_child(export_btn)
+
 	# Bouton Fermer
 	var btn_close = Button.new()
 	btn_close.text = "Fermer & Enregistrer"
@@ -230,6 +255,28 @@ func _setup_ui() -> void:
 	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
+
+func _app_logger() -> Node:
+	var t := get_tree()
+	if t and t.root and t.root.has_node("AppLogger"):
+		return t.root.get_node("AppLogger")
+	return null
+
+func _app_info_text() -> String:
+	var l = _app_logger()
+	if l and l.has_method("info_line"):
+		return l.info_line()
+	var ver: String = str(ProjectSettings.get_setting("application/config/version", "?"))
+	return "RodChessXD v%s — %s (%s)" % [ver, OS.get_name(), OS.get_processor_name()]
+
+func _export_logs() -> String:
+	var l = _app_logger()
+	if l and l.has_method("export_logs"):
+		var path: String = l.export_logs()
+		if path != "":
+			DisplayServer.clipboard_set(path)
+			return "Logs : %s\n(chemin copié dans le presse-papiers)" % path
+	return "Logger indisponible (hors application)."
 
 func _add_section_header(parent: Node, title_text: String) -> void:
 	var lbl = Label.new()
