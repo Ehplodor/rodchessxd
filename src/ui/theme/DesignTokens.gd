@@ -97,13 +97,13 @@ const SCROLL_DEADZONE := 20
 ## TAP = clic, GLISSÉ = défilement. Accepte aussi TextEdit/RichTextLabel
 ## (ascenseurs épais uniquement).
 static func touch_scroll(ctrl: Control) -> void:
-	if ctrl is ScrollContainer:
-		var sc := ctrl as ScrollContainer
-		sc.scroll_deadzone = SCROLL_DEADZONE
-		if sc.get_node_or_null("_ScrollTouch") == null:
+	if ctrl is ScrollContainer or ctrl is RichTextLabel or ctrl is TextEdit:
+		if ctrl is ScrollContainer:
+			(ctrl as ScrollContainer).scroll_deadzone = SCROLL_DEADZONE
+		if ctrl.get_node_or_null("_ScrollTouch") == null:
 			var touch = _ScrollTouch.new()
-			touch.sc = sc
-			sc.add_child(touch)
+			touch.target = ctrl
+			ctrl.add_child(touch)
 	scrollbar_big(ctrl)
 
 ## Ascenseurs épais sur n'importe quel contrôle à barres internes

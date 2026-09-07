@@ -136,7 +136,7 @@ func _setup_ui() -> void:
 	response_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	response_label.custom_minimum_size = Vector2(0, 150)
 	response_label.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	DesignTokens.scrollbar_big(response_label)
+	DesignTokens.touch_scroll(response_label)
 	response_label.text = "[color=%s]Posez une question libre ci-dessous, ou ouvrez 💡 Prompts pour des actions rapides.\nLe contexte (position, évaluation, dernier coup joué) est envoyé automatiquement à chaque question.[/color]" % DesignTokens.TEXT_MUTED.to_html()
 	conv_panel.add_child(response_label)
 
