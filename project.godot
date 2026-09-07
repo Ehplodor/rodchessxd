@@ -30,7 +30,6 @@ GameController="*res://src/core/GameController.gd"
 EngineManager="*res://src/engine/EngineManager.gd"
 AICoach="*res://src/ai/AICoach.gd"
 AppLogger="*res://src/core/AppLogger.gd"
-DragScroller="*res://src/core/DragScroller.gd"
 
 [display]
 

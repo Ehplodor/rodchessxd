@@ -6,6 +6,8 @@ class_name DesignTokens
 ## Contraste : les couleurs de texte respectent WCAG AA ≥ 4,5:1 sur les surfaces
 ## sombres de l'application (vérifié par calcul de ratio, cf. plan M1).
 
+const _ScrollTouch = preload("res://src/ui/components/ScrollTouch.gd")
+
 # --- Polices (px viewport) ---
 const FONT_BUTTON := 20   ## Libellés de boutons (≥ 16 sp)
 const FONT_BODY := 17     ## Texte courant (≥ 14 sp)
@@ -90,17 +92,18 @@ const SCROLLBAR_W := 18
 ## Distance (px) avant qu'un glissé devienne un défilement.
 const SCROLL_DEADZONE := 20
 
-## Rend un conteneur défilable adapté au tactile : ascenseurs épais et
-## défilement au doigt universel via l'autoload DragScroller (glissé = défilement,
-## appui simple = clic sur le bouton). Accepte aussi un TextEdit/RichTextLabel
+## Rend un conteneur défilable adapté au tactile : ascenseurs épais et défilement
+## au doigt (handler ScrollTouch attaché, actif même dans une Window/modale).
+## TAP = clic, GLISSÉ = défilement. Accepte aussi TextEdit/RichTextLabel
 ## (ascenseurs épais uniquement).
 static func touch_scroll(ctrl: Control) -> void:
 	if ctrl is ScrollContainer:
 		var sc := ctrl as ScrollContainer
 		sc.scroll_deadzone = SCROLL_DEADZONE
-		var tree := Engine.get_main_loop() as SceneTree
-		if tree and tree.root and tree.root.has_node("DragScroller"):
-			tree.root.get_node("DragScroller").register(sc)
+		if sc.get_node_or_null("_ScrollTouch") == null:
+			var touch = _ScrollTouch.new()
+			touch.sc = sc
+			sc.add_child(touch)
 	scrollbar_big(ctrl)
 
 ## Ascenseurs épais sur n'importe quel contrôle à barres internes
