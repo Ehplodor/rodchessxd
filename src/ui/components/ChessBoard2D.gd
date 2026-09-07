@@ -67,6 +67,7 @@ const THEMES := {
 
 var board_size: float = 400.0
 var square_size: float = 50.0
+var board_offset: Vector2 = Vector2.ZERO
 
 var piece_sprites: Dictionary = {} # sq -> TextureRect
 var piece_textures: Dictionary = {}
@@ -217,6 +218,8 @@ func _ready() -> void:
 	var eng = _get_engine_manager()
 	if eng != null:
 		eng.evaluation_updated.connect(_on_engine_eval)
+	
+	reset_board_visuals()
 
 func _process(delta: float) -> void:
 	if in_check_sq != -1:
@@ -238,9 +241,13 @@ func _update_dimensions() -> void:
 		side = 350
 	board_size = side
 	square_size = board_size / 8.0
+	board_offset = (size - Vector2(board_size, board_size)) * 0.5
 	if arrow_overlay:
-		arrow_overlay.size = Vector2(board_size, board_size)
+		arrow_overlay.size = size
 		arrow_overlay.position = Vector2.ZERO
+	if fx_layer:
+		fx_layer.size = size
+		fx_layer.position = Vector2.ZERO
 
 func _preload_piece_textures() -> void:
 	var colors = [ChessPiece.PieceColor.WHITE, ChessPiece.PieceColor.BLACK]
@@ -297,7 +304,7 @@ func _get_square_screen_pos(sq: int) -> Vector2:
 		flipped = gc.board_flipped
 	var disp_f = (7 - f) if flipped else f
 	var disp_r = r if flipped else (7 - r)
-	return Vector2(disp_f * square_size, disp_r * square_size)
+	return board_offset + Vector2(disp_f * square_size, disp_r * square_size)
 
 func _clear_active_tweens() -> void:
 	for t in active_tweens:
@@ -720,7 +727,7 @@ func _draw() -> void:
 			
 			var is_light = ((r + f) % 2 != 0)
 			var base_col = theme["light"] if is_light else theme["dark"]
-			var rect = Rect2(disp_f * square_size, disp_r * square_size, square_size, square_size)
+			var rect = Rect2(board_offset.x + disp_f * square_size, board_offset.y + disp_r * square_size, square_size, square_size)
 			
 			# Case de fond
 			draw_rect(rect, base_col)
@@ -776,11 +783,12 @@ func _draw() -> void:
 					draw_circle(center, square_size * 0.16, theme["legal_dot"])
 
 	# 2. Contour fin du plateau
-	draw_rect(Rect2(0, 0, board_size, board_size), Color(0.1, 0.15, 0.2, 0.25), false, 1.0)
+	draw_rect(Rect2(board_offset.x, board_offset.y, board_size, board_size), Color(0.1, 0.15, 0.2, 0.25), false, 1.0)
 
 	# 3. Flèches déléguées à arrow_overlay (z_index=5) ou dessinées directement en fallback
 	if arrow_overlay:
-		arrow_overlay.size = Vector2(board_size, board_size)
+		arrow_overlay.size = size
+		arrow_overlay.position = Vector2.ZERO
 		arrow_overlay.queue_redraw()
 	else:
 		_draw_arrows_on_layer(self)
@@ -897,14 +905,29 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 
 func _redraw_board_and_overlays() -> void:
 	if arrow_overlay:
-		arrow_overlay.size = Vector2(board_size, board_size)
+		arrow_overlay.size = size
+		arrow_overlay.position = Vector2.ZERO
 		arrow_overlay.queue_redraw()
 	queue_redraw()
+
+func _resolve_local_pos(event: InputEvent) -> Vector2:
+	if event is InputEventMouse:
+		return event.position
+	elif event is InputEventScreenTouch or event is InputEventScreenDrag:
+		var p: Vector2 = event.position
+		var local_rect := Rect2(Vector2.ZERO, size)
+		if local_rect.grow(40.0).has_point(p):
+			return p
+		var glob_rect := get_global_rect()
+		if glob_rect.grow(40.0).has_point(p):
+			return to_local(p)
+		return p
+	return get_local_mouse_position()
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		last_touch_timestamp = Time.get_ticks_msec()
-		var local_pos = make_input_local(event).position
+		var local_pos = _resolve_local_pos(event)
 		var sq = _pos_to_square(local_pos)
 		if event.pressed:
 			is_pointer_down = true
@@ -923,21 +946,23 @@ func _gui_input(event: InputEvent) -> void:
 		if Time.get_ticks_msec() - last_touch_timestamp < 350:
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
-			var sq = _pos_to_square(event.position)
+			var local_pos = _resolve_local_pos(event)
+			var sq = _pos_to_square(local_pos)
 			if event.pressed:
 				is_pointer_down = true
 				press_sq = sq
-				press_pos = event.position
-				_handle_pointer_press(sq, event.position)
+				press_pos = local_pos
+				_handle_pointer_press(sq, local_pos)
 			else:
 				if is_pointer_down:
-					_handle_pointer_release(sq, event.position)
+					_handle_pointer_release(sq, local_pos)
 					is_pointer_down = false
 					press_sq = -1
 	elif event is InputEventMouseMotion:
 		if Time.get_ticks_msec() - last_touch_timestamp < 350:
 			return
-		var sq = _pos_to_square(event.position)
+		var local_pos = _resolve_local_pos(event)
+		var sq = _pos_to_square(local_pos)
 		if sq != hovered_sq:
 			hovered_sq = sq
 			_redraw_board_and_overlays()
@@ -994,10 +1019,11 @@ func _handle_release(to_sq: int, pos: Vector2) -> void:
 	press_sq = -1
 
 func _pos_to_square(pos: Vector2) -> int:
-	if pos.x < 0 or pos.x >= board_size or pos.y < 0 or pos.y >= board_size:
+	var rel_pos = pos - board_offset
+	if rel_pos.x < 0.0 or rel_pos.x >= board_size or rel_pos.y < 0.0 or rel_pos.y >= board_size:
 		return -1
-	var f = int(pos.x / square_size)
-	var r = int(pos.y / square_size)
+	var f = clampi(int(rel_pos.x / square_size), 0, 7)
+	var r = clampi(int(rel_pos.y / square_size), 0, 7)
 	var flipped = false
 	var gc = _get_game_controller()
 	if gc:
