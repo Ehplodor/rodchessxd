@@ -25,7 +25,7 @@ content_margin_right = 10.0
 content_margin_bottom = 6.0
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_overlay"]
-bg_color = Color(0.0431373, 0.0627451, 0.101961, 0.97)
+bg_color = Color(0.0431373, 0.0627451, 0.101961, 1)
 
 [node name="Main" type="Control"]
 layout_mode = 3

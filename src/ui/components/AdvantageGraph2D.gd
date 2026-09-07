@@ -136,8 +136,8 @@ func _draw() -> void:
 
 	var left_margin = 32.0
 	var right_margin = 12.0
-	var top_margin = 10.0
-	var bottom_margin = 10.0
+	var top_margin = 52.0   # Bande haute : boutons (agrandir / basculer analyse)
+	var bottom_margin = 26.0 # Bande basse : libellé du coup courant, hors courbe
 
 	var graph_w = maxf(10.0, w - left_margin - right_margin)
 	var graph_h = maxf(10.0, h - top_margin - bottom_margin)
@@ -223,15 +223,16 @@ func _draw() -> void:
 			draw_circle(pt, 5.0, Color("#10b981"))
 			draw_arc(pt, 5.0, 0, TAU, 16, Color("#ffffff"), 1.2)
 
-	# 8. Curseur actif & Tooltip HUD interactif
+	# 8. Curseur actif : ligne + point, SANS texte superposé à la courbe.
 	if active_ply >= 0 and active_ply < points.size():
 		var cursor_pt = points[active_ply]
 		draw_line(Vector2(cursor_pt.x, top_margin), Vector2(cursor_pt.x, h - bottom_margin), Color("#facc15aa"), 1.8)
 		draw_circle(cursor_pt, 5.0, Color("#facc15"))
 		draw_arc(cursor_pt, 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
 
-		# Badges d'information dynamique sur le coup sélectionné
-		var rec = evaluations[active_ply]
+	# 9. Libellé du coup courant dans la bande basse (hors de la courbe).
+	var rec = evaluations[active_ply] if active_ply >= 0 and active_ply < evaluations.size() else {}
+	if not rec.is_empty():
 		var score_cp = rec.get("score_cp", 0)
 		var pawns_val = score_cp / 100.0
 		var eval_str = ("+%.1f" if pawns_val >= 0 else "%.1f") % pawns_val
@@ -240,24 +241,14 @@ func _draw() -> void:
 		var is_w = rec.get("is_white", true)
 		var qual = rec.get("quality", ChessMove.Quality.NONE)
 		var badge_sym = ChessMove.quality_to_symbol(qual)
-		
 		var ply_label = ("%d. %s" if is_w else "%d... %s") % [move_num, san]
 		if badge_sym != "":
 			ply_label += " " + badge_sym
-		var hud_text = "%s  (%s)" % [ply_label, eval_str]
-
-		# Dessin du badge HUD
-		var badge_w = 160.0
-		var badge_h = 28.0
-		var badge_x = clampf(cursor_pt.x - badge_w * 0.5, left_margin + 2, w - right_margin - badge_w - 2)
-		var badge_y = cursor_pt.y - 34.0
-		if badge_y < top_margin + 2:
-			badge_y = cursor_pt.y + 16.0
-
-		var badge_rect = Rect2(badge_x, badge_y, badge_w, badge_h)
-		draw_rect(badge_rect, Color("#0f172aee"), true)
-		draw_rect(badge_rect, Color("#38bdf888"), false, 1.0)
-		draw_string(default_font, Vector2(badge_x + 6, badge_y + 19), hud_text, HORIZONTAL_ALIGNMENT_CENTER, int(badge_w - 12), 13, DesignTokens.TEXT_PRIMARY)
+		var caption = "%s   (%s)" % [ply_label, eval_str]
+		draw_rect(Rect2(left_margin, h - 24, graph_w, 20), Color("#0f172acc"), true)
+		var cap_w = graph_w - 8.0
+		draw_string(default_font, Vector2(left_margin + 4, h - 7), caption,
+				HORIZONTAL_ALIGNMENT_LEFT, int(cap_w), 13, DesignTokens.TEXT_PRIMARY)
 
 # --- SCRUBBING TACTILE & NAVIGATION ---
 

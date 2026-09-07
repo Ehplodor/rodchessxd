@@ -42,6 +42,7 @@ func _refresh_moves() -> void:
 	for child in container.get_children():
 		child.queue_free()
 	move_buttons.clear()
+	scroll_vertical = 0  # revenir en haut : le récap reste visible
 
 	_build_recap()
 	_build_filter_row()
