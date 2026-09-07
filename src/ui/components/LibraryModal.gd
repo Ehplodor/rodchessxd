@@ -273,7 +273,7 @@ func _load_game(game_id: String) -> void:
 			var b_elo = last_ea.get("black_estimated_elo", 1500)
 			main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO) [Archivée]" % [w_acc, w_elo, b_acc, b_elo]
 		if main.bottom_tabs:
-			main.bottom_tabs.current_tab = 0
+			main.bottom_tabs.current_tab = 1
 
 	game_selected.emit(game_id)
 	queue_free()

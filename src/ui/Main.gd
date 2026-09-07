@@ -14,8 +14,8 @@ const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
 const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 
-@onready var eval_bar: EvalBar2D = $VBox/CenterArea/EvalBar
-@onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
+@onready var eval_bar: EvalBar2D = $VBox/BottomTabs/Echiquier/CenterArea/EvalBar
+@onready var chess_board: ChessBoard2D = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/BoardContainer/ChessBoard
 @onready var advantage_graph: AdvantageGraph2D = $VBox/BottomTabs/Bilan/GraphContainer/AdvantageGraph
 @onready var move_list: MoveList2D = $VBox/BottomTabs/Bilan/MoveList
 @onready var coach_panel: CoachPanel2D = $VBox/BottomTabs/Coach/CoachPanel
@@ -24,12 +24,12 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 @onready var stats_label: Label = $VBox/BottomTabs/Bilan/StatsLabel
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
 
-@onready var player_top_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerTop
-@onready var player_bottom_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerBottom
-@onready var player_dot_top: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerDotTop
-@onready var player_dot_bottom: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerDotBottom
-@onready var player_name_top: Label = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop
-@onready var player_name_bottom: Label = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom
+@onready var player_top_row: MarginContainer = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerTop
+@onready var player_bottom_row: MarginContainer = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerBottom
+@onready var player_dot_top: PanelContainer = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerDotTop
+@onready var player_dot_bottom: PanelContainer = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerDotBottom
+@onready var player_name_top: Label = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop
+@onready var player_name_bottom: Label = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom
 
 @onready var sfx_move: AudioStreamPlayer = $Sounds/SfxMove
 @onready var sfx_capture: AudioStreamPlayer = $Sounds/SfxCapture
@@ -43,8 +43,9 @@ var _error_token := 0
 
 func _ready() -> void:
 	# Nommer clairement les onglets du panneau inférieur
-	bottom_tabs.set_tab_title(0, "📈 Graphe & Analyse")
-	bottom_tabs.set_tab_title(1, "🤖 Coach IA")
+	bottom_tabs.set_tab_title(0, "♟️ Échiquier")
+	bottom_tabs.set_tab_title(1, "📈 Graphe & Analyse")
+	bottom_tabs.set_tab_title(2, "🤖 Coach IA")
 
 	analyzer = GameAnalyzer.new()
 	analyzer.analysis_finished.connect(_on_analysis_finished)
@@ -105,9 +106,9 @@ func _apply_modern_theme() -> void:
 			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 	# Appliquer aux boutons de navigation
-	var nav_row = $VBox/NavRow
+	var nav_row = $VBox/BottomTabs/Echiquier/NavRow
 	for child in nav_row.get_children():
-		if child is Button and child != $VBox/NavRow/BtnAnalyzeGame:
+		if child is Button and child != $VBox/BottomTabs/Echiquier/NavRow/BtnAnalyzeGame:
 			child.add_theme_stylebox_override("normal", btn_normal)
 			child.add_theme_stylebox_override("hover", btn_hover)
 			child.add_theme_stylebox_override("pressed", btn_pressed)
@@ -117,7 +118,7 @@ func _apply_modern_theme() -> void:
 			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 	# Bouton Analyser Partie (accent émeraude, AA ≥ 4,5:1 sur normal et pressé)
-	var btn_analyze = $VBox/NavRow/BtnAnalyzeGame
+	var btn_analyze = $VBox/BottomTabs/Echiquier/NavRow/BtnAnalyzeGame
 	var analyze_normal := DesignTokens.flat(DesignTokens.PRIMARY_BG, DesignTokens.RADIUS_SMALL,
 			DesignTokens.PRIMARY_BORDER, 1, Vector2(12, 2))
 	var analyze_hover := analyze_normal.duplicate() as StyleBoxFlat
@@ -337,6 +338,10 @@ func _on_btn_last_pressed() -> void:
 func _on_btn_flip_pressed() -> void:
 	GameController.flip_board()
 
+## Retour rapide à l'écran Échiquier (ex. clic sur un coup dans l'analyse).
+func show_board_tab() -> void:
+	bottom_tabs.current_tab = 0
+
 # --- MENU « IMPORTER » (PNG / PGN / Chess.com) ---
 
 var import_menu: PopupMenu = null
@@ -527,5 +532,5 @@ func _on_analysis_finished(report: Dictionary) -> void:
 
 	move_list.refresh()
 
-	# Basculer immédiatement sur l'onglet du graphe pour que l'utilisateur le visualise en direct
-	bottom_tabs.current_tab = 0
+	# Basculer immédiatement sur l'écran Graphe & Analyse pour visualiser en direct
+	bottom_tabs.current_tab = 1

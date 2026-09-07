@@ -43,9 +43,49 @@ func _refresh_moves() -> void:
 		child.queue_free()
 	move_buttons.clear()
 
+	_build_recap()
 	_build_filter_row()
 	_build_moves()
 	call_deferred("_scroll_to_active")
+
+# --- RÉCAP PAR QUALITÉ ---
+
+func _quality_counts() -> Dictionary:
+	var c := {"gaffes": 0, "erreurs": 0, "imprecisions": 0, "brillants": 0}
+	for m in GameController.game.move_history:
+		var q: int = m.quality
+		match q:
+			ChessMove.Quality.BLUNDER, ChessMove.Quality.MISS:
+				c["gaffes"] += 1
+			ChessMove.Quality.MISTAKE:
+				c["erreurs"] += 1
+			ChessMove.Quality.INACCURACY:
+				c["imprecisions"] += 1
+			ChessMove.Quality.BRILLIANT, ChessMove.Quality.BEST, ChessMove.Quality.GREAT:
+				c["brillants"] += 1
+	return c
+
+func _build_recap() -> void:
+	var c := _quality_counts()
+	var parts: Array[String] = []
+	if c["gaffes"] > 0:
+		parts.append("🤯 Gaffes %d" % c["gaffes"])
+	if c["erreurs"] > 0:
+		parts.append("😬 Erreurs %d" % c["erreurs"])
+	if c["imprecisions"] > 0:
+		parts.append("🤔 Imprécisions %d" % c["imprecisions"])
+	if c["brillants"] > 0:
+		parts.append("👏 Brillants %d" % c["brillants"])
+
+	var recap := Label.new()
+	recap.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	recap.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	recap.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	if parts.is_empty():
+		recap.text = "Récap qualité : analyse la partie pour détailler les coups."
+	else:
+		recap.text = "Récap : " + " · ".join(parts)
+	container.add_child(recap)
 
 # --- LIGNE DE FILTRES ---
 
@@ -143,7 +183,13 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 	else:
 		btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 
-	btn.pressed.connect(func(): GameController.navigate_to_ply(ply))
+	btn.pressed.connect(func():
+		GameController.navigate_to_ply(ply)
+		# Clic sur un coup : revenir à l'échiquier, positionné à ce coup.
+		var main := find_parent("Main")
+		if main and main.has_method("show_board_tab"):
+			main.show_board_tab()
+	)
 	return btn
 
 func _highlight_active(btn: Button) -> void:
