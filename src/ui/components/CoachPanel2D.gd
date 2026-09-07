@@ -15,6 +15,7 @@ const PROMPTS := [
 const TRANSCRIPT_CAP := 40
 
 var response_label: RichTextLabel
+var conv_scroll: ScrollContainer
 var question_input: LineEdit
 var send_button: Button
 var status_label: Label
@@ -129,16 +130,22 @@ func _setup_ui() -> void:
 	conv_panel.add_theme_stylebox_override("panel", conv_style)
 	vbox.add_child(conv_panel)
 
+	# Défilement vertical uniquement (le texte enveloppe, rien ne déborde).
+	conv_scroll = ScrollContainer.new()
+	conv_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	conv_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	conv_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	DesignTokens.touch_scroll(conv_scroll)
+	conv_panel.add_child(conv_scroll)
+
 	response_label = RichTextLabel.new()
 	response_label.bbcode_enabled = true
-	response_label.scroll_active = true
+	response_label.fit_content = true
+	response_label.scroll_active = false
 	response_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	response_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	response_label.custom_minimum_size = Vector2(0, 150)
 	response_label.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	DesignTokens.touch_scroll(response_label)
 	response_label.text = "[color=%s]Posez une question libre ci-dessous, ou ouvrez 💡 Prompts pour des actions rapides.\nLe contexte (position, évaluation, dernier coup joué) est envoyé automatiquement à chaque question.[/color]" % DesignTokens.TEXT_MUTED.to_html()
-	conv_panel.add_child(response_label)
+	conv_scroll.add_child(response_label)
 
 	# 3. Ligne de saisie : question libre + bouton Prompts (💡) + Envoyer
 	var input_row = HBoxContainer.new()
@@ -355,6 +362,7 @@ func _open_history_modal() -> void:
 
 	var scroll = ScrollContainer.new()
 	DesignTokens.touch_scroll(scroll)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(scroll)
@@ -399,12 +407,14 @@ func _open_history_modal() -> void:
 			]
 			c_head.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			c_head.add_theme_color_override("font_color", DesignTokens.WARNING)
+			c_head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			c_vbox.add_child(c_head)
 
 			var q_lbl = Label.new()
 			q_lbl.text = "Q: %s" % note.get("user_question", "")
 			q_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			q_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+			q_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			c_vbox.add_child(q_lbl)
 
 			var resp_txt = RichTextLabel.new()
@@ -503,7 +513,15 @@ func _refresh_transcript() -> void:
 		parts.append("[color=%s]⏳ Analyse en cours (point de vue : %s)...[/color]"
 				% [DesignTokens.WARNING.to_html(), _perspective_label(active_perspective)])
 	response_label.text = "\n\n".join(parts)
-	response_label.call_deferred("scroll_to_line", response_label.get_line_count() + 8)
+	_auto_scroll_coach()
+
+## Descend automatiquement la conversation jusqu'à la dernière réponse.
+func _auto_scroll_coach() -> void:
+	if conv_scroll == null or not is_instance_valid(conv_scroll):
+		return
+	await get_tree().process_frame
+	if conv_scroll != null and is_instance_valid(conv_scroll):
+		conv_scroll.scroll_vertical = int(conv_scroll.get_v_scroll_bar().max_value) + 8
 
 func _bbcode_escape(s: String) -> String:
 	return s.replace("[", "[lb]").replace("]", "[rb]")
