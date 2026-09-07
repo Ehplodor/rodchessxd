@@ -8,8 +8,9 @@ var evaluations: Array = []
 var active_ply: int = -1
 
 var max_eval_cp: float = 500.0 # Plafond visuel à ±5 pions
-var is_expanded: bool = false
-var btn_expand: Button
+var depth_badge: PanelContainer
+var depth_label: Label
+var depth_progress_bar: ProgressBar
 var stored_analyses: Array = []
 var current_analysis_idx: int = 0
 var btn_switch_analysis: Button
@@ -20,37 +21,67 @@ var _last_nav_ms := 0
 const SCRUB_NAV_MS := 90
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(250, 90)
+	custom_minimum_size = Vector2(250, 130)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	GameController.move_navigated.connect(_on_move_navigated)
+	GameController.position_changed.connect(_on_position_changed)
 
-	_setup_expand_button()
+	var em = get_node_or_null("/root/EngineManager")
+	if em:
+		em.evaluation_updated.connect(_on_engine_eval)
+		em.engine_ready.connect(_on_engine_ready)
+		em.engine_error.connect(_on_engine_error)
+		em.engine_profile_changed.connect(_on_engine_profile_changed)
 
-func _setup_expand_button() -> void:
+	_setup_hud()
+
+func _setup_hud() -> void:
 	var chip_normal := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
-			DesignTokens.BORDER, 1, Vector2(8, 2))
+			DesignTokens.BORDER, 1, Vector2(8, 3))
 	var chip_hover := chip_normal.duplicate() as StyleBoxFlat
 	chip_hover.bg_color = DesignTokens.BTN_BG_HOVER
 	var chip_pressed := chip_normal.duplicate() as StyleBoxFlat
 	chip_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
 
-	btn_expand = Button.new()
-	btn_expand.text = "📐 Agrandir"
-	btn_expand.tooltip_text = "Agrandir / Réduire la vue détaillée du graphe"
-	# M1 : boutons superposés au graphe (40 px max pour ne pas masquer la courbe)
-	btn_expand.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	btn_expand.custom_minimum_size = Vector2(108, 40)
-	btn_expand.add_theme_stylebox_override("normal", chip_normal)
-	btn_expand.add_theme_stylebox_override("hover", chip_hover)
-	btn_expand.add_theme_stylebox_override("pressed", chip_pressed)
-	btn_expand.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	btn_expand.pressed.connect(_toggle_expand)
-	add_child(btn_expand)
+	# Badge dynamique de calcul et profondeur moteur (remplace l'ancien bouton agrandir)
+	depth_badge = PanelContainer.new()
+	depth_badge.add_theme_stylebox_override("panel", chip_normal)
+	depth_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(depth_badge)
 
+	var badge_vbox := VBoxContainer.new()
+	badge_vbox.add_theme_constant_override("separation", 2)
+	depth_badge.add_child(badge_vbox)
+
+	depth_label = Label.new()
+	depth_label.text = "⚡ %s • Prêt" % _get_active_engine_name()
+	depth_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	depth_label.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	badge_vbox.add_child(depth_label)
+
+	depth_progress_bar = ProgressBar.new()
+	depth_progress_bar.custom_minimum_size = Vector2(100, 3)
+	depth_progress_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	depth_progress_bar.show_percentage = false
+	depth_progress_bar.min_value = 0
+	depth_progress_bar.max_value = 16
+	depth_progress_bar.value = 0
+
+	var bg_sb = StyleBoxFlat.new()
+	bg_sb.bg_color = DesignTokens.SURFACE
+	bg_sb.set_corner_radius_all(1)
+	var fill_sb = StyleBoxFlat.new()
+	fill_sb.bg_color = DesignTokens.ACCENT
+	fill_sb.set_corner_radius_all(1)
+	depth_progress_bar.add_theme_stylebox_override("background", bg_sb)
+	depth_progress_bar.add_theme_stylebox_override("fill", fill_sb)
+	badge_vbox.add_child(depth_progress_bar)
+
+	# Bouton pour basculer entre les analyses enregistrées (si multi-analyses)
 	btn_switch_analysis = Button.new()
 	btn_switch_analysis.visible = false
 	btn_switch_analysis.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	btn_switch_analysis.custom_minimum_size = Vector2(0, 40)
+	btn_switch_analysis.custom_minimum_size = Vector2(0, 32)
 	btn_switch_analysis.tooltip_text = "Cliquer pour basculer entre les différentes analyses de moteurs enregistrées"
 	btn_switch_analysis.add_theme_stylebox_override("normal", chip_normal)
 	btn_switch_analysis.add_theme_stylebox_override("hover", chip_hover)
@@ -61,24 +92,67 @@ func _setup_expand_button() -> void:
 
 	_update_button_positions()
 
-func _toggle_expand() -> void:
-	is_expanded = not is_expanded
-	var new_h = 180.0 if is_expanded else 90.0
-	custom_minimum_size = Vector2(250, new_h)
-	if get_parent() is Control:
-		get_parent().custom_minimum_size = Vector2(0, new_h)
-	btn_expand.text = "📐 Réduire" if is_expanded else "📐 Agrandir"
-	_update_button_positions()
-	queue_redraw()
-
 func _update_button_positions() -> void:
-	var right_cursor = size.x - 6
-	if btn_expand:
-		btn_expand.position = Vector2(right_cursor - btn_expand.size.x, 6)
-		right_cursor -= (btn_expand.size.x + 6)
+	var right_cursor = size.x - 8
+	if depth_badge:
+		depth_badge.reset_size()
+		depth_badge.position = Vector2(right_cursor - depth_badge.size.x, 6)
+		right_cursor -= (depth_badge.size.x + 6)
 	if btn_switch_analysis and btn_switch_analysis.visible:
-		btn_switch_analysis.position = Vector2(right_cursor - btn_switch_analysis.size.x, 6)
 		btn_switch_analysis.reset_size()
+		btn_switch_analysis.position = Vector2(right_cursor - btn_switch_analysis.size.x, 6)
+
+func _get_active_engine_name() -> String:
+	var em = get_node_or_null("/root/EngineManager")
+	if em and em.has_method("get_engine_display_name"):
+		return em.get_engine_display_name()
+	return "Stockfish"
+
+func _on_position_changed() -> void:
+	if depth_progress_bar:
+		depth_progress_bar.value = 0
+	if depth_label:
+		depth_label.text = "⚡ %s • Calcul..." % _get_active_engine_name()
+		depth_label.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	_update_button_positions()
+
+func _on_engine_eval(_score_cp: int, _mate_in: int, depth: int, _best_move: String, _pv: Array, _multipv: Array) -> void:
+	var eng_name = _get_active_engine_name()
+	var sm = get_node_or_null("/root/SettingsManager")
+	var def_d = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 16
+	var target_d = sm.get_setting("engine_depth", def_d) if sm else def_d
+
+	if depth_progress_bar:
+		depth_progress_bar.max_value = target_d
+		depth_progress_bar.value = clampf(depth, 0, target_d)
+
+	if depth_label:
+		if depth >= target_d:
+			depth_label.text = "⚡ %s • p. %d/%d ✓" % [eng_name, depth, target_d]
+			depth_label.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+		elif depth > 0:
+			depth_label.text = "⚡ %s • p. %d/%d" % [eng_name, depth, target_d]
+			depth_label.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		else:
+			depth_label.text = "⚡ %s • Calcul..." % eng_name
+			depth_label.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+
+	_update_button_positions()
+
+func _on_engine_ready() -> void:
+	if depth_label:
+		depth_label.text = "⚡ %s • Prêt" % _get_active_engine_name()
+		depth_label.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	_update_button_positions()
+
+func _on_engine_profile_changed(_profile_id: String) -> void:
+	_on_engine_ready()
+
+func _on_engine_error(_msg: String) -> void:
+	if depth_label:
+		depth_label.text = "⚠ Moteur arrêté"
+		depth_label.add_theme_color_override("font_color", DesignTokens.WARNING)
+	_update_button_positions()
 
 func update_stored_analyses(analyses: Array) -> void:
 	stored_analyses = analyses
@@ -136,7 +210,7 @@ func _draw() -> void:
 
 	var left_margin = 32.0
 	var right_margin = 12.0
-	var top_margin = 52.0   # Bande haute : boutons (agrandir / basculer analyse)
+	var top_margin = 46.0   # Bande haute : HUD dynamique moteur & bascule d'analyse
 	var bottom_margin = 26.0 # Bande basse : libellé du coup courant, hors courbe
 
 	var graph_w = maxf(10.0, w - left_margin - right_margin)

@@ -68,15 +68,26 @@ func _init() -> void:
 	assert(not error_received, "L'exit code 143 (SIGTERM ordonné) ne doit PAS déclencher d'engine_error !")
 	print("    ✅ Le code 143 est correctement reconnu comme arrêt normal/SIGTERM et non comme un crash.")
 
-	# --- 4. Test feedback dynamique de profondeur et barre de progression dans Main ---
-	print("  -> Test 4: Affichage dynamique de profondeur et barre de progression...")
-	assert(main_node.eval_progress_bar != null, "eval_progress_bar doit exister dans Main")
+	# --- 4. Test feedback dynamique de profondeur sur le graphe & propreté de TopBar ---
+	print("  -> Test 4: Affichage dynamique de profondeur au niveau du graphe et compacité TopBar...")
+	var graph = main_node.advantage_graph
+	assert(graph.depth_badge != null, "depth_badge doit exister dans AdvantageGraph2D")
+	assert(graph.depth_progress_bar != null, "depth_progress_bar doit exister dans AdvantageGraph2D")
+	assert(graph.depth_label != null, "depth_label doit exister dans AdvantageGraph2D")
+
+	# Vérifier que le bouton d'agrandissement a bien été supprimé
+	for c in graph.get_children():
+		if c is Button:
+			assert(not c.text.contains("Agrandir"), "Le bouton Agrandir ne doit plus exister !")
 
 	# Simuler une émission d'évaluation à profondeur 12 sur cible 20
+	graph._on_engine_eval(45, 0, 12, "e2e4", [], [])
 	main_node._on_engine_eval(45, 0, 12, "e2e4", [], [])
-	assert(main_node.top_eval_label.text.contains("p. 12/20"), "top_eval_label doit indiquer la profondeur active (p. 12/20) : " + main_node.top_eval_label.text)
-	assert(main_node.eval_progress_bar.value == 12.0, "La barre de progression doit être à 12")
-	print("    ✅ Affichage dynamique ('+0.5  (p. 12/20)') et barre de progression fonctionnels !")
+
+	assert(graph.depth_label.text.contains("p. 12/20"), "depth_label sur le graphe doit indiquer (p. 12/20) : " + graph.depth_label.text)
+	assert(graph.depth_progress_bar.value == 12.0, "La barre de progression du graphe doit être à 12")
+	assert(main_node.top_eval_label.text == "+0.5", "top_eval_label doit rester compact avec uniquement le score : " + main_node.top_eval_label.text)
+	print("    ✅ Affichage dynamique sur le graphe et compacité TopBar validés !")
 
 	# --- 5. Test prise en compte de analysis_depth dans le bilan global ---
 	print("  -> Test 5: Prise en compte de analysis_depth pour l'analyse de partie...")

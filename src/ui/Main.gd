@@ -41,7 +41,6 @@ var analysis_thread: Thread = null
 
 var error_label: Label = null
 var _error_token := 0
-var eval_progress_bar: ProgressBar = null
 
 func _ready() -> void:
 	analyzer = GameAnalyzer.new()
@@ -62,7 +61,6 @@ func _ready() -> void:
 		slm.server_error.connect(_show_error_banner)
 	
 	_build_error_banner()
-	_setup_eval_badge_ui()
 	_apply_modern_theme()
 	_build_import_menu()
 	if OS.has_feature("android") or OS.has_feature("ios"):
@@ -142,10 +140,15 @@ func _apply_modern_theme() -> void:
 	# Titre & badge d'évaluation
 	$VBox/TopBar/MarginContainer/AppTitle.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	$VBox/TopBar/MarginContainer/AppTitle.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	$VBox/TopBar/EvalBadge.add_theme_stylebox_override("panel",
+	var badge = $VBox/TopBar/EvalBadge
+	badge.custom_minimum_size = Vector2(50, 36)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	badge.add_theme_stylebox_override("panel",
 			DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
-			Color.TRANSPARENT, 0, Vector2(10, 4)))
+			Color.TRANSPARENT, 0, Vector2(8, 4)))
 	if top_eval_label:
+		top_eval_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		top_eval_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		top_eval_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		top_eval_label.add_theme_color_override("font_color", DesignTokens.ACCENT)
 
@@ -180,8 +183,6 @@ func _apply_modern_theme() -> void:
 				c.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 func _on_game_position_changed() -> void:
-	if eval_progress_bar:
-		eval_progress_bar.value = 0
 	_update_player_labels()
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
@@ -255,55 +256,13 @@ func _on_play_sound(sound_type: String) -> void:
 		"capture": sfx_capture.play()
 		"check": sfx_check.play()
 
-func _setup_eval_badge_ui() -> void:
-	var badge = $VBox/TopBar/EvalBadge
-	if badge.has_node("EvalText"):
-		var text_node = badge.get_node("EvalText")
-		badge.remove_child(text_node)
-		var box = VBoxContainer.new()
-		box.name = "EvalBox"
-		box.add_theme_constant_override("separation", 2)
-		badge.add_child(box)
-		box.add_child(text_node)
-
-		eval_progress_bar = ProgressBar.new()
-		eval_progress_bar.custom_minimum_size = Vector2(0, 3)
-		eval_progress_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		eval_progress_bar.show_percentage = false
-		eval_progress_bar.min_value = 0
-		eval_progress_bar.max_value = 16
-		eval_progress_bar.value = 0
-
-		var bg_sb = StyleBoxFlat.new()
-		bg_sb.bg_color = Color(DesignTokens.SURFACE.r, DesignTokens.SURFACE.g, DesignTokens.SURFACE.b, 0.8)
-		bg_sb.set_corner_radius_all(2)
-		var fill_sb = StyleBoxFlat.new()
-		fill_sb.bg_color = DesignTokens.ACCENT
-		fill_sb.set_corner_radius_all(2)
-		eval_progress_bar.add_theme_stylebox_override("background", bg_sb)
-		eval_progress_bar.add_theme_stylebox_override("fill", fill_sb)
-		box.add_child(eval_progress_bar)
-
-func _on_engine_eval(score_cp: int, mate_in: int, depth: int, _best_move: String, _pv: Array, _multipv: Array) -> void:
-	var def_depth = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 16
-	var target_depth = SettingsManager.get_setting("engine_depth", def_depth)
-
+func _on_engine_eval(score_cp: int, mate_in: int, _depth: int, _best_move: String, _pv: Array, _multipv: Array) -> void:
 	if top_eval_label:
-		var score_str := ""
 		if mate_in != 0:
-			score_str = "Mat %d" % mate_in
+			top_eval_label.text = "Mat %d" % mate_in
 		else:
 			var pawns = score_cp / 100.0
-			score_str = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
-
-		if depth > 0:
-			top_eval_label.text = "%s  (p. %d/%d)" % [score_str, depth, target_depth]
-		else:
-			top_eval_label.text = score_str
-
-	if eval_progress_bar:
-		eval_progress_bar.max_value = target_depth
-		eval_progress_bar.value = clampf(depth, 0, target_depth)
+			top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
 
 # --- BANDEAU D'ERREURS À L'ÉCRAN ---
 
