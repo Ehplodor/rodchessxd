@@ -1,8 +1,8 @@
 # RodChessXD — Prochaines étapes : UX, Coach IA, données (plan v3)
 
 > Plan à destination des prochaines personnes sur RodChessXD. v3 : spécifications
-> câblées à l'état réel du code (signaux, formats, composants). **Jalon M1 livré**
-> (sept. 2026, cf. sa section ci-dessous) ; M2 → M8 non implémentés.
+> câblées à l'état réel du code (signaux, formats, composants). **Jalons M1, M2 et M8
+> livrés** (sept. 2026, cf. leurs sections ci-dessous) ; M3 → M7 non implémentés.
 >
 > Contexte : Godot 4.7.1, gl_compatibility, viewport 450x800, persistance JSON
 > (`user://library/games_index.json` + 1 fichier JSON par partie), autoloads
@@ -82,7 +82,15 @@ Checklist : [x] tokens créés et appliqués [x] barre haute refaite [x] audit m
 
 ---
 
-## Jalon M2 — Navigation temporelle fluide (P0/P1)
+## Jalon M2 — Navigation temporelle fluide (P0/P1) — ✅ TERMINÉ
+
+> **Statut (sept. 2026) : terminé et livré** (couplé à M8 pour l'observabilité).
+> La garde d'animation utilise le flag existant `is_animating_move` (reset propre par
+> `reset_board_visuals`) plutôt qu'un flag séparé + timer 500 ms : plus simple et
+> équivalent, car toute interruption (reset/flip/chargement) passe par un reset qui
+> annule les tweens et remet le flag à zéro. Le libellé ply dédié permanent a été
+> remplacé par le HUD du graphe (déjà `N. SAN (eval)`) : KISS, pas de doublon visuel.
+> Les transitions nav sont journalisées via `AppLogger` (tag `NAV`).
 
 Cause racine confirmée (Annexe A) : `_on_position_changed` écrase l'animation ±1.
 
@@ -105,8 +113,8 @@ pour le graphe) :
    fantôme ni erreur ; double appel d'évaluation moteur évité si possible (déjà
    déclenché par navigate — vérifier qu'il n'y en a pas deux via `position_changed`).
 
-Checklist : [ ] flag d'animation board [ ] lever dans callbacks/timer [ ] flip sûr
-[ ] drag throttle + marqueur [ ] libellé ply [ ] tests manuels & scène de test.
+Checklist : [x] flag d'animation board [x] lever dans callbacks/timer [x] flip sûr
+[x] drag throttle + marqueur [x] libellé ply (via HUD graphe) [x] tests manuels & scène de test.
 
 ---
 
@@ -247,7 +255,15 @@ Checklist : [ ] meta par pseudo [ ] itération mois [ ] upsert par url
 
 ---
 
-## Jalon M8 — Beta-test & observabilité (P0 dès diffusion)
+## Jalon M8 — Beta-test & observabilité (P0 dès diffusion) — ✅ TERMINÉ (noyau)
+
+> **Statut (sept. 2026) : noyau livré.** Autoload `AppLogger`
+> (`user://logs/rodchess_*.log`, rotation 5, id de session, en-tête version/appareil),
+> section « À propos & Logs » dans les Réglages avec **Exporter les logs** (chemin
+> presse-papiers). Couplé à M2 : les transitions nav sont journalisées (tag `NAV`).
+> Restent **manuels / hors code** : partage Android par intent (plugin v2 `RodShare`),
+> distribution Google Play internal testing / APK signé, formulaire de feedback et
+> matrice testeurs ≥ 5 (points 2-4 ci-dessous).
 
 1. Écran "À propos" : versionName/versionCode, ABI, modèle, id de session ; bouton
    **"Exporter les logs"** (écrire `user://logs/rodchess_AAAA-MM-JJ_HH-MM.log`
@@ -268,16 +284,15 @@ Checklist : [ ] meta par pseudo [ ] itération mois [ ] upsert par url
 | Jalon | Thème | Effort | Dépend de |
 |---|---|---|---|
 | M1 ✅ (terminé 09/2026) | Ergonomie/accessibilité | M | — |
-| M2 | Navigation fluide | S | — |
-| M3 | Coups par qualité | M | M2 |
+| M2 ✅ (terminé 09/2026) | Navigation fluide | S | — |
+| M8 ✅ (terminé 09/2026, noyau) | Observabilité beta | S | M1 (livré) |
+| M3 | Coups par qualité | M | M2 (livré) |
 | M4 | TTS coach | M | pattern plugin |
 | M5 | Coach enrichi + anti-ban | L | M3 |
 | M6 | Sync chess.com + sources | M | — |
 | M7 | ELO/entraînement | L | M3+M6 |
-| M8 | Beta/observabilité | S | M1 (livré) |
 
-Recommandé (M1 livré) : M2+M8 avant diffusion large ; M3+M4 ensuite ; M5+M6 en parallèle ;
-M7 exploratoire.
+Recommandé (M1, M2, M8 livrés) : M3+M4 ensuite ; M5+M6 en parallèle ; M7 exploratoire.
 
 Risques :
 - Perf JSON : `games_index.json` réécrit en entier à chaque sauvegarde (O(n)) —
@@ -285,7 +300,6 @@ Risques :
   indexés → penser à un index dérivé par source/mois si besoin (M6).
 - TTS : voix FR hors-ligne variables selon l'appareil (M4).
 - Échelle de qualité : à valider avec un joueur fort (M3).
-- Drag du graphe : flux d'événements important → throttle obligatoire (M2).
 - Profondeurs SF et budget temps de l'analyse globale : mesurer sur appareil cible
   (M5/M7).
 - Limites RPM/TPM réelles des providers : à confirmer avant mise en prod (M5).
