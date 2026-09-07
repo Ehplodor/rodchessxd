@@ -11,10 +11,18 @@ func _init() -> void:
 	var root = get_root()
 	
 	# =========================================================================
+	# Initialisation de la scène Main (active tous les singletons et le layout)
+	# =========================================================================
+	var main_scene = load("res://src/ui/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await create_timer(0.3).timeout
+
+	# =========================================================================
 	# TEST 1 : Vérification de la mise en page SettingsModal
 	# =========================================================================
 	print("  -> Test 1: Vérification du dimensionnement et de l'overflow de SettingsModal...")
-	var modal = SettingsModal.new()
+	var modal_script = load("res://src/ui/components/SettingsModal.gd")
+	var modal = modal_script.new()
 	root.add_child(modal)
 	
 	# La fenêtre doit avoir une taille calculée raisonnable
@@ -38,11 +46,9 @@ func _init() -> void:
 	print("    ✅ SettingsModal est parfaitement contenu et ne déborde plus à droite.")
 	
 	# =========================================================================
-	# TEST 2 : Initialisation de la scène Main et synchronisation EvalBar / Graphe
+	# TEST 2 : Synchronisation EvalBar / Graphe
 	# =========================================================================
 	print("  -> Test 2: Synchronisation instantanée EvalBar2D / AdvantageGraph2D sur navigation...")
-	var main_scene = load("res://src/ui/Main.tscn").instantiate()
-	root.add_child(main_scene)
 	await create_timer(0.2).timeout
 	
 	var gc = root.get_node_or_null("GameController")
