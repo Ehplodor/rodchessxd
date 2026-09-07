@@ -11,7 +11,8 @@ var config := ConfigFile.new()
 var settings := {
 	"engine_threads": 2,
 	"engine_hash_mb": 32,
-	"engine_depth": 18,
+	"engine_depth": 16,
+	"analysis_depth": 18,
 	"engine_multipv": 2,
 	"engine_path": "",
 	"active_engine": "Stockfish",
@@ -37,6 +38,7 @@ var settings := {
 func _ready() -> void:
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		settings["engine_depth"] = 12
+		settings["analysis_depth"] = 14
 	load_settings()
 
 func load_settings() -> void:

@@ -142,14 +142,18 @@ public class RodChessUciPlugin extends GodotPlugin {
     private void waitForExit(Process proc) {
         try {
             int exitCode = proc.waitFor();
+            boolean wasCurrent;
             synchronized (lock) {
-                if (process == proc) {
+                wasCurrent = (process == proc);
+                if (wasCurrent) {
                     process = null;
                     stdin = null;
                 }
             }
-            Log.i(TAG, "engine exited with code " + exitCode);
-            emit("engine_exited", exitCode);
+            Log.i(TAG, "engine exited with code " + exitCode + ", wasCurrent=" + wasCurrent);
+            if (wasCurrent && exitCode != 0 && exitCode != 143) {
+                emit("engine_exited", exitCode);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

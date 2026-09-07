@@ -2,11 +2,22 @@ class_name SettingsModal
 extends Window
 ## SettingsModal.gd - Fenêtre modale des paramètres de l'application et des clés IA
 
+var _init_threads: int = 2
+var _init_hash: int = 32
+var _init_live_depth: int = 16
+var _init_analysis_depth: int = 18
+
 func _ready() -> void:
 	title = "Paramètres & Clés IA"
 	size = Vector2i(410, 620)
 	exclusive = true
 	close_requested.connect(_on_save_and_close)
+	_init_threads = SettingsManager.get_setting("engine_threads", 2)
+	_init_hash = SettingsManager.get_setting("engine_hash_mb", 32)
+	var def_live = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 16
+	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+	_init_live_depth = SettingsManager.get_setting("engine_depth", def_live)
+	_init_analysis_depth = SettingsManager.get_setting("analysis_depth", def_anal)
 	_setup_ui()
 
 func _setup_ui() -> void:
@@ -54,25 +65,47 @@ func _setup_ui() -> void:
 	threads_row.add_child(threads_spin)
 	vbox.add_child(threads_row)
 
-	# Profondeur
-	var depth_row = HBoxContainer.new()
-	depth_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var depth_lbl = Label.new()
-	depth_lbl.text = "Profondeur cible (Depth) :"
-	depth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	depth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	depth_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	depth_row.add_child(depth_lbl)
+	# Profondeur Live (Échiquier)
+	var def_live = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 16
+	var live_depth_row = HBoxContainer.new()
+	live_depth_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var live_depth_lbl = Label.new()
+	live_depth_lbl.text = "Profondeur en direct (Live) :"
+	live_depth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	live_depth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	live_depth_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	live_depth_row.add_child(live_depth_lbl)
 
-	var depth_spin = SpinBox.new()
-	depth_spin.min_value = 10
-	depth_spin.max_value = 30
-	depth_spin.value = SettingsManager.get_setting("engine_depth", 18)
-	depth_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_depth", int(val)))
-	depth_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
-	depth_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	depth_row.add_child(depth_spin)
-	vbox.add_child(depth_row)
+	var live_depth_spin = SpinBox.new()
+	live_depth_spin.min_value = 8
+	live_depth_spin.max_value = 24
+	live_depth_spin.value = SettingsManager.get_setting("engine_depth", def_live)
+	live_depth_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_depth", int(val)))
+	live_depth_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	live_depth_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	live_depth_row.add_child(live_depth_spin)
+	vbox.add_child(live_depth_row)
+
+	# Profondeur Analyse Globale (Bilan de partie)
+	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+	var anal_depth_row = HBoxContainer.new()
+	anal_depth_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var anal_depth_lbl = Label.new()
+	anal_depth_lbl.text = "Profondeur analyse de partie (Bilan) :"
+	anal_depth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	anal_depth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	anal_depth_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	anal_depth_row.add_child(anal_depth_lbl)
+
+	var anal_depth_spin = SpinBox.new()
+	anal_depth_spin.min_value = 10
+	anal_depth_spin.max_value = 26
+	anal_depth_spin.value = SettingsManager.get_setting("analysis_depth", def_anal)
+	anal_depth_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_depth", int(val)))
+	anal_depth_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	anal_depth_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	anal_depth_row.add_child(anal_depth_spin)
+	vbox.add_child(anal_depth_row)
 
 	# Mémoire (Hash) — Stockfish
 	var hash_row = HBoxContainer.new()
@@ -96,7 +129,7 @@ func _setup_ui() -> void:
 	vbox.add_child(hash_row)
 
 	var param_note = Label.new()
-	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Threads : plus de cœurs → plus rapide (Stockfish & lc0).\n• Profondeur (Depth) : plus élevée → analyse plus approfondie mais plus lente. Valeur basse = réponse rapide.\n• Hash : mémoire de transposition, utile sur les longues parties (Stockfish uniquement ; lc0 utilise son propre cache réseau).\nCes réglages sont appliqués automatiquement à l'enregistrement (redémarrage instantané du moteur)."
+	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Profondeur Live : évaluation instantanée coup par coup sur l'échiquier (rapide, sans coupure moteur).\n• Profondeur Bilan : analyse approfondie de toute la partie (précision, gaffes, ELO).\n• Threads & Hash : nombre de cœurs CPU et mémoire cache (redémarre le moteur si modifié)."
 	param_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	param_note.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	param_note.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
@@ -273,13 +306,29 @@ func _setup_ui() -> void:
 
 func _on_save_and_close() -> void:
 	SettingsManager.save_settings()
+	var new_threads = SettingsManager.get_setting("engine_threads", 2)
+	var new_hash = SettingsManager.get_setting("engine_hash_mb", 32)
+	var new_live_depth = SettingsManager.get_setting("engine_depth", _init_live_depth)
+
 	var tree = get_tree()
 	if tree and tree.root and tree.root.has_node("EngineManager"):
 		var em = tree.root.get_node("EngineManager")
-		if em.has_method("apply_engine_settings"):
-			em.apply_engine_settings()
-		elif em.has_method("restart_engine"):
-			em.restart_engine()
+		var startup_changed = (new_threads != _init_threads or new_hash != _init_hash)
+		var live_depth_changed = (new_live_depth != _init_live_depth)
+
+		if startup_changed:
+			print("SettingsModal: Threads ou Hash modifiés -> redémarrage du moteur.")
+			if em.has_method("apply_engine_settings"):
+				em.apply_engine_settings()
+			elif em.has_method("restart_engine"):
+				em.restart_engine()
+		elif live_depth_changed:
+			print("SettingsModal: Profondeur live modifiée -> réévaluation sans redémarrage moteur.")
+			var gc = tree.root.get_node_or_null("GameController")
+			if gc and gc.game and em.is_engine_running:
+				em.evaluate_position(gc.game.get_fen())
+		else:
+			print("SettingsModal: Aucun paramètre moteur modifié -> moteur conservé en fonctionnement.")
 	queue_free()
 
 func _app_logger() -> Node:

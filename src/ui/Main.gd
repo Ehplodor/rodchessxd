@@ -41,6 +41,7 @@ var analysis_thread: Thread = null
 
 var error_label: Label = null
 var _error_token := 0
+var eval_progress_bar: ProgressBar = null
 
 func _ready() -> void:
 	analyzer = GameAnalyzer.new()
@@ -61,6 +62,7 @@ func _ready() -> void:
 		slm.server_error.connect(_show_error_banner)
 	
 	_build_error_banner()
+	_setup_eval_badge_ui()
 	_apply_modern_theme()
 	_build_import_menu()
 	if OS.has_feature("android") or OS.has_feature("ios"):
@@ -143,8 +145,9 @@ func _apply_modern_theme() -> void:
 	$VBox/TopBar/EvalBadge.add_theme_stylebox_override("panel",
 			DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
 			Color.TRANSPARENT, 0, Vector2(10, 4)))
-	$VBox/TopBar/EvalBadge/EvalText.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	$VBox/TopBar/EvalBadge/EvalText.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	if top_eval_label:
+		top_eval_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		top_eval_label.add_theme_color_override("font_color", DesignTokens.ACCENT)
 
 	# Bandeau stats (textes longs → retour à la ligne)
 	var stats: Label = $VBox/Dashboard/StatsLabel
@@ -177,6 +180,8 @@ func _apply_modern_theme() -> void:
 				c.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 func _on_game_position_changed() -> void:
+	if eval_progress_bar:
+		eval_progress_bar.value = 0
 	_update_player_labels()
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
@@ -250,13 +255,55 @@ func _on_play_sound(sound_type: String) -> void:
 		"capture": sfx_capture.play()
 		"check": sfx_check.play()
 
-func _on_engine_eval(score_cp: int, mate_in: int, _depth: int, _best_move: String, _pv: Array, _multipv: Array) -> void:
+func _setup_eval_badge_ui() -> void:
+	var badge = $VBox/TopBar/EvalBadge
+	if badge.has_node("EvalText"):
+		var text_node = badge.get_node("EvalText")
+		badge.remove_child(text_node)
+		var box = VBoxContainer.new()
+		box.name = "EvalBox"
+		box.add_theme_constant_override("separation", 2)
+		badge.add_child(box)
+		box.add_child(text_node)
+
+		eval_progress_bar = ProgressBar.new()
+		eval_progress_bar.custom_minimum_size = Vector2(0, 3)
+		eval_progress_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		eval_progress_bar.show_percentage = false
+		eval_progress_bar.min_value = 0
+		eval_progress_bar.max_value = 16
+		eval_progress_bar.value = 0
+
+		var bg_sb = StyleBoxFlat.new()
+		bg_sb.bg_color = Color(DesignTokens.SURFACE.r, DesignTokens.SURFACE.g, DesignTokens.SURFACE.b, 0.8)
+		bg_sb.set_corner_radius_all(2)
+		var fill_sb = StyleBoxFlat.new()
+		fill_sb.bg_color = DesignTokens.ACCENT
+		fill_sb.set_corner_radius_all(2)
+		eval_progress_bar.add_theme_stylebox_override("background", bg_sb)
+		eval_progress_bar.add_theme_stylebox_override("fill", fill_sb)
+		box.add_child(eval_progress_bar)
+
+func _on_engine_eval(score_cp: int, mate_in: int, depth: int, _best_move: String, _pv: Array, _multipv: Array) -> void:
+	var def_depth = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 16
+	var target_depth = SettingsManager.get_setting("engine_depth", def_depth)
+
 	if top_eval_label:
+		var score_str := ""
 		if mate_in != 0:
-			top_eval_label.text = "Mat %d" % mate_in
+			score_str = "Mat %d" % mate_in
 		else:
 			var pawns = score_cp / 100.0
-			top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+			score_str = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+
+		if depth > 0:
+			top_eval_label.text = "%s  (p. %d/%d)" % [score_str, depth, target_depth]
+		else:
+			top_eval_label.text = score_str
+
+	if eval_progress_bar:
+		eval_progress_bar.max_value = target_depth
+		eval_progress_bar.value = clampf(depth, 0, target_depth)
 
 # --- BANDEAU D'ERREURS À L'ÉCRAN ---
 
@@ -490,7 +537,9 @@ func _on_btn_analyze_game_pressed() -> void:
 		stats_label.text = "Jouez ou importez des coups avant de lancer l'analyse globale."
 		return
 	
-	stats_label.text = "⏳ Démarrage de l'analyse %s (0/%d)..." % [EngineManager.get_engine_display_name(), moves_count]
+	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+	var a_depth = SettingsManager.get_setting("analysis_depth", def_anal)
+	stats_label.text = "⏳ Démarrage de l'analyse %s (prof. %d, 0/%d)..." % [EngineManager.get_engine_display_name(), a_depth, moves_count]
 	
 	if analysis_thread and analysis_thread.is_started():
 		analysis_thread.wait_to_finish()
@@ -498,7 +547,7 @@ func _on_btn_analyze_game_pressed() -> void:
 	analyzer.is_analyzing = true
 	analysis_thread = Thread.new()
 	analysis_thread.start(func():
-		analyzer.start_game_analysis(GameController.game, 10)
+		analyzer.start_game_analysis(GameController.game, a_depth)
 	)
 
 func _on_analysis_finished(report: Dictionary) -> void:
@@ -529,9 +578,11 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	if dm and GameController:
 		var gid = GameController.get_or_create_game_id()
 		if gid != "":
+			var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+			var a_depth = SettingsManager.get_setting("analysis_depth", def_anal)
 			var analysis_entry = {
-				"engine_name": "Stockfish",
-				"depth": 10,
+				"engine_name": EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
+				"depth": a_depth,
 				"white_accuracy": w_acc,
 				"black_accuracy": b_acc,
 				"white_estimated_elo": w_elo,

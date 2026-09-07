@@ -30,6 +30,7 @@ var command_queue: Array[String] = []
 
 var boot_thread: Thread
 var _booting := false
+var _is_intentionally_stopping: bool = false
 
 # Moteurs et réseaux téléchargeables
 const DOWNLOADABLE_ENGINES = {
@@ -424,6 +425,14 @@ func is_engine_available() -> bool:
 	return running
 
 func has_engine_binary() -> bool:
+	if _current_engine_path != "" and FileAccess.file_exists(_current_engine_path):
+		return true
+	if OS.has_feature("android") and Engine.has_singleton("RodChessUci"):
+		var p = _plugin_handle if _plugin_handle != null else Engine.get_singleton("RodChessUci")
+		if p != null:
+			var native_dir := str(p.getNativeLibraryDir())
+			if native_dir != "" and FileAccess.file_exists(native_dir.path_join("libstockfish.so")):
+				return true
 	return _find_binary_path(_stockfish_binary_names(), "engine_path") != ""
 
 func _pending_extraction_name() -> String:
@@ -664,6 +673,7 @@ func _engine_missing_hint() -> String:
 	return "Placez \"stockfish.exe\" dans bin/ ou user://engines/."
 
 func start_engine() -> bool:
+	_is_intentionally_stopping = false
 	if is_engine_running:
 		return true
 	if _booting:
@@ -994,6 +1004,9 @@ func _on_plugin_uci_err(line: String) -> void:
 	print("EngineManager: [stderr] ", line.substr(0, 200))
 
 func _on_plugin_engine_exited(exit_code: int) -> void:
+	print("EngineManager: [plugin] engine_exited code=%d (intentional=%s, running=%s)" % [exit_code, _is_intentionally_stopping, is_engine_running])
+	if _is_intentionally_stopping or exit_code == 0 or exit_code == 143:
+		return
 	if _use_plugin and is_engine_running and not should_stop_thread:
 		call_deferred("_handle_engine_dead", "Le processus moteur s'est arrêté (code %d)." % exit_code)
 
@@ -1151,6 +1164,7 @@ func _exit_tree() -> void:
 
 func stop_engine() -> void:
 	if is_engine_running:
+		_is_intentionally_stopping = true
 		should_stop_thread = true
 		send_command("quit")
 		if _use_plugin and _plugin_handle != null:
