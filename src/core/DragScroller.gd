@@ -51,6 +51,13 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		if event.index in _active:
 			_on_drag(event.index, event.relative)
+		else:
+			# Appui peut-être parti ailleurs : démarrage souple au premier glissé.
+			var sc := _scroll_at(event.position)
+			if sc:
+				_active[event.index] = {"sc": sc, "dragging": true, "acc": Vector2.ZERO}
+				get_viewport().set_input_as_handled()
+				_scroll_by(sc, event.relative)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			var sc := _scroll_at(event.position)
@@ -80,9 +87,9 @@ func _on_drag(key: Variant, rel: Vector2) -> void:
 
 func _scroll_by(sc: ScrollContainer, delta: Vector2) -> void:
 	# Le contenu suit le doigt : défiler du delta inverse.
-	if sc.scroll_vertical_enabled and delta.y != 0.0:
+	if sc.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED and delta.y != 0.0:
 		sc.scroll_vertical += -delta.y
-	if sc.scroll_horizontal_enabled and delta.x != 0.0:
+	if sc.horizontal_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED and delta.x != 0.0:
 		sc.scroll_horizontal += -delta.x
 
 func _release_pointer(key: Variant) -> void:
