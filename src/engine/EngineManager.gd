@@ -918,9 +918,12 @@ func _engine_io_available() -> bool:
 	return process_pipe.has("stdio")
 
 ## Évaluation synchrone robuste pour l'analyse globale de partie (GameAnalyzer)
-func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500) -> Dictionary:
+func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500, movetime_ms: int = -1) -> Dictionary:
 	if not is_engine_available() or not _engine_io_available():
 		return {"score_cp": 0, "best_move": "", "depth": 0, "timed_out": false, "error": "engine_unavailable"}
+
+	if movetime_ms > 0:
+		timeout_ms = maxi(timeout_ms, movetime_ms + 600)
 
 	# Si une évaluation était déjà en cours, on l'interrompt proprement
 	if is_evaluating:
@@ -939,7 +942,10 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 	state_mutex.unlock()
 
 	send_command("position fen " + fen)
-	send_command("go depth %d" % depth)
+	if movetime_ms > 0:
+		send_command("go movetime %d" % movetime_ms)
+	else:
+		send_command("go depth %d" % depth)
 
 	var elapsed = 0
 	var cancelled := false

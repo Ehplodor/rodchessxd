@@ -13,6 +13,10 @@ var settings := {
 	"engine_hash_mb": 32,
 	"engine_depth": 16,
 	"analysis_depth": 18,
+	"analysis_mode": "dynamic", # "depth", "time", "dynamic"
+	"analysis_time_per_move": 0.3, # secondes par coup en mode time
+	"analysis_dynamic_base": 0.15, # temps de base en mode dynamique (secondes)
+	"analysis_dynamic_max": 0.8, # plafond en mode dynamique (secondes)
 	"engine_multipv": 2,
 	"engine_path": "",
 	"active_engine": "Stockfish",

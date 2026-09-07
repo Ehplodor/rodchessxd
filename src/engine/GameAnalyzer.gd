@@ -3,6 +3,7 @@ extends RefCounted
 ## GameAnalyzer.gd - Analyse complète de partie coup par coup, métriques ACPL, précision et estimation ELO
 
 signal progress_updated(current_ply: int, total_plies: int)
+signal ply_analyzed(ply_idx: int, move_record: Dictionary, partial_stats: Dictionary)
 signal analysis_finished(report: Dictionary)
 
 const ENGINE_START_WAIT_MS: int = 3000
@@ -19,6 +20,9 @@ var white_accuracy: float = 0.0
 var black_accuracy: float = 0.0
 var white_estimated_elo: int = 1500
 var black_estimated_elo: int = 1500
+var white_elo_ci_margin: int = 70
+var black_elo_ci_margin: int = 70
+var elo_stat_test: Dictionary = {}
 
 var white_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0}
 var black_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0}
@@ -28,7 +32,7 @@ var engine_manager: Node = null
 func _init() -> void:
 	engine_manager = _get_engine_manager()
 
-func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
+func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary = {}) -> Dictionary:
 	is_analyzing = true
 	cancel_requested = false
 	move_evaluations.clear()
@@ -37,6 +41,12 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 		engine_manager = _get_engine_manager()
 
 	_reset_stats()
+	
+	var sm = _get_settings_manager()
+	var mode: String = str(options.get("mode", sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"))
+	var time_per_move: float = float(options.get("time_per_move", sm.get_setting("analysis_time_per_move", 0.3) if sm else 0.3))
+	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15))
+	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8))
 	
 	var moves = game.move_history
 	var total_plies = moves.size()
@@ -55,7 +65,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 	var sim_game = ChessGame.new()
 	sim_game.load_fen(ChessGame.INITIAL_FEN)
 
-	var start_eval = _evaluate_fen_sync(ChessGame.INITIAL_FEN, depth)
+	var start_eval = _evaluate_move_position(ChessGame.INITIAL_FEN, depth, mode, dynamic_base, dynamic_max, time_per_move, 20)
 	if start_eval.has("error"):
 		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
 	if start_eval.get("timed_out", false) and start_eval.get("depth", 0) <= 0:
@@ -81,8 +91,8 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 		sim_game.make_move(move)
 		var fen_after = sim_game.get_fen()
 
-		# Évaluation de la position résultante
-		var eval_after_data = _evaluate_fen_sync(fen_after, depth)
+		# Évaluation de la position résultante selon le mode (profondeur, temps fixe ou dynamique adaptatif)
+		var eval_after_data = _evaluate_move_position(fen_after, depth, mode, dynamic_base, dynamic_max, time_per_move, score_before)
 		if eval_after_data.has("error"):
 			return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
 		if eval_after_data.get("timed_out", false) and eval_after_data.get("depth", 0) <= 0:
@@ -91,6 +101,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 			break
 		var score_after = eval_after_data.get("score_cp", score_before)
 		var best_move_uci = eval_after_data.get("best_move", "")
+		var eff_d = eval_after_data.get("depth", depth)
 
 		# Calcul de la perte en centipions (du point de vue du joueur actif)
 		var cp_loss = 0
@@ -116,7 +127,11 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 		else:
 			_increment_quality_stat(black_stats, quality)
 
-		# Enregistrement pour la courbe d'avantage
+		# Calcul de l'intervalle de confiance pour l'évaluation de cette position (IC 95%)
+		var is_tactical = (quality == ChessMove.Quality.BRILLIANT or quality == ChessMove.Quality.BLUNDER or abs(score_after - score_before) > 75)
+		var eval_ci = _calculate_eval_ci_margin(eff_d, cp_loss, is_tactical)
+
+		# Enregistrement pour la courbe d'avantage avec IC
 		var move_record = {
 			"ply": i,
 			"move_number": (i / 2) + 1,
@@ -127,12 +142,22 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 			"loss_cp": cp_loss,
 			"quality": quality,
 			"best_move": best_move_uci,
-			"fen": fen_after
+			"fen": fen_after,
+			"depth": eff_d,
+			"ci_margin": eval_ci,
+			"ci_lower": score_after - eval_ci,
+			"ci_upper": score_after + eval_ci
 		}
 		move_evaluations.append(move_record)
 
 		prev_score_cp = score_after
 		call_deferred("emit_signal", "progress_updated", i + 1, total_plies)
+		call_deferred("emit_signal", "ply_analyzed", i, move_record, {
+			"white_loss_sum": white_loss_sum,
+			"black_loss_sum": black_loss_sum,
+			"white_moves_count": white_moves_count,
+			"black_moves_count": black_moves_count
+		})
 
 	# Calculs finaux ACPL
 	white_acpl = float(white_loss_sum) / maxi(1, white_moves_count)
@@ -142,9 +167,15 @@ func start_game_analysis(game: ChessGame, depth: int = 14) -> Dictionary:
 	white_accuracy = _calculate_caps_accuracy(move_evaluations, true)
 	black_accuracy = _calculate_caps_accuracy(move_evaluations, false)
 
-	# Estimation ELO réaliste calibrée sur les benchmarks FIDE / Chess.com
-	white_estimated_elo = _estimate_elo(white_accuracy, white_acpl, white_stats, white_moves_count)
-	black_estimated_elo = _estimate_elo(black_accuracy, black_acpl, black_stats, black_moves_count)
+	# Estimation ELO avec intervalles de confiance et test statistique
+	var w_stat = _calculate_elo_statistics(move_evaluations, true, white_accuracy, white_acpl, white_stats, white_moves_count)
+	var b_stat = _calculate_elo_statistics(move_evaluations, false, black_accuracy, black_acpl, black_stats, black_moves_count)
+	
+	white_estimated_elo = w_stat["elo"]
+	black_estimated_elo = b_stat["elo"]
+	white_elo_ci_margin = w_stat["ci_margin"]
+	black_elo_ci_margin = b_stat["ci_margin"]
+	elo_stat_test = _perform_elo_comparison_test(w_stat, b_stat)
 
 	is_analyzing = false
 	var report = _build_final_report()
@@ -279,6 +310,12 @@ func _estimate_elo(accuracy: float, acpl: float, stats: Dictionary, moves_count:
 
 	return clampi(int(round(calibrated_elo)), 300, 2850)
 
+func _get_settings_manager() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root:
+		return tree.root.get_node_or_null("SettingsManager")
+	return null
+
 func _get_engine_manager() -> Node:
 	var tree = Engine.get_main_loop() as SceneTree
 	if tree and tree.root:
@@ -312,7 +349,153 @@ func _emit_engine_error(msg: String) -> void:
 	if eng:
 		eng.call_deferred("emit_signal", "engine_error", msg)
 
-func _evaluate_fen_sync(fen: String, depth: int) -> Dictionary:
+## Marge d'erreur de l'évaluation de position (IC 95%) : décroît en 1 / sqrt(profondeur), sensible aux chocs tactiques
+static func _calculate_eval_ci_margin(depth: int, cp_loss: int, is_tactical: bool) -> float:
+	var effective_depth = maxf(1.0, float(depth))
+	var base_se = 72.0 / sqrt(effective_depth)
+	var tactical_mult = 1.35 if (is_tactical or cp_loss > 75) else 1.0
+	var se = base_se * tactical_mult
+	return 1.96 * se
+
+## Estimation ELO biostatistique avec intervalle de confiance à 95%
+func _calculate_elo_statistics(evals: Array[Dictionary], for_white: bool, accuracy: float, acpl: float, stats: Dictionary, moves_count: int) -> Dictionary:
+	var base_elo = _estimate_elo(accuracy, acpl, stats, moves_count)
+	if moves_count <= 0:
+		return {"elo": base_elo, "se": 70.0, "ci_margin": 140, "ci_lower": base_elo - 140, "ci_upper": base_elo + 140, "n": 0}
+	
+	var move_accuracies: Array[float] = []
+	var prev_cp = 20
+	for ev in evals:
+		var cur_cp = ev.get("score_cp", 0)
+		var is_w = ev.get("is_white", true)
+		if is_w == for_white:
+			var win_before = _win_percentage(prev_cp) if for_white else (100.0 - _win_percentage(prev_cp))
+			var win_after = _win_percentage(cur_cp) if for_white else (100.0 - _win_percentage(cur_cp))
+			var win_loss = maxf(0.0, win_before - win_after)
+			var acc = clampf(103.1668 * exp(-0.04354 * win_loss) - 3.1669, 0.0, 100.0)
+			move_accuracies.append(acc)
+		prev_cp = cur_cp
+	
+	var n = move_accuracies.size()
+	var mean_acc = accuracy
+	var var_acc = 0.0
+	for a in move_accuracies:
+		var_acc += pow(a - mean_acc, 2)
+	var s_acc = sqrt(var_acc / float(maxi(1, n - 1)))
+	var se_acc = s_acc / sqrt(float(maxi(1, n)))
+	
+	# Pente locale df/dA dérivée de la fonction de calibrage
+	var slope = 43.75
+	if mean_acc >= 98.0: slope = 125.0
+	elif mean_acc >= 95.0: slope = 100.0
+	elif mean_acc >= 90.0: slope = 70.0
+	elif mean_acc >= 82.0: slope = 43.75
+	elif mean_acc >= 72.0: slope = 30.0
+	elif mean_acc >= 60.0: slope = 25.0
+	elif mean_acc >= 45.0: slope = 20.0
+	else: slope = 6.66
+	
+	var sample_mult = sqrt(20.0 / float(maxi(1, n))) if n < 20 else 1.0
+	var se_elo = maxf(28.0, slope * se_acc * sample_mult)
+	var t_crit = 1.96 if n >= 20 else (2.10 if n >= 10 else 2.30)
+	var ci_margin = int(round(t_crit * se_elo))
+	
+	return {
+		"elo": base_elo,
+		"se": se_elo,
+		"ci_margin": ci_margin,
+		"ci_lower": base_elo - ci_margin,
+		"ci_upper": base_elo + ci_margin,
+		"n": n
+	}
+
+## Test statistique de comparaison des deux ELOs (test de Welch / Wald bilatéral)
+func _perform_elo_comparison_test(w_data: Dictionary, b_data: Dictionary) -> Dictionary:
+	var w_elo = float(w_data.get("elo", 1500))
+	var b_elo = float(b_data.get("elo", 1500))
+	var w_se = float(w_data.get("se", 50.0))
+	var b_se = float(b_data.get("se", 50.0))
+	
+	var diff = w_elo - b_elo
+	var denom = sqrt(pow(w_se, 2) + pow(b_se, 2))
+	var t_stat = diff / maxf(1.0, denom)
+	var z = absf(t_stat)
+	
+	var p_value = _calculate_normal_p_value(z)
+	var stars = _p_value_to_stars(p_value)
+	var is_significant = (p_value < 0.05)
+	
+	var desc = ""
+	if p_value < 0.001:
+		desc = "Différence hautement significative (p < 0.001 ***)"
+	elif p_value < 0.01:
+		desc = "Différence très significative (p < 0.01 **)"
+	elif p_value < 0.05:
+		desc = "Différence significative (p < 0.05 *)"
+	else:
+		desc = "Différence non significative (p ≥ 0.05 ns)"
+		
+	return {
+		"diff_elo": int(round(diff)),
+		"t_stat": t_stat,
+		"p_value": p_value,
+		"stars": stars,
+		"is_significant": is_significant,
+		"description": desc
+	}
+
+## Calcul de p-value bilatérale par approximation de Chebyshev / Abramowitz & Stegun
+static func _calculate_normal_p_value(z: float) -> float:
+	var x = absf(z)
+	if x > 8.0:
+		return 0.000001
+	var p0 = 0.2316419
+	var b1 = 0.319381530
+	var b2 = -0.356563782
+	var b3 = 1.781477937
+	var b4 = -1.821255978
+	var b5 = 1.330274429
+	var t = 1.0 / (1.0 + p0 * x)
+	var phi = (1.0 / sqrt(TAU)) * exp(-0.5 * x * x)
+	var tail = phi * (b1 * t + b2 * t * t + b3 * t * t * t + b4 * t * t * t * t + b5 * t * t * t * t * t)
+	return clampf(2.0 * tail, 0.0, 1.0)
+
+static func _p_value_to_stars(p: float) -> String:
+	if p < 0.001:
+		return "***"
+	elif p < 0.01:
+		return "**"
+	elif p < 0.05:
+		return "*"
+	return "ns"
+
+## Évaluation selon le mode sélectionné : profondeur, temps fixe ou dynamique adaptatif
+func _evaluate_move_position(fen: String, depth: int, mode: String, base_time_sec: float, max_time_sec: float, fixed_time_sec: float, prev_score: int) -> Dictionary:
+	match mode:
+		"time":
+			var ms = int(round(fixed_time_sec * 1000.0))
+			return _evaluate_fen_sync(fen, depth, ms)
+		"dynamic":
+			var base_ms = int(round(base_time_sec * 1000.0))
+			var first_pass = _evaluate_fen_sync(fen, depth, base_ms)
+			if first_pass.has("error") or cancel_requested:
+				return first_pass
+			var score_cand = first_pass.get("score_cp", prev_score)
+			var delta_cp = abs(score_cand - prev_score)
+			# Approfondissement automatique proportionnel à la criticité du coup
+			if delta_cp >= 50 or abs(score_cand) >= 300:
+				var factor = clampf(float(delta_cp - 50) / 150.0, 0.25, 1.0)
+				var max_ms = int(round(max_time_sec * 1000.0))
+				var deep_ms = int(lerpf(float(base_ms), float(max_ms), factor))
+				if deep_ms > base_ms:
+					var refined = _evaluate_fen_sync(fen, depth, deep_ms)
+					if not refined.has("error") and not cancel_requested:
+						return refined
+			return first_pass
+		_: # "depth"
+			return _evaluate_fen_sync(fen, depth, -1)
+
+func _evaluate_fen_sync(fen: String, depth: int, movetime_ms: int = -1) -> Dictionary:
 	var engine = engine_manager
 	if engine == null:
 		engine = _get_engine_manager()
@@ -322,7 +505,8 @@ func _evaluate_fen_sync(fen: String, depth: int) -> Dictionary:
 		return {"error": "engine_unavailable", "score_cp": 0, "best_move": "", "depth": 0}
 
 	if engine.has_method("evaluate_position_sync"):
-		return engine.evaluate_position_sync(fen, depth, EVAL_TIMEOUT_MS)
+		var tout = EVAL_TIMEOUT_MS if movetime_ms <= 0 else (movetime_ms + 600)
+		return engine.evaluate_position_sync(fen, depth, tout, movetime_ms)
 
 	engine.evaluate_position(fen, depth)
 	var max_wait = 20
@@ -344,6 +528,9 @@ func _build_final_report() -> Dictionary:
 		"black_accuracy": black_accuracy,
 		"white_estimated_elo": white_estimated_elo,
 		"black_estimated_elo": black_estimated_elo,
+		"white_elo_ci": white_elo_ci_margin,
+		"black_elo_ci": black_elo_ci_margin,
+		"elo_comparison": elo_stat_test,
 		"white_stats": white_stats,
 		"black_stats": black_stats,
 		"evaluations": move_evaluations

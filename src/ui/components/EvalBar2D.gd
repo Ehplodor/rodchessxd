@@ -91,6 +91,12 @@ func _draw() -> void:
 	border_style.corner_radius_bottom_right = int(radius)
 	draw_style_box(border_style, full_rect)
 
+func set_score(score_cp: int, mate_in: int = 0) -> void:
+	_on_engine_eval(score_cp, mate_in, 0, "", [], [])
+
+func set_score_cp(score_cp: int, mate_in: int = 0) -> void:
+	_on_engine_eval(score_cp, mate_in, 0, "", [], [])
+
 func _on_engine_eval(score_cp: int, mate_in: int, _depth: int, _best_move: String, _pv: Array, _multipv: Array) -> void:
 	if mate_in != 0:
 		if mate_in > 0:

@@ -188,7 +188,48 @@ func _cycle_analysis() -> void:
 		var b_acc = cur.get("black_accuracy", 0.0)
 		var w_elo = cur.get("white_estimated_elo", 1500)
 		var b_elo = cur.get("black_estimated_elo", 1500)
-		main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO)" % [w_acc, w_elo, b_acc, b_elo]
+		var w_ci = cur.get("white_elo_ci", 0)
+		var b_ci = cur.get("black_elo_ci", 0)
+		var comp = cur.get("elo_comparison", {})
+		var stars: String = comp.get("stars", "")
+		var p_val: float = float(comp.get("p_value", 1.0))
+		var diff_elo: int = int(comp.get("diff_elo", w_elo - b_elo))
+		var stat_summary := ""
+		if not comp.is_empty():
+			var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
+			stat_summary = " • Δ %+d ELO [%s %s]" % [diff_elo, p_str, stars]
+		var w_ci_str = " ±%d" % w_ci if w_ci > 0 else ""
+		var b_ci_str = " ±%d" % b_ci if b_ci > 0 else ""
+		main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d%s ELO)  |  ⚫ Noirs: %.1f%% (Est. %d%s ELO)%s" % [
+			w_acc, w_elo, w_ci_str,
+			b_acc, b_elo, b_ci_str,
+			stat_summary
+		]
+
+func prepare_live_analysis(total_plies: int) -> void:
+	evaluations.clear()
+	var n = maxi(2, total_plies)
+	for i in range(n):
+		evaluations.append({
+			"ply": i,
+			"move_number": (i / 2) + 1,
+			"is_white": (i % 2 == 0),
+			"score_cp": 0,
+			"ci_margin": 140.0,
+			"ci_lower": -140.0,
+			"ci_upper": 140.0,
+			"is_placeholder": true
+		})
+	active_ply = 0
+	queue_redraw()
+
+func update_live_ply(ply_idx: int, record: Dictionary) -> void:
+	while evaluations.size() <= ply_idx:
+		evaluations.append({})
+	record["is_placeholder"] = false
+	evaluations[ply_idx] = record
+	active_ply = ply_idx
+	queue_redraw()
 
 func set_evaluations(eval_data: Array) -> void:
 	evaluations.clear()
@@ -255,9 +296,11 @@ func _draw() -> void:
 		draw_string(default_font, Vector2((w - msg2_w) * 0.5, mid_y + 16), msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, s2, DesignTokens.TEXT_MUTED)
 		return
 
-	# 4. Calcul des coordonnées des points
+	# 4. Calcul des coordonnées des points & halo de l'intervalle de confiance (IC 95%)
 	var step_x = graph_w / float(total_points - 1)
 	var points = PackedVector2Array()
+	var ci_upper_points = PackedVector2Array()
+	var ci_lower_points = PackedVector2Array()
 
 	for i in range(total_points):
 		var record = evaluations[i]
@@ -266,25 +309,43 @@ func _draw() -> void:
 		var py = mid_y - (score_cp * scale_y)
 		points.append(Vector2(px, py))
 
-	# 5. Polygones de remplissage (gradient Blanc au-dessus, Noir en-dessous)
+		var margin = float(record.get("ci_margin", 35.0))
+		var ci_u = clampf(score_cp + margin, -max_eval_cp, max_eval_cp)
+		var ci_l = clampf(score_cp - margin, -max_eval_cp, max_eval_cp)
+		ci_upper_points.append(Vector2(px, mid_y - (ci_u * scale_y)))
+		ci_lower_points.append(Vector2(px, mid_y - (ci_l * scale_y)))
+
+	# 5. Bande d'intervalle de confiance (IC 95% ombré doux)
+	var ci_poly = PackedVector2Array()
+	for p_u in ci_upper_points:
+		ci_poly.append(p_u)
+	for j in range(ci_lower_points.size() - 1, -1, -1):
+		ci_poly.append(ci_lower_points[j])
+	draw_colored_polygon(ci_poly, Color(0.22, 0.74, 0.97, 0.14))
+	draw_polyline(ci_upper_points, Color(0.22, 0.74, 0.97, 0.30), 1.0, true)
+	draw_polyline(ci_lower_points, Color(0.22, 0.74, 0.97, 0.30), 1.0, true)
+
+	# 6. Polygones de remplissage (gradient Blanc au-dessus, Noir en-dessous)
 	var fill_white = PackedVector2Array([Vector2(left_margin, mid_y)])
 	for p in points:
 		fill_white.append(Vector2(p.x, min(p.y, mid_y)))
 	fill_white.append(Vector2(left_margin + graph_w, mid_y))
-	draw_colored_polygon(fill_white, Color("#f8fafc22"))
+	draw_colored_polygon(fill_white, Color("#f8fafc18"))
 
 	var fill_black = PackedVector2Array([Vector2(left_margin, mid_y)])
 	for p in points:
 		fill_black.append(Vector2(p.x, max(p.y, mid_y)))
 	fill_black.append(Vector2(left_margin + graph_w, mid_y))
-	draw_colored_polygon(fill_black, Color("#00000055"))
+	draw_colored_polygon(fill_black, Color("#00000044"))
 
-	# 6. Tracé de la courbe principale
+	# 7. Tracé de la courbe principale
 	draw_polyline(points, Color("#38bdf8"), 2.2, true)
 
-	# 7. Pastilles pour les coups marquants
+	# 8. Pastilles pour les coups marquants (seulement pour les coups analysés)
 	for i in range(total_points):
 		var record = evaluations[i]
+		if record.get("is_placeholder", false):
+			continue
 		var quality = record.get("quality", ChessMove.Quality.NONE)
 		var pt = points[i]
 
@@ -297,19 +358,21 @@ func _draw() -> void:
 			draw_circle(pt, 5.0, Color("#10b981"))
 			draw_arc(pt, 5.0, 0, TAU, 16, Color("#ffffff"), 1.2)
 
-	# 8. Curseur actif : ligne + point, SANS texte superposé à la courbe.
+	# 9. Curseur actif : ligne + point, SANS texte superposé à la courbe.
 	if active_ply >= 0 and active_ply < points.size():
 		var cursor_pt = points[active_ply]
 		draw_line(Vector2(cursor_pt.x, top_margin), Vector2(cursor_pt.x, h - bottom_margin), Color("#facc15aa"), 1.8)
 		draw_circle(cursor_pt, 5.0, Color("#facc15"))
 		draw_arc(cursor_pt, 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
 
-	# 9. Libellé du coup courant dans la bande basse (hors de la courbe).
+	# 10. Libellé du coup courant dans la bande basse avec IC (hors de la courbe).
 	var rec = evaluations[active_ply] if active_ply >= 0 and active_ply < evaluations.size() else {}
 	if not rec.is_empty():
 		var score_cp = rec.get("score_cp", 0)
 		var pawns_val = score_cp / 100.0
 		var eval_str = ("+%.1f" if pawns_val >= 0 else "%.1f") % pawns_val
+		var margin_pawns = float(rec.get("ci_margin", 0.0)) / 100.0
+		var ci_str = " [±%.1f]" % margin_pawns if margin_pawns > 0.0 else ""
 		var move_num = rec.get("move_number", 1)
 		var san = rec.get("san", "")
 		var is_w = rec.get("is_white", true)
@@ -318,7 +381,7 @@ func _draw() -> void:
 		var ply_label = ("%d. %s" if is_w else "%d... %s") % [move_num, san]
 		if badge_sym != "":
 			ply_label += " " + badge_sym
-		var caption = "%s   (%s)" % [ply_label, eval_str]
+		var caption = "%s   (%s%s)" % [ply_label, eval_str, ci_str]
 		draw_rect(Rect2(left_margin, h - 24, graph_w, 20), Color("#0f172acc"), true)
 		var cap_w = graph_w - 8.0
 		draw_string(default_font, Vector2(left_margin + 4, h - 7), caption,

@@ -52,6 +52,9 @@ func _ready() -> void:
 	analyzer.progress_updated.connect(func(cur, tot):
 		call_deferred("_on_analysis_progress", cur, tot)
 	)
+	analyzer.ply_analyzed.connect(func(ply_idx, move_record, partial_stats):
+		call_deferred("_on_ply_analyzed", ply_idx, move_record, partial_stats)
+	)
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
 	GameController.position_changed.connect(_on_game_position_changed)
@@ -177,6 +180,8 @@ func _apply_modern_theme() -> void:
 
 	# Vues superposées : titres + boutons de fermeture
 	for overlay in [analyse_overlay, coach_overlay]:
+		if overlay == null or not overlay.has_node("Layout/Header"):
+			continue
 		var header: Node = overlay.get_node("Layout/Header")
 		header.get_node("Title").add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 		header.get_node("Title").add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
@@ -558,7 +563,73 @@ func _on_btn_settings_pressed() -> void:
 
 func _on_analysis_progress(cur: int, tot: int) -> void:
 	if analyzer.is_analyzing and cur < tot:
-		stats_label.text = "⏳ Analyse par %s (%d/%d)..." % [EngineManager.get_engine_display_name(), cur, tot]
+		var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
+		stats_label.text = "⏳ Analyse par %s (%d/%d)..." % [eng_name, cur, tot]
+
+func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dictionary) -> void:
+	if not is_instance_valid(self) or not analyzer.is_analyzing:
+		return
+
+	var total_moves = GameController.game.move_history.size() if GameController.game else 0
+	if total_moves == 0 or ply_idx >= total_moves:
+		return
+
+	# 1. Progression et synchronisation de l'échiquier en temps réel
+	GameController.current_ply_index = ply_idx
+	GameController.game.restore_state(ply_idx + 1)
+
+	if chess_board:
+		chess_board.reset_board_visuals()
+
+		# Flèche fine rouge carmin en pointillés du dernier coup joué
+		var move = GameController.game.move_history[ply_idx]
+		chess_board.last_move_from = move.from_sq
+		chess_board.last_move_to = move.to_sq
+
+		# Flèche tactique moderne cyan de la recommandation Stockfish
+		var best_uci: String = move_record.get("best_move", "")
+		if best_uci.length() >= 4:
+			chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_uci.substr(0, 2))
+			chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_uci.substr(2, 2))
+		else:
+			chess_board.best_move_arrow_from = -1
+			chess_board.best_move_arrow_to = -1
+
+		chess_board.queue_redraw()
+
+	# 2. Mise à jour des libellés joueurs et badges (⭐ Au trait / Dernier coup)
+	_update_player_labels()
+
+	# 3. Tracé progressif de la courbe d'avantage et de son halo de confiance
+	if advantage_graph:
+		advantage_graph.update_live_ply(ply_idx, move_record)
+
+	# 4. Jauge d'évaluation et badge supérieur
+	var score_cp: int = move_record.get("score_cp", 0)
+	if eval_bar:
+		eval_bar.set_score(score_cp)
+	if top_eval_label:
+		var pawns: float = score_cp / 100.0
+		top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+
+	# 5. Bandeau de statistiques et retour en direct
+	var san: String = move_record.get("san", "")
+	var move_num: int = move_record.get("move_number", (ply_idx / 2) + 1)
+	var is_w: bool = move_record.get("is_white", true)
+	var ply_str: String = ("%d. %s" if is_w else "%d... %s") % [move_num, san]
+	var margin_pawns: float = float(move_record.get("ci_margin", 0.0)) / 100.0
+	var pawns_val: float = score_cp / 100.0
+	var eval_display: String = ("%+0.1f [±%.1f]" if margin_pawns > 0 else "%+0.1f") % [pawns_val, margin_pawns]
+	var eff_d: int = move_record.get("depth", 0)
+	var d_str: String = " (p.%d)" % eff_d if eff_d > 0 else ""
+
+	stats_label.text = "⏳ Analyse en direct (%d/%d) : %s%s • Eval: %s" % [
+		ply_idx + 1,
+		total_moves,
+		ply_str,
+		d_str,
+		eval_display
+	]
 
 func _on_btn_analyze_game_pressed() -> void:
 	if analyzer.is_analyzing:
@@ -572,18 +643,58 @@ func _on_btn_analyze_game_pressed() -> void:
 	if moves_count == 0:
 		stats_label.text = "Jouez ou importez des coups avant de lancer l'analyse globale."
 		return
-	
+
+	var sm = get_node_or_null("/root/SettingsManager")
 	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
-	var a_depth = SettingsManager.get_setting("analysis_depth", def_anal)
-	stats_label.text = "⏳ Démarrage de l'analyse %s (prof. %d, 0/%d)..." % [EngineManager.get_engine_display_name(), a_depth, moves_count]
-	
+	var mode: String = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
+	var time_per_move: float = sm.get_setting("analysis_time_per_move", 0.3) if sm else 0.3
+	var dynamic_base: float = sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15
+	var dynamic_max: float = sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8
+	var a_depth: int = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
+
+	var mode_label := ""
+	match mode:
+		"dynamic":
+			mode_label = "dynamique (%.2fs-%.2fs)" % [dynamic_base, dynamic_max]
+		"time":
+			mode_label = "temps fixe (%.2fs/coup)" % time_per_move
+		"depth":
+			mode_label = "profondeur %d" % a_depth
+		_:
+			mode_label = "dynamique"
+
+	var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
+	stats_label.text = "⏳ Démarrage de l'analyse %s (%s, 0/%d)..." % [eng_name, mode_label, moves_count]
+
+	# Initialisation de la courbe d'avantage avec halo d'incertitude initial large
+	if advantage_graph:
+		advantage_graph.prepare_live_analysis(moves_count)
+
+	# Remise visuelle à la position de départ pour suivre le déroulé coup par coup
+	GameController.current_ply_index = -1
+	GameController.game.restore_state(0)
+	GameController.position_changed.emit()
+	if chess_board:
+		chess_board.last_move_from = -1
+		chess_board.last_move_to = -1
+		chess_board.best_move_arrow_from = -1
+		chess_board.best_move_arrow_to = -1
+		chess_board.reset_board_visuals()
+
 	if analysis_thread and analysis_thread.is_started():
 		analysis_thread.wait_to_finish()
-	
+
+	var options = {
+		"mode": mode,
+		"time_per_move": time_per_move,
+		"dynamic_base": dynamic_base,
+		"dynamic_max": dynamic_max
+	}
+
 	analyzer.is_analyzing = true
 	analysis_thread = Thread.new()
 	analysis_thread.start(func():
-		analyzer.start_game_analysis(GameController.game, a_depth)
+		analyzer.start_game_analysis(GameController.game, a_depth, options)
 	)
 
 func _on_analysis_finished(report: Dictionary) -> void:
@@ -603,26 +714,51 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	var b_acc = report.get("black_accuracy", 0.0)
 	var w_elo = report.get("white_estimated_elo", 1500)
 	var b_elo = report.get("black_estimated_elo", 1500)
+	var w_ci = report.get("white_elo_ci", 0)
+	var b_ci = report.get("black_elo_ci", 0)
+	var comp = report.get("elo_comparison", {})
+	var stars: String = comp.get("stars", "ns")
+	var p_val: float = float(comp.get("p_value", 1.0))
+	var diff_elo: int = int(comp.get("diff_elo", w_elo - b_elo))
 
 	var total_moves = GameController.game.move_history.size() / 2
 	var short_sample = " • [Échantillon court]" if total_moves < 12 else ""
 
-	stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO)%s" % [w_acc, w_elo, b_acc, b_elo, short_sample]
+	var stat_summary := ""
+	if not comp.is_empty():
+		var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
+		stat_summary = " • Δ %+d ELO [%s %s]" % [diff_elo, p_str, stars]
+
+	var w_ci_str = " ±%d" % w_ci if w_ci > 0 else ""
+	var b_ci_str = " ±%d" % b_ci if b_ci > 0 else ""
+
+	stats_label.text = "⚪ Blancs: %.1f%% (Est. %d%s ELO)  |  ⚫ Noirs: %.1f%% (Est. %d%s ELO)%s%s" % [
+		w_acc, w_elo, w_ci_str,
+		b_acc, b_elo, b_ci_str,
+		stat_summary,
+		short_sample
+	]
 
 	# Archivage automatique dans DatabaseManager pour la partie active
 	var dm = get_node_or_null("/root/DatabaseManager")
 	if dm and GameController:
 		var gid = GameController.get_or_create_game_id()
 		if gid != "":
+			var sm = get_node_or_null("/root/SettingsManager")
 			var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
-			var a_depth = SettingsManager.get_setting("analysis_depth", def_anal)
+			var a_depth = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
+			var a_mode = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
 			var analysis_entry = {
 				"engine_name": EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
 				"depth": a_depth,
+				"mode": a_mode,
 				"white_accuracy": w_acc,
 				"black_accuracy": b_acc,
 				"white_estimated_elo": w_elo,
 				"black_estimated_elo": b_elo,
+				"white_elo_ci": w_ci,
+				"black_elo_ci": b_ci,
+				"elo_comparison": comp,
 				"white_acpl": report.get("white_acpl", 0.0),
 				"black_acpl": report.get("black_acpl", 0.0),
 				"white_stats": report.get("white_stats", {}),

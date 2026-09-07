@@ -86,12 +86,101 @@ func _setup_ui() -> void:
 	live_depth_row.add_child(live_depth_spin)
 	vbox.add_child(live_depth_row)
 
-	# Profondeur Analyse Globale (Bilan de partie)
+	# Mode d'Analyse de Partie
+	var mode_row = VBoxContainer.new()
+	mode_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mode_row.add_theme_constant_override("separation", 2)
+	var mode_lbl = Label.new()
+	mode_lbl.text = "Mode d'analyse de partie :"
+	mode_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	mode_row.add_child(mode_lbl)
+
+	var mode_opt = OptionButton.new()
+	mode_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mode_opt.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	mode_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	mode_opt.add_item("⚡ Dynamique adaptatif (rapide + approfondi sur coups critiques)", 0)
+	mode_opt.add_item("⏱️ Temps fixe par demi-coup", 1)
+	mode_opt.add_item("🎯 Profondeur fixe (UCI depth)", 2)
+
+	var cur_mode = SettingsManager.get_setting("analysis_mode", "dynamic")
+	match cur_mode:
+		"dynamic": mode_opt.selected = 0
+		"time": mode_opt.selected = 1
+		"depth": mode_opt.selected = 2
+		_: mode_opt.selected = 0
+	mode_row.add_child(mode_opt)
+	vbox.add_child(mode_row)
+
+	# Lignes de paramètres conditionnelles selon le mode
+	# 1. Dynamique : temps base et temps max
+	var dyn_base_row = HBoxContainer.new()
+	dyn_base_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var dyn_base_lbl = Label.new()
+	dyn_base_lbl.text = "Temps de base par coup (s) :"
+	dyn_base_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dyn_base_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dyn_base_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	dyn_base_row.add_child(dyn_base_lbl)
+
+	var dyn_base_spin = SpinBox.new()
+	dyn_base_spin.min_value = 0.05
+	dyn_base_spin.max_value = 0.50
+	dyn_base_spin.step = 0.05
+	dyn_base_spin.value = SettingsManager.get_setting("analysis_dynamic_base", 0.15)
+	dyn_base_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_dynamic_base", float(val)))
+	dyn_base_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	dyn_base_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	dyn_base_row.add_child(dyn_base_spin)
+	vbox.add_child(dyn_base_row)
+
+	var dyn_max_row = HBoxContainer.new()
+	dyn_max_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var dyn_max_lbl = Label.new()
+	dyn_max_lbl.text = "Temps max sur coups critiques (s) :"
+	dyn_max_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dyn_max_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dyn_max_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	dyn_max_row.add_child(dyn_max_lbl)
+
+	var dyn_max_spin = SpinBox.new()
+	dyn_max_spin.min_value = 0.20
+	dyn_max_spin.max_value = 3.00
+	dyn_max_spin.step = 0.10
+	dyn_max_spin.value = SettingsManager.get_setting("analysis_dynamic_max", 0.80)
+	dyn_max_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_dynamic_max", float(val)))
+	dyn_max_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	dyn_max_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	dyn_max_row.add_child(dyn_max_spin)
+	vbox.add_child(dyn_max_row)
+
+	# 2. Temps fixe par coup
+	var time_row = HBoxContainer.new()
+	time_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var time_lbl = Label.new()
+	time_lbl.text = "Temps par demi-coup (s) :"
+	time_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	time_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	time_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	time_row.add_child(time_lbl)
+
+	var time_spin = SpinBox.new()
+	time_spin.min_value = 0.10
+	time_spin.max_value = 3.00
+	time_spin.step = 0.05
+	time_spin.value = SettingsManager.get_setting("analysis_time_per_move", 0.30)
+	time_spin.value_changed.connect(func(val): SettingsManager.set_setting("analysis_time_per_move", float(val)))
+	time_spin.custom_minimum_size.y = DesignTokens.TOUCH_MIN
+	time_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	time_row.add_child(time_spin)
+	vbox.add_child(time_row)
+
+	# 3. Profondeur Analyse Globale (Bilan de partie)
 	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
 	var anal_depth_row = HBoxContainer.new()
 	anal_depth_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var anal_depth_lbl = Label.new()
-	anal_depth_lbl.text = "Profondeur analyse de partie (Bilan) :"
+	anal_depth_lbl.text = "Profondeur fixe (Bilan) :"
 	anal_depth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	anal_depth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	anal_depth_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -106,6 +195,22 @@ func _setup_ui() -> void:
 	anal_depth_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	anal_depth_row.add_child(anal_depth_spin)
 	vbox.add_child(anal_depth_row)
+
+	var update_mode_visibility = func(mode_idx: int):
+		dyn_base_row.visible = (mode_idx == 0)
+		dyn_max_row.visible = (mode_idx == 0)
+		time_row.visible = (mode_idx == 1)
+		anal_depth_row.visible = (mode_idx == 2)
+	
+	update_mode_visibility.call(mode_opt.selected)
+
+	mode_opt.item_selected.connect(func(idx):
+		match idx:
+			0: SettingsManager.set_setting("analysis_mode", "dynamic")
+			1: SettingsManager.set_setting("analysis_mode", "time")
+			2: SettingsManager.set_setting("analysis_mode", "depth")
+		update_mode_visibility.call(idx)
+	)
 
 	# Mémoire (Hash) — Stockfish
 	var hash_row = HBoxContainer.new()
@@ -129,7 +234,7 @@ func _setup_ui() -> void:
 	vbox.add_child(hash_row)
 
 	var param_note = Label.new()
-	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Profondeur Live : évaluation instantanée coup par coup sur l'échiquier (rapide, sans coupure moteur).\n• Profondeur Bilan : analyse approfondie de toute la partie (précision, gaffes, ELO).\n• Threads & Hash : nombre de cœurs CPU et mémoire cache (redémarre le moteur si modifié)."
+	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Mode Dynamique : vitesse maximale sur les coups évidents (0.15s) et approfondissement automatique sur les coups critiques.\n• Mode Temps fixe : durée garantie par demi-coup (0.1s à 3.0s).\n• Mode Profondeur : analyse à profondeur UCI fixe.\n• Intervalles de confiance (IC 95%) : calculés statistiquement sur les évaluations et les ELO avec test de Welch (*, **, ***).\n• Threads & Hash : nombre de cœurs CPU et mémoire cache (redémarre le moteur si modifié)."
 	param_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	param_note.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	param_note.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
