@@ -54,7 +54,7 @@
 
 1. **Stockfish fonctionnel sur Android** — découverte et exécution du binaire natif via un plugin Android (`ProcessBuilder` depuis `nativeLibraryDir`), contournement des limites SELinux (`user://` → dossier natif), correctif de routage des chemins (`/data/...` vs `user://`).
 2. **Durcissement `EngineManager`** — découverte tolérante du dossier natif, contrôle de validité ELF, **auto-réparation** (copie du moteur vers `user://`, chmod, relance, persistance du chemin), **diagnostics runtime** Android (stades « introuvable / échec de démarrage »), tests de régression purs (parsing du répertoire natif).
-3. **Jalon M1 — Ergonomie & accessibilité** — création de `DesignTokens` (tailles, cibles tactiles, palette AA), barre haute refaite (boutons 46×60, menu **Importer**), onglets bas restylés, audit complet des tailles en dur, contrastes corrigés (WCAG AA), retour à la ligne intelligent, **zones sûres** dynamiques.
+3. **Jalon M1 — Ergonomie & accessibilité** *(terminé et validé, sept. 2026 — cf. feuille de route, section M1)* — création de `DesignTokens` (tailles, cibles tactiles, palette AA), barre haute refaite (boutons 46×60, menu **Importer**), onglets bas restylés, audit complet des tailles en dur, contrastes corrigés (WCAG AA), retour à la ligne intelligent, **zones sûres** dynamiques.
 4. **Défilement tactile** — ascenseurs élargis et **glissé direct** sur les listes/ScrollContainer (dont les listes remplies de boutons).
 5. **Coach : vraie zone de conversation** — transcript chat enrichi et **prompts par tuiles** (fenêtre dédiée non scrollable, perspective intégrée).
 6. **Libellés des joueurs** en haut/bas du plateau (pastille de couleur + nom), masqués quand inconnus, suivant l'orientation du plateau.
@@ -63,11 +63,10 @@
 
 ## 4. Prochaines évolutions en vue (roadmap)
 
-Ordre recommandé dans la feuille de route : **M1+M2+M8** avant diffusion large, **M3+M4** ensuite, **M5+M6** en parallèle, **M7** exploratoire.
+Ordre recommandé dans la feuille de route (M1 livré) : **M2+M8** avant diffusion large, **M3+M4** ensuite, **M5+M6** en parallèle, **M7** exploratoire.
 
 | Jalon | Contenu visé | Effort |
 |---|---|---|
-| **M1** | Ergonomie & accessibilité (tokens, zones sûres, tailles/contraste) — *en cours de finalisation* | M |
 | **M2** | Navigation temporelle fluide (anti-flash/écrasement d'animations, throttling du scrub du graphe, libellé de ply) | S |
 | **M3** | Coups groupés par qualité (service partagé, mini-barres, filtres, perte cp) — dépend de M2 | M |
 | **M4** | Synthèse vocale (TTS) des commentaires du coach — selon le pattern plugin Android validé | M |

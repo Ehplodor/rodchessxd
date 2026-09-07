@@ -1,7 +1,8 @@
 # RodChessXD — Prochaines étapes : UX, Coach IA, données (plan v3)
 
 > Plan à destination des prochaines personnes sur RodChessXD. v3 : spécifications
-> câblées à l'état réel du code (signaux, formats, composants). Rien n'est implémenté.
+> câblées à l'état réel du code (signaux, formats, composants). **Jalon M1 livré**
+> (sept. 2026, cf. sa section ci-dessous) ; M2 → M8 non implémentés.
 >
 > Contexte : Godot 4.7.1, gl_compatibility, viewport 450x800, persistance JSON
 > (`user://library/games_index.json` + 1 fichier JSON par partie), autoloads
@@ -58,7 +59,12 @@
 
 ---
 
-## Jalon M1 — Ergonomie & accessibilité (P0)
+## Jalon M1 — Ergonomie & accessibilité (P0) — ✅ TERMINÉ
+
+> **Statut (sept. 2026) : terminé et livré.** DesignTokens créés et appliqués,
+> barre haute et onglets refaits, modales auditées, zones sûres dynamiques,
+> contrastes AA et retour à la ligne validés, retours de test mobile intégrés.
+> Synthèse dans la fiche d'état (§3, évolution 3).
 
 Règles : cible ≥ 44 px ; boutons principaux ≥ 56-70 px (48-56 dp à ~1,25 px/dp,
 à confirmer sur appareil réel) ; texte ≥ 14 (corps) / ≥ 16 (boutons) ; safe areas.
@@ -71,8 +77,8 @@ Règles : cible ≥ 44 px ; boutons principaux ≥ 56-70 px (48-56 dp à ~1,25 p
 4. Acceptance : parcours complet sans à-côté ; test petit/grand écran ; scaling
    système 1.25x ; rien sous encoche/barre de gestes.
 
-Checklist : [ ] tokens créés et appliqués [ ] barre haute refaite [ ] audit modals
-[ ] test 2 appareils [ ] inventaire des tailles en dur terminé.
+Checklist : [x] tokens créés et appliqués [x] barre haute refaite [x] audit modals
+[x] test 2 appareils [x] inventaire des tailles en dur terminé.
 
 ---
 
@@ -261,16 +267,16 @@ Checklist : [ ] meta par pseudo [ ] itération mois [ ] upsert par url
 
 | Jalon | Thème | Effort | Dépend de |
 |---|---|---|---|
-| M1 | Ergonomie/accessibilité | M | — |
+| M1 ✅ (terminé 09/2026) | Ergonomie/accessibilité | M | — |
 | M2 | Navigation fluide | S | — |
 | M3 | Coups par qualité | M | M2 |
 | M4 | TTS coach | M | pattern plugin |
 | M5 | Coach enrichi + anti-ban | L | M3 |
 | M6 | Sync chess.com + sources | M | — |
 | M7 | ELO/entraînement | L | M3+M6 |
-| M8 | Beta/observabilité | S | M1 |
+| M8 | Beta/observabilité | S | M1 (livré) |
 
-Recommandé : M1+M2+M8 avant diffusion large ; M3+M4 ensuite ; M5+M6 en parallèle ;
+Recommandé (M1 livré) : M2+M8 avant diffusion large ; M3+M4 ensuite ; M5+M6 en parallèle ;
 M7 exploratoire.
 
 Risques :
