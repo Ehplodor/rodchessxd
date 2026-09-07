@@ -171,13 +171,14 @@ func _draw() -> void:
 	# 3. État sans données : Affichage explicite du mode d'emploi
 	var total_points = evaluations.size()
 	if total_points < 2:
-		var msg1 = "📈 Courbe d'Avantage Stockfish"
-		var msg2 = "Cliquez sur '🔍 Analyser Partie' pour tracer l'évaluation coup par coup"
-		var msg1_w = default_font.get_string_size(msg1, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-		var msg2_w = default_font.get_string_size(msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-		# M1 : texte d'état sur deux lignes dans 90 px de hauteur (msg2 à 13 px max)
-		draw_string(default_font, Vector2((w - msg1_w) * 0.5, mid_y - 4), msg1, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, DesignTokens.TEXT_SECONDARY)
-		draw_string(default_font, Vector2((w - msg2_w) * 0.5, mid_y + 18), msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DesignTokens.TEXT_MUTED)
+		var msg1 = "📈 Courbe d'Avantage"
+		var msg2 = "Touchez « Analyser » sous le plateau pour la tracer"
+		var s1 := 18
+		var s2 := 15
+		var msg1_w = default_font.get_string_size(msg1, HORIZONTAL_ALIGNMENT_LEFT, -1, s1).x
+		var msg2_w = default_font.get_string_size(msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, s2).x
+		draw_string(default_font, Vector2((w - msg1_w) * 0.5, mid_y - 8), msg1, HORIZONTAL_ALIGNMENT_LEFT, -1, s1, DesignTokens.TEXT_SECONDARY)
+		draw_string(default_font, Vector2((w - msg2_w) * 0.5, mid_y + 16), msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, s2, DesignTokens.TEXT_MUTED)
 		return
 
 	# 4. Calcul des coordonnées des points

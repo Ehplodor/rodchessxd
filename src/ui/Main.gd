@@ -14,22 +14,23 @@ const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
 const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 
-@onready var eval_bar: EvalBar2D = $VBox/BottomTabs/Echiquier/CenterArea/EvalBar
-@onready var chess_board: ChessBoard2D = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/BoardContainer/ChessBoard
-@onready var advantage_graph: AdvantageGraph2D = $VBox/BottomTabs/Bilan/GraphContainer/AdvantageGraph
-@onready var move_list: MoveList2D = $VBox/BottomTabs/Bilan/MoveList
-@onready var coach_panel: CoachPanel2D = $VBox/BottomTabs/Coach/CoachPanel
-@onready var bottom_tabs: TabContainer = $VBox/BottomTabs
+@onready var eval_bar: EvalBar2D = $VBox/CenterArea/EvalBar
+@onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
+@onready var advantage_graph: AdvantageGraph2D = $VBox/Dashboard/GraphPanel/AdvantageGraph
+@onready var move_list: MoveList2D = $AnalyseOverlay/Layout/MoveList
+@onready var coach_panel: CoachPanel2D = $CoachOverlay/Layout/CoachPanel
+@onready var analyse_overlay: Control = $AnalyseOverlay
+@onready var coach_overlay: Control = $CoachOverlay
 
-@onready var stats_label: Label = $VBox/BottomTabs/Bilan/StatsLabel
+@onready var stats_label: Label = $VBox/Dashboard/StatsLabel
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
 
-@onready var player_top_row: MarginContainer = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerTop
-@onready var player_bottom_row: MarginContainer = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerBottom
-@onready var player_dot_top: PanelContainer = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerDotTop
-@onready var player_dot_bottom: PanelContainer = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerDotBottom
-@onready var player_name_top: Label = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop
-@onready var player_name_bottom: Label = $VBox/BottomTabs/Echiquier/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom
+@onready var player_top_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerTop
+@onready var player_bottom_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerBottom
+@onready var player_dot_top: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerDotTop
+@onready var player_dot_bottom: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerDotBottom
+@onready var player_name_top: Label = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop
+@onready var player_name_bottom: Label = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom
 
 @onready var sfx_move: AudioStreamPlayer = $Sounds/SfxMove
 @onready var sfx_capture: AudioStreamPlayer = $Sounds/SfxCapture
@@ -42,11 +43,6 @@ var error_label: Label = null
 var _error_token := 0
 
 func _ready() -> void:
-	# Nommer clairement les onglets du panneau inférieur
-	bottom_tabs.set_tab_title(0, "♟️ Échiquier")
-	bottom_tabs.set_tab_title(1, "📈 Graphe & Analyse")
-	bottom_tabs.set_tab_title(2, "🤖 Coach IA")
-
 	analyzer = GameAnalyzer.new()
 	analyzer.analysis_finished.connect(_on_analysis_finished)
 	analyzer.progress_updated.connect(func(cur, tot):
@@ -90,12 +86,20 @@ func _apply_modern_theme() -> void:
 	btn_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
 	btn_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
 
+	var tile_normal := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BTN_BORDER, 1, Vector2(12, 4))
+	var tile_hover := tile_normal.duplicate() as StyleBoxFlat
+	tile_hover.bg_color = DesignTokens.BTN_BG_HOVER
+	tile_hover.border_color = DesignTokens.BTN_BORDER_ACTIVE
+	var tile_pressed := tile_normal.duplicate() as StyleBoxFlat
+	tile_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
+	tile_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
+
 	var font_color_normal := DesignTokens.TEXT_PRIMARY
 	var font_color_hover := Color.WHITE
 
-	# Appliquer à tous les boutons de TopBar
-	var top_bar = $VBox/TopBar
-	for child in top_bar.get_children():
+	# Boutons de la barre du haut
+	for child in $VBox/TopBar.get_children():
 		if child is Button:
 			child.add_theme_stylebox_override("normal", btn_normal)
 			child.add_theme_stylebox_override("hover", btn_hover)
@@ -105,10 +109,10 @@ func _apply_modern_theme() -> void:
 			child.add_theme_color_override("font_pressed_color", font_color_normal)
 			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
-	# Appliquer aux boutons de navigation
-	var nav_row = $VBox/BottomTabs/Echiquier/NavRow
+	# Boutons de navigation sous le plateau (sauf le bouton Analyser)
+	var nav_row = $VBox/NavRow
 	for child in nav_row.get_children():
-		if child is Button and child != $VBox/BottomTabs/Echiquier/NavRow/BtnAnalyzeGame:
+		if child is Button and child != nav_row.get_node("BtnAnalyzeGame"):
 			child.add_theme_stylebox_override("normal", btn_normal)
 			child.add_theme_stylebox_override("hover", btn_hover)
 			child.add_theme_stylebox_override("pressed", btn_pressed)
@@ -118,14 +122,13 @@ func _apply_modern_theme() -> void:
 			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 	# Bouton Analyser Partie (accent émeraude, AA ≥ 4,5:1 sur normal et pressé)
-	var btn_analyze = $VBox/BottomTabs/Echiquier/NavRow/BtnAnalyzeGame
+	var btn_analyze: Button = nav_row.get_node("BtnAnalyzeGame")
 	var analyze_normal := DesignTokens.flat(DesignTokens.PRIMARY_BG, DesignTokens.RADIUS_SMALL,
-			DesignTokens.PRIMARY_BORDER, 1, Vector2(12, 2))
+			DesignTokens.PRIMARY_BORDER, 1, Vector2(10, 2))
 	var analyze_hover := analyze_normal.duplicate() as StyleBoxFlat
 	analyze_hover.border_color = DesignTokens.TEXT_PRIMARY
 	var analyze_pressed := analyze_normal.duplicate() as StyleBoxFlat
 	analyze_pressed.bg_color = DesignTokens.PRIMARY_BG_PRESSED
-
 	btn_analyze.add_theme_stylebox_override("normal", analyze_normal)
 	btn_analyze.add_theme_stylebox_override("hover", analyze_hover)
 	btn_analyze.add_theme_stylebox_override("pressed", analyze_pressed)
@@ -137,53 +140,48 @@ func _apply_modern_theme() -> void:
 	# Titre & badge d'évaluation
 	$VBox/TopBar/MarginContainer/AppTitle.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	$VBox/TopBar/MarginContainer/AppTitle.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	var eval_badge: PanelContainer = $VBox/TopBar/EvalBadge
-	eval_badge.add_theme_stylebox_override("panel",
+	$VBox/TopBar/EvalBadge.add_theme_stylebox_override("panel",
 			DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
 			Color.TRANSPARENT, 0, Vector2(10, 4)))
 	$VBox/TopBar/EvalBadge/EvalText.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	$VBox/TopBar/EvalBadge/EvalText.add_theme_color_override("font_color", DesignTokens.ACCENT)
 
-	# Onglets inférieurs : cibles hautes (~56 px), libellés lisibles
-	var tab_selected := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM,
-			Color.TRANSPARENT, 0, Vector2(14, 20))
-	tab_selected.corner_radius_top_left = 12
-	tab_selected.corner_radius_top_right = 12
-	tab_selected.corner_radius_bottom_left = 0
-	tab_selected.corner_radius_bottom_right = 0
-	var tab_unselected := DesignTokens.flat(DesignTokens.BG_BASE, DesignTokens.RADIUS_MEDIUM,
-			Color.TRANSPARENT, 0, Vector2(14, 20))
-	tab_unselected.corner_radius_top_left = 12
-	tab_unselected.corner_radius_top_right = 12
-	tab_unselected.corner_radius_bottom_left = 0
-	tab_unselected.corner_radius_bottom_right = 0
-	var tab_hovered := tab_unselected.duplicate() as StyleBoxFlat
-	tab_hovered.bg_color = DesignTokens.SURFACE_ELEVATED
-
-	var tabs: TabContainer = $VBox/BottomTabs
-	tabs.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	tabs.add_theme_color_override("font_selected_color", DesignTokens.TEXT_PRIMARY)
-	tabs.add_theme_color_override("font_unselected_color", DesignTokens.TEXT_MUTED)
-	tabs.add_theme_color_override("font_hovered_color", DesignTokens.TEXT_SECONDARY)
-	tabs.add_theme_stylebox_override("tab_selected", tab_selected)
-	tabs.add_theme_stylebox_override("tab_unselected", tab_unselected)
-	tabs.add_theme_stylebox_override("tab_selected_hover", tab_hovered)
-	tabs.add_theme_stylebox_override("tab_unselected_hover", tab_hovered)
-	tabs.add_theme_stylebox_override("panel",
-			DesignTokens.flat(DesignTokens.SURFACE, 0, Color.TRANSPARENT, 0, Vector2(10, 10)))
-
-	# Bandeau de stats (textes longs → retour à la ligne)
-	var stats: Label = $VBox/BottomTabs/Bilan/StatsLabel
+	# Bandeau stats (textes longs → retour à la ligne)
+	var stats: Label = $VBox/Dashboard/StatsLabel
 	stats.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	stats.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 	stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+	# Tuiles Analyse / Coach
+	for child in $VBox/Dashboard/Tiles.get_children():
+		if child is Button:
+			child.add_theme_stylebox_override("normal", tile_normal)
+			child.add_theme_stylebox_override("hover", tile_hover)
+			child.add_theme_stylebox_override("pressed", tile_pressed)
+			child.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+			child.add_theme_color_override("font_hover_color", font_color_hover)
+			child.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_PRIMARY)
+			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+
+	# Vues superposées : titres + boutons de fermeture
+	for overlay in [analyse_overlay, coach_overlay]:
+		var header: Node = overlay.get_node("Layout/Header")
+		header.get_node("Title").add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+		header.get_node("Title").add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		for c in header.get_children():
+			if c is Button:
+				c.add_theme_stylebox_override("normal", btn_normal)
+				c.add_theme_stylebox_override("hover", btn_hover)
+				c.add_theme_stylebox_override("pressed", btn_pressed)
+				c.add_theme_color_override("font_color", font_color_normal)
+				c.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 func _on_game_position_changed() -> void:
 	_update_player_labels()
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
 		advantage_graph.update_stored_analyses([])
-		stats_label.text = "Position de départ prête. Cliquez sur '🔍 Analyser Partie'."
+		stats_label.text = "Position de départ prête. Touchez « Analyser » sous le plateau."
 	else:
 		var dm = get_node_or_null("/root/DatabaseManager")
 		if dm and GameController.current_game_id != "":
@@ -338,9 +336,24 @@ func _on_btn_last_pressed() -> void:
 func _on_btn_flip_pressed() -> void:
 	GameController.flip_board()
 
-## Retour rapide à l'écran Échiquier (ex. clic sur un coup dans l'analyse).
+## Vues superposées (Analyse / Coach) par-dessus la vue principale.
+
+func _open_analyse_overlay() -> void:
+	move_list.refresh()
+	analyse_overlay.visible = true
+	move_child(analyse_overlay, get_child_count() - 1)
+
+func _open_coach_overlay() -> void:
+	coach_overlay.visible = true
+	move_child(coach_overlay, get_child_count() - 1)
+
+func _close_overlays() -> void:
+	analyse_overlay.visible = false
+	coach_overlay.visible = false
+
+## Retour à la vue principale (clic sur un coup dans l'analyse).
 func show_board_tab() -> void:
-	bottom_tabs.current_tab = 0
+	_close_overlays()
 
 # --- MENU « IMPORTER » (PNG / PGN / Chess.com) ---
 
@@ -532,5 +545,4 @@ func _on_analysis_finished(report: Dictionary) -> void:
 
 	move_list.refresh()
 
-	# Basculer immédiatement sur l'écran Graphe & Analyse pour visualiser en direct
-	bottom_tabs.current_tab = 1
+	# Le graphe permanent (sous l'échiquier) s'est mis à jour : on reste sur la vue principale.

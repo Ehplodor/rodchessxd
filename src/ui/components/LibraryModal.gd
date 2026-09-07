@@ -272,8 +272,8 @@ func _load_game(game_id: String) -> void:
 			var w_elo = last_ea.get("white_estimated_elo", 1500)
 			var b_elo = last_ea.get("black_estimated_elo", 1500)
 			main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO) [Archivée]" % [w_acc, w_elo, b_acc, b_elo]
-		if main.bottom_tabs:
-			main.bottom_tabs.current_tab = 1
+		if main and main.has_method("close_overlays"):
+			main.close_overlays()
 
 	game_selected.emit(game_id)
 	queue_free()
