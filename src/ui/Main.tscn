@@ -118,15 +118,57 @@ layout_mode = 2
 size_flags_vertical = 3
 script = ExtResource("2_eval")
 
-[node name="BoardContainer" type="CenterContainer" parent="VBox/CenterArea"]
+[node name="BoardColumn" type="VBoxContainer" parent="VBox/CenterArea"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="PlayerTop" type="MarginContainer" parent="VBox/CenterArea/BoardColumn"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 8
+
+[node name="PlayerTopRow" type="HBoxContainer" parent="VBox/CenterArea/BoardColumn/PlayerTop"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PlayerDotTop" type="PanelContainer" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+
+[node name="PlayerNameTop" type="Label" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
+layout_mode = 2
+text = ""
+
+[node name="BoardContainer" type="CenterContainer" parent="VBox/CenterArea/BoardColumn"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 
-[node name="ChessBoard" type="Control" parent="VBox/CenterArea/BoardContainer"]
+[node name="ChessBoard" type="Control" parent="VBox/CenterArea/BoardColumn/BoardContainer"]
 custom_minimum_size = Vector2(350, 350)
 layout_mode = 2
 script = ExtResource("3_board")
+
+[node name="PlayerBottom" type="MarginContainer" parent="VBox/CenterArea/BoardColumn"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_bottom = 4
+theme_override_constants/margin_right = 8
+
+[node name="PlayerBottomRow" type="HBoxContainer" parent="VBox/CenterArea/BoardColumn/PlayerBottom"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PlayerDotBottom" type="PanelContainer" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+
+[node name="PlayerNameBottom" type="Label" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
+layout_mode = 2
+text = ""
 
 [node name="NavRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2

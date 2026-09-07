@@ -15,7 +15,7 @@ const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 
 @onready var eval_bar: EvalBar2D = $VBox/CenterArea/EvalBar
-@onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardContainer/ChessBoard
+@onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
 @onready var advantage_graph: AdvantageGraph2D = $VBox/BottomTabs/Bilan/GraphContainer/AdvantageGraph
 @onready var move_list: MoveList2D = $VBox/BottomTabs/Bilan/MoveList
 @onready var coach_panel: CoachPanel2D = $VBox/BottomTabs/Coach/CoachPanel
@@ -23,6 +23,13 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 
 @onready var stats_label: Label = $VBox/BottomTabs/Bilan/StatsLabel
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
+
+@onready var player_top_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerTop
+@onready var player_bottom_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerBottom
+@onready var player_dot_top: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerDotTop
+@onready var player_dot_bottom: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerDotBottom
+@onready var player_name_top: Label = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop
+@onready var player_name_bottom: Label = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom
 
 @onready var sfx_move: AudioStreamPlayer = $Sounds/SfxMove
 @onready var sfx_capture: AudioStreamPlayer = $Sounds/SfxCapture
@@ -62,6 +69,7 @@ func _ready() -> void:
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		get_window().size_changed.connect(_apply_safe_insets)
 		_apply_safe_insets()
+	_update_player_labels()
 	call_deferred("_start_initial_eval")
 
 func _notification(what: int) -> void:
@@ -170,6 +178,7 @@ func _apply_modern_theme() -> void:
 	stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 func _on_game_position_changed() -> void:
+	_update_player_labels()
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
 		advantage_graph.update_stored_analyses([])
@@ -180,6 +189,55 @@ func _on_game_position_changed() -> void:
 			var g = dm.get_game(GameController.current_game_id)
 			var ea = g.get("engine_analyses", [])
 			advantage_graph.update_stored_analyses(ea)
+
+# --- LIBELLÉS JOUEURS EN HAUT / BAS DU PLATEAU ---
+
+const _UNKNOWN_PLAYER_NAMES := ["", "player 1", "player 2", "joueur 1", "joueur 2", "?"]
+
+func _is_unknown_player(name: String) -> bool:
+	var n = name.strip_edges().to_lower()
+	return n.is_empty() or n in _UNKNOWN_PLAYER_NAMES
+
+func _style_player_dot(dot: PanelContainer, side_is_white: bool) -> void:
+	var style := DesignTokens.flat(Color("#f8fafc") if side_is_white else Color("#0b0f17"),
+			DesignTokens.RADIUS_MEDIUM, Color("#cbd5e1"), 1)
+	dot.add_theme_stylebox_override("panel", style)
+
+func _update_player_labels() -> void:
+	if not is_node_ready() or player_name_top == null:
+		return
+	var headers: Dictionary = GameController.game.pgn_headers
+	var white_name: String = str(headers.get("White", "")).strip_edges()
+	var black_name: String = str(headers.get("Black", "")).strip_edges()
+
+	if _is_unknown_player(white_name) or _is_unknown_player(black_name):
+		player_top_row.visible = false
+		player_bottom_row.visible = false
+		return
+
+	var flipped: bool = GameController.board_flipped
+	var bottom_side_white: bool = not flipped
+	var top_side_white: bool = flipped
+
+	player_top_row.visible = true
+	player_bottom_row.visible = true
+
+	for lbl in [player_name_top, player_name_bottom]:
+		lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+
+	player_dot_top.visible = true
+	player_dot_bottom.visible = true
+	_style_player_dot(player_dot_top, top_side_white)
+	_style_player_dot(player_dot_bottom, bottom_side_white)
+
+	player_name_top.text = _clip_player_name(white_name if top_side_white else black_name)
+	player_name_bottom.text = _clip_player_name(white_name if bottom_side_white else black_name)
+
+func _clip_player_name(name: String, max_chars := 24) -> String:
+	if name.length() <= max_chars:
+		return name
+	return name.substr(0, max_chars - 1) + "…"
 
 func _start_initial_eval() -> void:
 	if EngineManager != null and EngineManager.is_engine_running:
