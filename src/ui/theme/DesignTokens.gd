@@ -90,29 +90,21 @@ const SCROLLBAR_W := 18
 ## Distance (px) avant qu'un glissé devienne un défilement.
 const SCROLL_DEADZONE := 20
 
-## Rend un conteneur défilable adapté au tactile : ascenseurs épais,
-## démarrage du glissé réduit (ScrollContainer), et propagation du drag à
-## travers les boutons remplissant la zone (sinon ils absorbent le glissé).
-## Accepte aussi un TextEdit (barres de défilement épaisses uniquement).
+## Rend un conteneur défilable adapté au tactile : ascenseurs épais et
+## défilement au doigt universel via l'autoload DragScroller (glissé = défilement,
+## appui simple = clic sur le bouton). Accepte aussi un TextEdit/RichTextLabel
+## (ascenseurs épais uniquement).
 static func touch_scroll(ctrl: Control) -> void:
 	if ctrl is ScrollContainer:
 		var sc := ctrl as ScrollContainer
 		sc.scroll_deadzone = SCROLL_DEADZONE
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree and tree.root and tree.root.has_node("DragScroller"):
+			tree.root.get_node("DragScroller").register(sc)
 	scrollbar_big(ctrl)
-	_propagate_drag(ctrl)
 
 ## Ascenseurs épais sur n'importe quel contrôle à barres internes
 ## (ScrollContainer, TextEdit, RichTextLabel...).
 static func scrollbar_big(ctrl: Control, px: int = SCROLLBAR_W) -> void:
 	ctrl.add_theme_constant_override("h_scroll", px)
 	ctrl.add_theme_constant_override("v_scroll", px)
-
-## Laisse les événements tactiles traverser les boutons vers le conteneur
-## parent (le clic sur le bouton continue de fonctionner : le glissé n'annule
-## que si le doigt bouge).
-static func _propagate_drag(root: Node) -> void:
-	for c in root.get_children():
-		if c is BaseButton:
-			c.mouse_filter = Control.MOUSE_FILTER_PASS
-		elif c is Control:
-			_propagate_drag(c)
