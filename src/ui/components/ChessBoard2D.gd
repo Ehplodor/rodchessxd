@@ -10,10 +10,11 @@ const THEMES := {
 		"name": "Émeraude Tournoi",
 		"light": Color("#ebecd0"), # Ivoire lumineux
 		"dark": Color("#739552"),  # Vert tournoi standard international
-		"selected": Color("#f7ec5944"),
+		"selected": Color(0.97, 0.92, 0.35, 0.40),
 		"selected_border": Color("#eab308"),
-		"legal_dot": Color("#1e293b2a"),
-		"legal_ring": Color("#1e293b44"),
+		"legal_dot": Color(0.12, 0.16, 0.22, 0.35),
+		"legal_ring": Color(0.92, 0.28, 0.28, 0.88),
+		"legal_hover": Color(0.97, 0.92, 0.35, 0.25),
 		"last_move": Color("#f7ec5935"),
 		"last_move_from": Color("#fef08a38"),
 		"last_move_to": Color("#facc1550"),
@@ -28,10 +29,11 @@ const THEMES := {
 		"name": "Ardoise Studio",
 		"light": Color("#f1f5f9"), # Blanc pur glacé
 		"dark": Color("#64748b"),  # Ardoise douce et fine
-		"selected": Color("#38bdf838"),
+		"selected": Color(0.22, 0.74, 0.97, 0.35),
 		"selected_border": Color("#0ea5e9"),
-		"legal_dot": Color("#0f172a2a"),
-		"legal_ring": Color("#0f172a44"),
+		"legal_dot": Color(0.08, 0.12, 0.18, 0.35),
+		"legal_ring": Color(0.96, 0.30, 0.30, 0.88),
+		"legal_hover": Color(0.22, 0.74, 0.97, 0.25),
 		"last_move": Color("#38bdf82b"),
 		"last_move_from": Color("#bae6fd38"),
 		"last_move_to": Color("#38bdf850"),
@@ -46,10 +48,11 @@ const THEMES := {
 		"name": "Bois Précieux",
 		"light": Color("#f0d9b5"), # Érable naturel
 		"dark": Color("#b58863"),  # Noyer chaud
-		"selected": Color("#60a5fa38"),
+		"selected": Color(0.38, 0.65, 0.98, 0.35),
 		"selected_border": Color("#3b82f6"),
-		"legal_dot": Color("#1e293b2a"),
-		"legal_ring": Color("#1e293b44"),
+		"legal_dot": Color(0.15, 0.12, 0.10, 0.35),
+		"legal_ring": Color(0.92, 0.25, 0.25, 0.88),
+		"legal_hover": Color(0.38, 0.65, 0.98, 0.25),
 		"last_move": Color("#f59e0b35"),
 		"last_move_from": Color("#fde68a38"),
 		"last_move_to": Color("#f59e0b50"),
@@ -69,9 +72,9 @@ var piece_sprites: Dictionary = {} # sq -> TextureRect
 var piece_textures: Dictionary = {}
 
 var hovered_sq: int = -1
-var dragged_sq: int = -1
-var drag_texture_rect: TextureRect = null
-var drag_offset: Vector2 = Vector2.ZERO
+var press_sq: int = -1
+var press_pos: Vector2 = Vector2.ZERO
+var is_pointer_down: bool = false
 
 var last_move_from: int = -1
 var last_move_to: int = -1
@@ -162,8 +165,6 @@ var arrow_overlay: ArrowOverlay = null
 var flying_piece: TextureRect = null
 var move_anim_duration: float = 0.28
 var is_animating_move: bool = false
-var pending_drag_move: bool = false
-var drag_release_pos: Vector2 = Vector2.ZERO
 var displayed_ply_index: int = -1
 var _last_flipped_state := false
 
@@ -219,6 +220,9 @@ func _notification(what: int) -> void:
 		_update_dimensions()
 		if not is_animating_move:
 			reset_board_visuals()
+	elif what == NOTIFICATION_MOUSE_EXIT:
+		hovered_sq = -1
+		_redraw_board_and_overlays()
 
 func _update_dimensions() -> void:
 	var side = min(size.x, size.y)
@@ -260,15 +264,6 @@ func _create_piece_nodes() -> void:
 	arrow_overlay.size = Vector2(board_size, board_size)
 	arrow_overlay.position = Vector2.ZERO
 	add_child(arrow_overlay)
-
-	# Node flottant pour le drag & drop
-	drag_texture_rect = TextureRect.new()
-	drag_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	drag_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	drag_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	drag_texture_rect.visible = false
-	drag_texture_rect.z_index = 30
-	add_child(drag_texture_rect)
 
 	# Node dédié au vol d'animation des pièces (au-dessus du plateau, fluide et stable)
 	flying_piece = TextureRect.new()
@@ -317,7 +312,7 @@ func _clear_ghost_sprites() -> void:
 	
 	var sprite_nodes = piece_sprites.values()
 	for child in get_children():
-		if child is TextureRect and child != drag_texture_rect and child != flying_piece and not (child in sprite_nodes):
+		if child is TextureRect and child != flying_piece and not (child in sprite_nodes):
 			remove_child(child)
 			child.queue_free()
 
@@ -326,12 +321,7 @@ func reset_board_visuals(preserve_best_move: bool = false) -> void:
 	_clear_active_tweens()
 	_clear_ghost_sprites()
 	is_animating_move = false
-	pending_drag_move = false
-	drag_release_pos = Vector2.ZERO
 	
-	dragged_sq = -1
-	if drag_texture_rect:
-		drag_texture_rect.visible = false
 	if flying_piece:
 		flying_piece.visible = false
 	
@@ -400,13 +390,8 @@ func _animate_move(move: ChessMove) -> void:
 	if move.to_sq in piece_sprites:
 		piece_sprites[move.to_sq].visible = false
 	
-	# Si le coup a été joué en drag & drop avec déplacement significatif, animer depuis le relâchement
+	# Animation du déplacement depuis la case d'origine
 	var from_pos = start_pos
-	if pending_drag_move and drag_release_pos != Vector2.ZERO:
-		if drag_release_pos.distance_to(end_pos) > square_size * 0.4:
-			from_pos = drag_release_pos
-		pending_drag_move = false
-		drag_release_pos = Vector2.ZERO
 	
 	# Déclenchement de l'explosion vibrante de capture
 	if move.captured_piece != ChessPiece.Type.NONE:
@@ -742,10 +727,15 @@ func _draw() -> void:
 				draw_rect(rect, to_col)
 				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, 1.5)
 
-			# Case sélectionnée avec bordure fine et aura lumineuse
+			# Case sélectionnée avec fond lumineux chaleureux (sous la pièce)
 			if gc and sq == gc.selected_square:
 				draw_rect(rect, theme["selected"])
-				draw_rect(rect, theme.get("selected_border", Color("#0ea5e9")), false, 1.5)
+				draw_rect(rect, theme.get("selected_border", Color("#eab308")), false, 1.5)
+
+			# Surbrillance subtile au survol d'une case de destination autorisée
+			if gc and gc.selected_square != -1 and sq == hovered_sq and sq in gc.legal_destinations:
+				var hov_col = theme.get("legal_hover", Color(1.0, 1.0, 1.0, 0.22))
+				draw_rect(rect, hov_col)
 
 			# Roi en échec avec pulsation rougeoyante fine
 			if sq == in_check_sq:
@@ -768,16 +758,14 @@ func _draw() -> void:
 				var text_pos = rect.position + Vector2(square_size - coord_font_size - 4, square_size - 3)
 				draw_string(font, text_pos, file_char, HORIZONTAL_ALIGNMENT_LEFT, -1, coord_font_size, text_col)
 
-			# Points de déplacement & anneaux de capture fins
-			if gc and sq in gc.legal_destinations:
+			# Points de déplacement & anneaux de capture (rendus si pas d'arrow_overlay)
+			if not arrow_overlay and gc and sq in gc.legal_destinations:
 				var center = rect.position + rect.size * 0.5
 				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
 				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
-					# Anneau de capture précis et fin
-					draw_arc(center, square_size * 0.43, 0, TAU, 48, theme["legal_ring"], 2.0)
+					draw_arc(center, square_size * 0.43, 0, TAU, 48, theme["legal_ring"], 2.5)
 				else:
-					# Point délicat centré
-					draw_circle(center, square_size * 0.15, theme["legal_dot"])
+					draw_circle(center, square_size * 0.16, theme["legal_dot"])
 
 	# 2. Contour fin du plateau
 	draw_rect(Rect2(0, 0, board_size, board_size), Color(0.1, 0.15, 0.2, 0.25), false, 1.0)
@@ -793,23 +781,26 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 	var theme = _get_active_theme()
 	var gc = _get_game_controller()
 
-	# 1. Mise en valeur de la case sélectionnée et cibles légales au premier plan (z_index=5)
+	# 1. Mise en valeur de la sélection et cibles légales (z_index=5 au-dessus des pièces)
 	if gc:
 		if gc.selected_square != -1:
 			var sel_pos = _get_square_screen_pos(gc.selected_square)
 			var sel_rect = Rect2(sel_pos, Vector2(square_size, square_size))
-			ci.draw_rect(sel_rect, theme.get("selected", Color(0.14, 0.65, 0.95, 0.35)))
-			ci.draw_rect(sel_rect, theme.get("selected_border", Color("#0ea5e9")), false, 2.0)
+			# Bordure nette au premier plan encadrant la pièce sélectionnée
+			ci.draw_rect(sel_rect, theme.get("selected_border", Color("#0ea5e9")), false, 2.5)
 
 		for sq in gc.legal_destinations:
 			var center = _get_square_screen_pos(sq) + Vector2(square_size * 0.5, square_size * 0.5)
 			var piece_on_target = gc.game.get_piece(sq) if gc.game else null
 			if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
-				# Anneau de capture bien visible au-dessus de la pièce ennemie
-				ci.draw_arc(center, square_size * 0.43, 0, TAU, 48, theme.get("legal_ring", Color("#f59e0b")), 3.0)
+				# Anneau de capture bien visible au-dessus de la pièce ennemie prenable
+				var ring_col = theme.get("legal_ring", Color(0.92, 0.28, 0.28, 0.88))
+				ci.draw_arc(center + Vector2(1.0, 1.0), square_size * 0.43, 0, TAU, 48, Color(0, 0, 0, 0.35), 3.5)
+				ci.draw_arc(center, square_size * 0.43, 0, TAU, 48, ring_col, 3.5)
 			else:
 				# Disque discret et lisible pour case vide
-				ci.draw_circle(center, square_size * 0.16, theme.get("legal_dot", Color("#38bdf888")))
+				var dot_col = theme.get("legal_dot", Color(0.12, 0.16, 0.22, 0.35))
+				ci.draw_circle(center, square_size * 0.16, dot_col)
 
 	# 2. Flèche fine rouge carmin en pointillés du dernier coup joué
 	if last_move_from != -1 and last_move_to != -1 and not is_animating_move:
@@ -894,75 +885,87 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 	var p3 = shaft_end - perp * (head_width * 0.5)
 	canvas.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
 
-# --- GESTION TACTILE & SOURIS ---
+# --- GESTION TACTILE & SOURIS (Clic pour sélectionner, Clic pour déplacer) ---
+
+func _redraw_board_and_overlays() -> void:
+	if arrow_overlay:
+		arrow_overlay.size = Vector2(board_size, board_size)
+		arrow_overlay.queue_redraw()
+	queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			var sq = _pos_to_square(event.position)
 			if event.pressed:
-				_handle_press(sq, event.position)
+				is_pointer_down = true
+				press_sq = sq
+				press_pos = event.position
+				_handle_pointer_press(sq, event.position)
 			else:
-				_handle_release(sq, event.position)
-	elif event is InputEventMouseMotion:
-		if dragged_sq != -1:
-			drag_texture_rect.position = event.position - drag_offset
+				if is_pointer_down:
+					_handle_pointer_release(sq, event.position)
+					is_pointer_down = false
+					press_sq = -1
 	elif event is InputEventScreenTouch:
 		var sq = _pos_to_square(event.position)
 		if event.pressed:
-			_handle_press(sq, event.position)
+			is_pointer_down = true
+			press_sq = sq
+			press_pos = event.position
+			_handle_pointer_press(sq, event.position)
 		else:
-			_handle_release(sq, event.position)
-	elif event is InputEventScreenDrag:
-		if dragged_sq != -1:
-			drag_texture_rect.position = event.position - drag_offset
+			if is_pointer_down:
+				_handle_pointer_release(sq, event.position)
+				is_pointer_down = false
+				press_sq = -1
+	elif event is InputEventMouseMotion:
+		var sq = _pos_to_square(event.position)
+		if sq != hovered_sq:
+			hovered_sq = sq
+			_redraw_board_and_overlays()
 
-func _handle_press(sq: int, pos: Vector2) -> void:
-	if sq == -1:
+func _handle_pointer_press(sq: int, _pos: Vector2) -> void:
+	if is_animating_move:
 		return
 	
 	var gc = _get_game_controller()
 	if not gc or not gc.game:
 		return
 	
-	var piece = gc.game.get_piece(sq)
-	if piece.type != ChessPiece.Type.NONE and piece.color == gc.game.active_color:
-		dragged_sq = sq
-		var key = Vector2i(piece.type, piece.color)
-		drag_texture_rect.texture = piece_textures.get(key, null)
-		drag_texture_rect.size = Vector2(square_size * 1.08, square_size * 1.08)
-		drag_texture_rect.position = pos - Vector2(square_size * 0.54, square_size * 0.54)
-		drag_offset = Vector2(square_size * 0.54, square_size * 0.54)
-		drag_texture_rect.visible = true
-		if sq in piece_sprites:
-			piece_sprites[sq].visible = false
-
+	if sq == -1:
+		if gc.selected_square != -1:
+			gc.deselect_square()
+			_redraw_board_and_overlays()
+		return
+	
+	# Appel du GameController centralisé :
+	# - Re-clic sur la même pièce -> désélectionne (gc.select_square vérifie selected_square == sq)
+	# - Clic sur une case autorisée -> exécute le coup (try_play_move)
+	# - Clic sur une autre pièce de la même couleur -> change la sélection sur cette pièce
+	# - Clic sur une case non autorisée ou vide -> désélectionne
 	gc.select_square(sq)
-	queue_redraw()
+	emit_signal("square_clicked", sq)
+	_redraw_board_and_overlays()
 
-func _handle_release(to_sq: int, _pos: Vector2) -> void:
+func _handle_pointer_release(to_sq: int, pos: Vector2) -> void:
+	if is_animating_move:
+		return
+	
 	var gc = _get_game_controller()
-	if dragged_sq != -1:
-		var from_sq = dragged_sq
-		dragged_sq = -1
-		
-		if to_sq != -1 and to_sq != from_sq and gc:
-			pending_drag_move = true
-			drag_release_pos = drag_texture_rect.position
-			var move_success = gc.try_play_move(from_sq, to_sq)
-			if move_success:
-				drag_texture_rect.visible = false
-				# L'animation _animate_move prend le relais avec le snap fluide
-				return
-			else:
-				pending_drag_move = false
-				drag_release_pos = Vector2.ZERO
-		
-		# Coup annulé ou invalide : retour à la case
-		drag_texture_rect.visible = false
-		if from_sq in piece_sprites:
-			piece_sprites[from_sq].visible = true
-		reset_board_visuals()
+	if not gc or not gc.game:
+		return
+	
+	# Gestion du glissé volontaire d'une case de départ vers une case d'arrivée distincte
+	if press_sq != -1 and to_sq != -1 and to_sq != press_sq:
+		var dist = pos.distance_to(press_pos)
+		if dist > square_size * 0.35:
+			if gc.selected_square == press_sq and to_sq in gc.legal_destinations:
+				gc.try_play_move(press_sq, to_sq)
+			elif gc.selected_square != -1:
+				gc.deselect_square()
+			_redraw_board_and_overlays()
+	# Si release sur la même case (simple clic/tap) : ne rien faire, la pièce reste sélectionnée !
 
 func _pos_to_square(pos: Vector2) -> int:
 	if pos.x < 0 or pos.x >= board_size or pos.y < 0 or pos.y >= board_size:
@@ -1042,10 +1045,10 @@ func _on_position_changed() -> void:
 	reset_board_visuals()
 
 func _on_square_selected(_sq: int, _moves: Array) -> void:
-	queue_redraw()
+	_redraw_board_and_overlays()
 
 func _on_square_deselected() -> void:
-	queue_redraw()
+	_redraw_board_and_overlays()
 
 func _on_move_made(move: ChessMove) -> void:
 	var gc = _get_game_controller()
