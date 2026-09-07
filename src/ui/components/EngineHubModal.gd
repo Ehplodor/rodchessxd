@@ -72,10 +72,34 @@ func _add_engine_selector(parent: Node) -> void:
 
 func _activate_stockfish() -> void:
 	if EngineManager.is_engine_profile_active("stockfish") and EngineManager.is_engine_available():
-		status_lbl.text = "Stockfish est déjà actif."
+		_restart_stockfish()
 		return
+	status_lbl.text = "Démarrage de Stockfish..."
 	var ok = EngineManager.set_engine_profile("stockfish")
-	status_lbl.text = "Stockfish redémarré." if ok else "⚠ Impossible de démarrer Stockfish (binaire non exécutable ?)."
+	if ok:
+		status_lbl.text = "✅ Stockfish démarré."
+		var tree = get_tree()
+		if tree and tree.root and tree.root.has_node("GameController"):
+			var gc = tree.root.get_node("GameController")
+			if gc and gc.game:
+				EngineManager.evaluate_position(gc.game.get_fen())
+	else:
+		status_lbl.text = "⚠ Impossible de démarrer Stockfish (binaire non exécutable ?)."
+	_reload()
+
+func _restart_stockfish() -> void:
+	status_lbl.text = "Redémarrage de Stockfish en cours..."
+	var ok = EngineManager.restart_engine()
+	if ok:
+		status_lbl.text = "✅ Stockfish redémarré avec succès."
+		var tree = get_tree()
+		if tree and tree.root and tree.root.has_node("GameController"):
+			var gc = tree.root.get_node("GameController")
+			if gc and gc.game:
+				EngineManager.evaluate_position(gc.game.get_fen())
+	else:
+		status_lbl.text = "⚠ Impossible de redémarrer Stockfish."
+	_reload()
 
 func _start_lc0_download() -> void:
 	if EngineManager.is_lc0_download_active():
@@ -99,12 +123,19 @@ func _make_choice_button(label_text: String) -> Button:
 
 func _pick_engine(profile: String, maia_fn: String) -> void:
 	var ok = EngineManager.set_engine_profile(profile, maia_fn)
+	if ok:
+		var tree = get_tree()
+		if tree and tree.root and tree.root.has_node("GameController"):
+			var gc = tree.root.get_node("GameController")
+			if gc and gc.game:
+				EngineManager.evaluate_position(gc.game.get_fen())
 	if profile == "maia_lc0" and ok:
 		status_lbl.text = "Moteur Maia (%s) sélectionné et démarré." % maia_fn
 	elif profile == "stockfish" and ok:
-		status_lbl.text = "Moteur Stockfish sélectionné."
+		status_lbl.text = "Moteur Stockfish sélectionné et prêt."
 	else:
 		status_lbl.text = "⚠ Moteur indisponible : vérifiez lc0 / le réseau Maia."
+	_reload()
 
 func _setup_ui() -> void:
 	var vbox = VBoxContainer.new()
@@ -157,9 +188,9 @@ func _setup_ui() -> void:
 	# 1. Stockfish
 	var sf_active = EngineManager.is_engine_profile_active("stockfish") and EngineManager.is_engine_available()
 	if sf_active:
-		_add_engine_card(engines_list, "Stockfish 19 (Actif)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. En cours d'exécution.", true, "")
+		_add_engine_card(engines_list, "Stockfish 19 (Actif)", "Moteur mondial #1 avec réseau neuronal NNUE intégré. En cours d'exécution.", true, "", _restart_stockfish, "Redémarrer")
 	elif EngineManager.has_engine_binary():
-		_add_engine_card(engines_list, "Stockfish 19 (Disponible)", "Binaire présent mais moteur arrêté. Redémarrez Stockfish pour l'analyse.", false, "", _activate_stockfish, "Redémarrer")
+		_add_engine_card(engines_list, "Stockfish 19 (Disponible)", "Binaire présent mais moteur arrêté. Cliquez pour démarrer l'analyse.", false, "", _activate_stockfish, "Démarrer")
 	elif EngineManager.get_stockfish_download_available():
 		_add_engine_card(engines_list, "Stockfish 19 (Télécharger)", "Téléchargez automatiquement le moteur officiel depuis le dépôt Stockfish. Aucune installation manuelle requise.", false, "", _start_stockfish_download, "Télécharger")
 	else:
@@ -222,10 +253,13 @@ func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bo
 	text_box.add_child(desc_lbl)
 
 	var action_btn = Button.new()
-	action_btn.custom_minimum_size = Vector2(85, DesignTokens.TOUCH_MIN)
+	action_btn.custom_minimum_size = Vector2(90, DesignTokens.TOUCH_MIN)
 	action_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
-	if is_installed:
-		action_btn.text = "✓ Actif"
+	if on_download.is_valid() and action_label != "" and action_label != "Télécharger":
+		action_btn.text = action_label
+		action_btn.pressed.connect(on_download)
+	elif is_installed:
+		action_btn.text = "✓ Prêt"
 		action_btn.disabled = true
 	elif download_url != "":
 		action_btn.text = "Télécharger"
@@ -283,8 +317,13 @@ func _on_engine_download_failed(engine_name: String, error_msg: String) -> void:
 func _on_engine_ready() -> void:
 	_reload()
 
-func _reload() -> void:
+func _reload(preserve_msg: String = "") -> void:
+	var msg = preserve_msg
+	if msg == "" and status_lbl and is_instance_valid(status_lbl):
+		msg = status_lbl.text
 	for child in get_children():
 		if child != http_request:
 			child.queue_free()
 	_setup_ui()
+	if msg != "" and status_lbl and is_instance_valid(status_lbl):
+		status_lbl.text = msg

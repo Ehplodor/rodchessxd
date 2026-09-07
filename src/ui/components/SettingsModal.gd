@@ -6,19 +6,25 @@ func _ready() -> void:
 	title = "Paramètres & Clés IA"
 	size = Vector2i(410, 620)
 	exclusive = true
-	close_requested.connect(queue_free)
+	close_requested.connect(_on_save_and_close)
 	_setup_ui()
 
 func _setup_ui() -> void:
+	var root_vbox = VBoxContainer.new()
+	root_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root_vbox.offset_left = 10
+	root_vbox.offset_top = 10
+	root_vbox.offset_right = -10
+	root_vbox.offset_bottom = -10
+	root_vbox.add_theme_constant_override("separation", 8)
+	add_child(root_vbox)
+
 	var scroll = ScrollContainer.new()
 	DesignTokens.touch_scroll(scroll)
-	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
-	scroll.offset_left = 10
-	scroll.offset_top = 10
-	scroll.offset_right = -10
-	scroll.offset_bottom = -10
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	add_child(scroll)
+	root_vbox.add_child(scroll)
 
 	var vbox = VBoxContainer.new()
 	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -90,7 +96,7 @@ func _setup_ui() -> void:
 	vbox.add_child(hash_row)
 
 	var param_note = Label.new()
-	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Threads : plus de cœurs → plus rapide (Stockfish & lc0).\n• Profondeur (Depth) : plus élevée → analyse plus approfondie mais plus lente. Valeur basse = réponse rapide.\n• Hash : mémoire de transposition, utile sur les longues parties (Stockfish uniquement ; lc0 utilise son propre cache réseau).\nCes réglages s'appliquent au prochain démarrage du moteur (relancez via l'Engine Hub)."
+	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Threads : plus de cœurs → plus rapide (Stockfish & lc0).\n• Profondeur (Depth) : plus élevée → analyse plus approfondie mais plus lente. Valeur basse = réponse rapide.\n• Hash : mémoire de transposition, utile sur les longues parties (Stockfish uniquement ; lc0 utilise son propre cache réseau).\nCes réglages sont appliqués automatiquement à l'enregistrement (redémarrage instantané du moteur)."
 	param_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	param_note.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	param_note.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
@@ -247,14 +253,34 @@ func _setup_ui() -> void:
 	)
 	vbox.add_child(export_btn)
 
-	# Bouton Fermer
+	# Pied de fenêtre fixe : Bouton "Fermer & Enregistrer" TOUJOURS visible sans scroller
+	var bottom_bar = MarginContainer.new()
+	bottom_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bottom_bar.add_theme_constant_override("margin_top", 4)
+	bottom_bar.add_theme_constant_override("margin_bottom", 2)
+	root_vbox.add_child(bottom_bar)
+
 	var btn_close = Button.new()
-	btn_close.text = "Fermer & Enregistrer"
-	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_close.text = "💾 Fermer & Enregistrer"
 	btn_close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
-	btn_close.pressed.connect(queue_free)
-	vbox.add_child(btn_close)
+	var close_style = DesignTokens.flat(DesignTokens.PRIMARY_BG, DesignTokens.RADIUS_SMALL, DesignTokens.PRIMARY_BORDER, 1)
+	btn_close.add_theme_stylebox_override("normal", close_style)
+	btn_close.add_theme_color_override("font_color", DesignTokens.ON_PRIMARY)
+	btn_close.pressed.connect(_on_save_and_close)
+	bottom_bar.add_child(btn_close)
+
+func _on_save_and_close() -> void:
+	SettingsManager.save_settings()
+	var tree = get_tree()
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		var em = tree.root.get_node("EngineManager")
+		if em.has_method("apply_engine_settings"):
+			em.apply_engine_settings()
+		elif em.has_method("restart_engine"):
+			em.restart_engine()
+	queue_free()
 
 func _app_logger() -> Node:
 	var t := get_tree()

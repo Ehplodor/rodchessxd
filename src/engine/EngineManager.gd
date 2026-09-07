@@ -829,6 +829,24 @@ func set_engine_profile(profile_id: String, maia_filename: String = "") -> bool:
 	engine_profile_changed.emit(profile_id)
 	return start_engine()
 
+## Redémarre proprement le moteur pour appliquer les modifications de configuration
+func restart_engine() -> bool:
+	if is_engine_running:
+		stop_engine()
+	return start_engine()
+
+## Applique les paramètres modifiés et relance l'évaluation sur la position courante
+func apply_engine_settings() -> void:
+	if is_engine_running:
+		restart_engine()
+	else:
+		start_engine()
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("GameController"):
+		var gc = tree.root.get_node("GameController")
+		if gc and gc.game:
+			evaluate_position(gc.game.get_fen())
+
 func is_engine_profile_active(profile_id: String) -> bool:
 	return get_engine_profile() == profile_id
 
