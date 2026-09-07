@@ -151,9 +151,6 @@ func try_play_move(from_sq: int, to_sq: int, promotion_type: int = ChessPiece.Ty
 				else:
 					play_sound_requested.emit("move")
 				
-				var engine = _get_engine_manager()
-				if engine != null:
-					engine.evaluate_position(game.get_fen())
 				return true
 	deselect_square()
 	return false
@@ -169,10 +166,6 @@ func navigate_to_ply(ply_idx: int) -> void:
 	game.restore_state(current_ply_index + 1)
 	move_navigated.emit(current_ply_index)
 	position_changed.emit()
-
-	var engine = _get_engine_manager()
-	if engine != null:
-		engine.evaluate_position(game.get_fen())
 
 func go_first_move() -> void:
 	navigate_to_ply(-1)

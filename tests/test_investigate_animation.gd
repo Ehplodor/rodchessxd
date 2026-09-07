@@ -10,7 +10,7 @@ func _init() -> void:
 	await process_frame
 	await process_frame
 	
-	var board = main_instance.get_node("VBox/CenterArea/BoardContainer/ChessBoard") as ChessBoard2D
+	var board = main_instance.get_node("VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard") as ChessBoard2D
 	var gc = root.get_node("GameController")
 	
 	print("[DEBUG] Board node: ", board)

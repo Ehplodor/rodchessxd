@@ -138,9 +138,157 @@ func _on_games_fetched(games: Array[Dictionary]) -> void:
 
 	_render_games_list()
 
-func _on_fetch_error(msg: String) -> void:
+func _on_fetch_error(msg: String, diag: Dictionary = {}) -> void:
 	status_lbl.text = "❌ " + msg
 	status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+	if not diag.is_empty():
+		_show_diagnostic_popup(diag)
+
+## Pop-up persistant de diagnostic algorithmique réseau (sans minuterie d'auto-fermeture)
+func _show_diagnostic_popup(diag: Dictionary) -> void:
+	var old = get_node_or_null("DiagnosticOverlay")
+	if old:
+		old.queue_free()
+
+	var overlay = Control.new()
+	overlay.name = "DiagnosticOverlay"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 50
+	add_child(overlay)
+
+	# Voile sombre semi-transparent
+	var backdrop = ColorRect.new()
+	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	backdrop.color = Color(0.04, 0.06, 0.09, 0.88)
+	overlay.add_child(backdrop)
+
+	# Conteneur centré
+	var center = CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var card = PanelContainer.new()
+	card.custom_minimum_size = Vector2(380, 0)
+	var card_style = DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM, DesignTokens.BORDER, 2, Vector2(16, 16))
+	card.add_theme_stylebox_override("panel", card_style)
+	center.add_child(card)
+
+	var content_vbox = VBoxContainer.new()
+	content_vbox.add_theme_constant_override("separation", 10)
+	card.add_child(content_vbox)
+
+	# 1. En-tête : Titre
+	var header_box = VBoxContainer.new()
+	header_box.add_theme_constant_override("separation", 4)
+	content_vbox.add_child(header_box)
+
+	var title_lbl = Label.new()
+	title_lbl.text = "🚨 " + str(diag.get("title", "Diagnostic Réseau"))
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+	header_box.add_child(title_lbl)
+
+	# 2. Badges techniques (Pills)
+	var badge_row = HBoxContainer.new()
+	badge_row.add_theme_constant_override("separation", 6)
+	content_vbox.add_child(badge_row)
+
+	var code_val = int(diag.get("response_code", 0))
+	var pill_http = Label.new()
+	pill_http.text = " HTTP %d " % code_val
+	pill_http.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	var pill_style1 = DesignTokens.flat(DesignTokens.ERROR_BG if code_val == 0 or code_val >= 400 else DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL)
+	pill_http.add_theme_stylebox_override("normal", pill_style1)
+	pill_http.add_theme_color_override("font_color", DesignTokens.ERROR_TEXT if code_val == 0 or code_val >= 400 else DesignTokens.TEXT_PRIMARY)
+	badge_row.add_child(pill_http)
+
+	var pill_res = Label.new()
+	pill_res.text = " %s (%d) " % [diag.get("result_name", "UNKNOWN"), diag.get("result_code", -1)]
+	pill_res.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	var pill_style2 = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL, DesignTokens.BORDER, 1)
+	pill_res.add_theme_stylebox_override("normal", pill_style2)
+	pill_res.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	badge_row.add_child(pill_res)
+
+	var pill_os = Label.new()
+	pill_os.text = " %s " % ("Android" if diag.get("is_android", false) else str(diag.get("os_name", "OS")))
+	pill_os.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	var pill_style3 = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL)
+	pill_os.add_theme_stylebox_override("normal", pill_style3)
+	pill_os.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	badge_row.add_child(pill_os)
+
+	# 3. Zone déroulante pour le détail
+	var scroll = ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, 240)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	DesignTokens.touch_scroll(scroll)
+	content_vbox.add_child(scroll)
+
+	var text_vbox = VBoxContainer.new()
+	text_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_vbox.add_theme_constant_override("separation", 8)
+	scroll.add_child(text_vbox)
+
+	var cause_title = Label.new()
+	cause_title.text = "🔍 Cause algorithmique la plus probable :"
+	cause_title.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	cause_title.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	text_vbox.add_child(cause_title)
+
+	var cause_lbl = Label.new()
+	cause_lbl.text = str(diag.get("probable_cause", "Aucune information détaillée disponible."))
+	cause_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cause_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	cause_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	text_vbox.add_child(cause_lbl)
+
+	var sep = HSeparator.new()
+	text_vbox.add_child(sep)
+
+	var rec_title = Label.new()
+	rec_title.text = "💡 Vérifications conseillées :"
+	rec_title.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	rec_title.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	text_vbox.add_child(rec_title)
+
+	var recs: Array = diag.get("recommendations", [])
+	for r in recs:
+		var rec_lbl = Label.new()
+		rec_lbl.text = "• " + str(r)
+		rec_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		rec_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		rec_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		text_vbox.add_child(rec_lbl)
+
+	# 4. Boutons d'action : Copier le rapport et Fermer (SANS minuterie)
+	var btn_row = HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 10)
+	content_vbox.add_child(btn_row)
+
+	var btn_copy = Button.new()
+	btn_copy.text = "📋 Copier le rapport"
+	btn_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_copy.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+	btn_copy.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	DesignTokens.style_button(btn_copy)
+	var report_text = str(diag.get("formatted_report", ""))
+	btn_copy.pressed.connect(func():
+		DisplayServer.clipboard_set(report_text)
+		btn_copy.text = "✅ Rapport copié !"
+	)
+	btn_row.add_child(btn_copy)
+
+	var btn_close = Button.new()
+	btn_close.text = "Fermer"
+	btn_close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	DesignTokens.style_button(btn_close)
+	btn_close.pressed.connect(overlay.queue_free)
+	btn_row.add_child(btn_close)
 
 func _render_games_list() -> void:
 	for child in games_container.get_children():

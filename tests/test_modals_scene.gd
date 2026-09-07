@@ -31,7 +31,7 @@ func _init() -> void:
 	await create_timer(0.05).timeout
 
 	print("  6. Test ouverture ModelHubModal...")
-	var coach_panel = main_node.get_node("VBox/BottomTabs/Coach/CoachPanel")
+	var coach_panel = main_node.get_node("CoachOverlay/Layout/CoachPanel")
 	coach_panel._open_model_hub()
 	await create_timer(0.05).timeout
 

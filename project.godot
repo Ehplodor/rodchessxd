@@ -18,6 +18,9 @@ config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.0705882, 0.0823529, 0.109804, 1)
 boot_splash/show_image=false
 config/icon="res://icon.svg"
+run/low_processor_mode=true
+run/low_processor_mode_sleep_usec=6900
+run/max_fps=60
 
 [autoload]
 

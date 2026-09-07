@@ -35,6 +35,8 @@ var settings := {
 }
 
 func _ready() -> void:
+	if OS.has_feature("android") or OS.has_feature("ios"):
+		settings["engine_depth"] = 12
 	load_settings()
 
 func load_settings() -> void:

@@ -9,6 +9,8 @@ const MoveQualityService = preload("res://src/ui/components/MoveQualityService.g
 
 var container: VBoxContainer
 var move_buttons: Array[Button] = []
+var _active_btn: Button = null
+var _last_moves_count: int = -1
 
 # Filtre actif : 0 = tout, 1 = ?! , 2 = ? , 3 = ?? , 4 = positifs (✓ ! ★ !!)
 var _filter := 0
@@ -31,17 +33,26 @@ func _ready() -> void:
 	container.add_theme_constant_override("separation", 2)
 	add_child(container)
 
-	GameController.position_changed.connect(_refresh_moves)
+	GameController.position_changed.connect(_on_position_changed)
 	GameController.move_navigated.connect(_on_move_navigated)
 
 ## Rafraîchissement public (appelé aussi à la fin de l'analyse, cf. Main).
 func refresh() -> void:
 	_refresh_moves()
 
+func _on_position_changed() -> void:
+	var cur_count = GameController.game.move_history.size() if (GameController and GameController.game) else 0
+	if cur_count != _last_moves_count:
+		_refresh_moves()
+	else:
+		_update_active_button(GameController.current_ply_index if GameController else -1)
+
 func _refresh_moves() -> void:
 	for child in container.get_children():
 		child.queue_free()
 	move_buttons.clear()
+	_active_btn = null
+	_last_moves_count = GameController.game.move_history.size() if (GameController and GameController.game) else 0
 	scroll_vertical = 0  # revenir en haut : le récap reste visible
 
 	_build_recap()
@@ -147,6 +158,7 @@ func _build_dense(moves: Array, cur_ply: int) -> void:
 		current_row.add_child(btn)
 		if i == cur_ply:
 			_highlight_active(btn)
+			_active_btn = btn
 		move_buttons.append(btn)
 
 # Mode filtré : une ligne par coup visible (pleine largeur), pas de trou de layout.
@@ -161,6 +173,7 @@ func _build_filtered_single(moves: Array, cur_ply: int) -> void:
 		container.add_child(btn)
 		if i == cur_ply:
 			_highlight_active(btn)
+			_active_btn = btn
 		move_buttons.append(btn)
 
 func _make_move_button(m: ChessMove, ply: int) -> Button:
@@ -194,11 +207,42 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 	return btn
 
 func _highlight_active(btn: Button) -> void:
+	if not is_instance_valid(btn):
+		return
 	btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	var style := StyleBoxFlat.new()
 	style.bg_color = DesignTokens.SURFACE_ELEVATED
 	style.set_corner_radius_all(4)
 	btn.add_theme_stylebox_override("normal", style)
+
+func _reset_button_style(btn: Button) -> void:
+	if not is_instance_valid(btn):
+		return
+	btn.remove_theme_stylebox_override("normal")
+	var ply = btn.get_meta("ply", -1)
+	var moves = GameController.game.move_history if (GameController and GameController.game) else []
+	if ply >= 0 and ply < moves.size():
+		var m = moves[ply]
+		if m.quality != ChessMove.Quality.NONE:
+			btn.add_theme_color_override("font_color", ChessMove.quality_to_color(m.quality))
+		else:
+			btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	else:
+		btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+
+func _update_active_button(ply_idx: int) -> void:
+	if _active_btn and is_instance_valid(_active_btn):
+		if _active_btn.get_meta("ply", -1) == ply_idx:
+			return
+		_reset_button_style(_active_btn)
+		_active_btn = null
+
+	for btn in move_buttons:
+		if is_instance_valid(btn) and btn.get_meta("ply", -1) == ply_idx:
+			_highlight_active(btn)
+			_active_btn = btn
+			break
+	call_deferred("_scroll_to_active")
 
 ## Suffixe "−N" de perte en centipions pour les coups fautifs (mini-texte).
 func _loss_suffix(m: ChessMove) -> String:
@@ -226,8 +270,12 @@ func _passes_filter(q: int) -> bool:
 		_:
 			return true
 
-func _on_move_navigated(_ply_idx: int) -> void:
-	_refresh_moves()
+func _on_move_navigated(ply_idx: int) -> void:
+	var cur_count = GameController.game.move_history.size() if (GameController and GameController.game) else 0
+	if cur_count != _last_moves_count or move_buttons.is_empty():
+		_refresh_moves()
+	else:
+		_update_active_button(ply_idx)
 
 func _scroll_to_active() -> void:
 	var cur_ply = GameController.current_ply_index
@@ -235,3 +283,4 @@ func _scroll_to_active() -> void:
 		if is_instance_valid(btn) and btn.get_meta("ply", -1) == cur_ply:
 			ensure_control_visible(btn)
 			return
+

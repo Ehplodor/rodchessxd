@@ -854,13 +854,17 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 	if not is_engine_running:
 		return
 	
-	if depth <= 0:
-		depth = SettingsManager.get_setting("engine_depth", 18)
-	
 	state_mutex.lock()
+	if current_fen == fen and is_evaluating:
+		state_mutex.unlock()
+		return
 	current_fen = fen
 	is_evaluating = true
 	state_mutex.unlock()
+	
+	if depth <= 0:
+		var default_depth = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+		depth = SettingsManager.get_setting("engine_depth", default_depth)
 	
 	send_command("stop")
 	send_command("position fen " + fen)
