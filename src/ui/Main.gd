@@ -31,6 +31,10 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 @onready var player_dot_bottom: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerDotBottom
 @onready var player_name_top: Label = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop
 @onready var player_name_bottom: Label = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom
+@onready var turn_badge_top: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop
+@onready var turn_badge_label_top: Label = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop/TurnBadgeLabelTop
+@onready var turn_badge_bottom: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom
+@onready var turn_badge_label_bottom: Label = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom/TurnBadgeLabelBottom
 
 @onready var sfx_move: AudioStreamPlayer = $Sounds/SfxMove
 @onready var sfx_capture: AudioStreamPlayer = $Sounds/SfxCapture
@@ -51,6 +55,8 @@ func _ready() -> void:
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
 	GameController.position_changed.connect(_on_game_position_changed)
+	GameController.move_navigated.connect(func(_idx): _update_player_labels())
+	GameController.move_made.connect(func(_m): _update_player_labels())
 	
 	if EngineManager != null:
 		EngineManager.evaluation_updated.connect(_on_engine_eval)
@@ -203,22 +209,39 @@ func _is_unknown_player(name: String) -> bool:
 	var n = name.strip_edges().to_lower()
 	return n.is_empty() or n in _UNKNOWN_PLAYER_NAMES
 
-func _style_player_dot(dot: PanelContainer, side_is_white: bool) -> void:
-	var style := DesignTokens.flat(Color("#f8fafc") if side_is_white else Color("#0b0f17"),
-			DesignTokens.RADIUS_MEDIUM, Color("#cbd5e1"), 1)
+func _style_player_dot(dot: PanelContainer, side_is_white: bool, is_active: bool) -> void:
+	var bg_col: Color
+	var border_col: Color
+	var border_w: int = 1
+	
+	if side_is_white:
+		bg_col = Color("#f8fafc")
+		if is_active:
+			border_col = Color("#10b981") # Vert émeraude actif éclatant
+			border_w = 2
+		else:
+			border_col = Color("#94a3b8aa")
+	else:
+		bg_col = Color("#0f172a")
+		if is_active:
+			border_col = Color("#10b981") # Vert émeraude actif éclatant
+			border_w = 2
+		else:
+			border_col = Color("#47556988")
+			
+	var style := DesignTokens.flat(bg_col, DesignTokens.RADIUS_MEDIUM, border_col, border_w)
 	dot.add_theme_stylebox_override("panel", style)
 
 func _update_player_labels() -> void:
 	if not is_node_ready() or player_name_top == null:
 		return
-	var headers: Dictionary = GameController.game.pgn_headers
-	var white_name: String = str(headers.get("White", "")).strip_edges()
-	var black_name: String = str(headers.get("Black", "")).strip_edges()
+	var headers: Dictionary = GameController.game.pgn_headers if GameController.game else {}
+	var white_raw: String = str(headers.get("White", "")).strip_edges()
+	var black_raw: String = str(headers.get("Black", "")).strip_edges()
 
-	if _is_unknown_player(white_name) or _is_unknown_player(black_name):
-		player_top_row.visible = false
-		player_bottom_row.visible = false
-		return
+	# Toujours afficher un libellé clair, même pour les parties libres sans en-tête PGN
+	var white_name: String = "Blancs" if _is_unknown_player(white_raw) else white_raw
+	var black_name: String = "Noirs" if _is_unknown_player(black_raw) else black_raw
 
 	var flipped: bool = GameController.board_flipped
 	var bottom_side_white: bool = not flipped
@@ -227,17 +250,71 @@ func _update_player_labels() -> void:
 	player_top_row.visible = true
 	player_bottom_row.visible = true
 
-	for lbl in [player_name_top, player_name_bottom]:
-		lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	var active_color: int = GameController.game.active_color if GameController.game else ChessPiece.PieceColor.WHITE
+	var white_is_active: bool = (active_color == ChessPiece.PieceColor.WHITE)
+	var top_is_active: bool = (top_side_white == white_is_active)
+	var bottom_is_active: bool = not top_is_active
 
-	player_dot_top.visible = true
-	player_dot_bottom.visible = true
-	_style_player_dot(player_dot_top, top_side_white)
-	_style_player_dot(player_dot_bottom, bottom_side_white)
-
+	# Formatage et surbrillance du nom des joueurs
 	player_name_top.text = _clip_player_name(white_name if top_side_white else black_name)
 	player_name_bottom.text = _clip_player_name(white_name if bottom_side_white else black_name)
+
+	player_name_top.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	player_name_top.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY if top_is_active else DesignTokens.TEXT_MUTED)
+
+	player_name_bottom.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	player_name_bottom.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY if bottom_is_active else DesignTokens.TEXT_MUTED)
+
+	# Pastille couleur joueur avec contour actif
+	player_dot_top.visible = true
+	player_dot_bottom.visible = true
+	_style_player_dot(player_dot_top, top_side_white, top_is_active)
+	_style_player_dot(player_dot_bottom, bottom_side_white, bottom_is_active)
+
+	# Récupération du dernier coup joué
+	var last_move_text: String = ""
+	if GameController.game and GameController.current_ply_index >= 0 and GameController.current_ply_index < GameController.game.move_history.size():
+		var m = GameController.game.move_history[GameController.current_ply_index]
+		if m.san != "":
+			last_move_text = m.san
+		elif m.from_sq >= 0 and m.to_sq >= 0:
+			last_move_text = ChessMove.square_to_coord(m.from_sq) + "→" + ChessMove.square_to_coord(m.to_sq)
+
+	# Badges d'état (⭐ Au trait pour le joueur actif, Dernier coup pour le joueur qui vient de jouer)
+	_update_turn_badge(turn_badge_top, turn_badge_label_top, top_is_active, last_move_text if not top_is_active else "")
+	_update_turn_badge(turn_badge_bottom, turn_badge_label_bottom, bottom_is_active, last_move_text if not bottom_is_active else "")
+
+func _update_turn_badge(badge: PanelContainer, label: Label, is_active: bool, last_move_san: String) -> void:
+	if badge == null or label == null:
+		return
+	if is_active:
+		badge.visible = true
+		var active_style = DesignTokens.flat(
+			Color(0.06, 0.72, 0.51, 0.18),
+			DesignTokens.RADIUS_SMALL,
+			Color(0.06, 0.72, 0.51, 0.80),
+			1,
+			Vector2(8, 2)
+		)
+		badge.add_theme_stylebox_override("panel", active_style)
+		label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		label.add_theme_color_override("font_color", Color("#34d399"))
+		label.text = "⭐ Au trait"
+	elif last_move_san != "":
+		badge.visible = true
+		var last_style = DesignTokens.flat(
+			Color(0.94, 0.27, 0.27, 0.14),
+			DesignTokens.RADIUS_SMALL,
+			Color(0.94, 0.27, 0.27, 0.55),
+			1,
+			Vector2(8, 2)
+		)
+		badge.add_theme_stylebox_override("panel", last_style)
+		label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		label.add_theme_color_override("font_color", Color("#f87171"))
+		label.text = "Dernier coup : " + last_move_san
+	else:
+		badge.visible = false
 
 func _clip_player_name(name: String, max_chars := 24) -> String:
 	if name.length() <= max_chars:

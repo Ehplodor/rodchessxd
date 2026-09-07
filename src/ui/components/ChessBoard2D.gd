@@ -15,7 +15,10 @@ const THEMES := {
 		"legal_dot": Color("#1e293b2a"),
 		"legal_ring": Color("#1e293b44"),
 		"last_move": Color("#f7ec5935"),
-		"last_move_border": Color("#ca8a0466"),
+		"last_move_from": Color("#fef08a38"),
+		"last_move_to": Color("#facc1550"),
+		"last_move_border": Color("#ca8a0488"),
+		"last_move_arrow": Color("#ef4444ee"),
 		"check": Color("#ef444488"),
 		"check_border": Color("#dc2626"),
 		"best_move_arrow": Color("#0284c7"),
@@ -30,7 +33,10 @@ const THEMES := {
 		"legal_dot": Color("#0f172a2a"),
 		"legal_ring": Color("#0f172a44"),
 		"last_move": Color("#38bdf82b"),
-		"last_move_border": Color("#0284c766"),
+		"last_move_from": Color("#bae6fd38"),
+		"last_move_to": Color("#38bdf850"),
+		"last_move_border": Color("#0284c788"),
+		"last_move_arrow": Color("#f43f5eee"),
 		"check": Color("#ef444488"),
 		"check_border": Color("#dc2626"),
 		"best_move_arrow": Color("#10b981"),
@@ -45,7 +51,10 @@ const THEMES := {
 		"legal_dot": Color("#1e293b2a"),
 		"legal_ring": Color("#1e293b44"),
 		"last_move": Color("#f59e0b35"),
-		"last_move_border": Color("#d9770677"),
+		"last_move_from": Color("#fde68a38"),
+		"last_move_to": Color("#f59e0b50"),
+		"last_move_border": Color("#d9770688"),
+		"last_move_arrow": Color("#dc2626ee"),
 		"check": Color("#ef444488"),
 		"check_border": Color("#dc2626"),
 		"best_move_arrow": Color("#10b981"),
@@ -138,9 +147,18 @@ class CaptureBurstFX extends Control:
 				c.a = alpha * 0.95
 				draw_circle(p, sz, c)
 
+# Calque indépendant pour flèches tactiques et de déplacement (z_index=5 au-dessus des pièces)
+class ArrowOverlay extends Control:
+	var board: ChessBoard2D = null
+	
+	func _draw() -> void:
+		if board:
+			board._draw_arrows_on_layer(self)
+
 var active_tweens: Array[Tween] = []
 var ghost_sprites: Array[TextureRect] = []
 var fx_layer: Control = null
+var arrow_overlay: ArrowOverlay = null
 var flying_piece: TextureRect = null
 var move_anim_duration: float = 0.28
 var is_animating_move: bool = false
@@ -208,6 +226,9 @@ func _update_dimensions() -> void:
 		side = 350
 	board_size = side
 	square_size = board_size / 8.0
+	if arrow_overlay:
+		arrow_overlay.size = Vector2(board_size, board_size)
+		arrow_overlay.position = Vector2.ZERO
 
 func _preload_piece_textures() -> void:
 	var colors = [ChessPiece.PieceColor.WHITE, ChessPiece.PieceColor.BLACK]
@@ -230,6 +251,16 @@ func _create_piece_nodes() -> void:
 		add_child(tr)
 		piece_sprites[sq] = tr
 	
+	# Calque de rendu des flèches tactiques et historiques (z_index=5 au-dessus des pièces statiques)
+	arrow_overlay = ArrowOverlay.new()
+	arrow_overlay.name = "ArrowOverlay"
+	arrow_overlay.board = self
+	arrow_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	arrow_overlay.z_index = 5
+	arrow_overlay.size = Vector2(board_size, board_size)
+	arrow_overlay.position = Vector2.ZERO
+	add_child(arrow_overlay)
+
 	# Node flottant pour le drag & drop
 	drag_texture_rect = TextureRect.new()
 	drag_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -668,12 +699,15 @@ func _animate_reverse_castling_rook(move: ChessMove) -> void:
 
 # --- RENDU VISUEL RAFFINÉ & MODERNE ---
 
-func _draw() -> void:
+func _get_active_theme() -> Dictionary:
 	var theme_name = "emerald"
 	var sm = _get_settings_manager()
 	if sm:
 		theme_name = sm.get_setting("board_theme", "emerald")
-	var theme = THEMES.get(theme_name, THEMES["emerald"])
+	return THEMES.get(theme_name, THEMES["emerald"])
+
+func _draw() -> void:
+	var theme = _get_active_theme()
 	
 	var flipped = false
 	var gc = _get_game_controller()
@@ -697,10 +731,15 @@ func _draw() -> void:
 			# Case de fond
 			draw_rect(rect, base_col)
 
-			# Dernier coup surbrillance douce avec contour fin
-			if sq == last_move_from or sq == last_move_to:
-				draw_rect(rect, theme["last_move"])
-				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0466")), false, 1.0)
+			# Dernier coup : différenciation visuelle case de départ et case d'arrivée
+			if sq == last_move_from:
+				var from_col = theme.get("last_move_from", theme.get("last_move", Color("#fef08a38")))
+				draw_rect(rect, from_col)
+				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, 1.0)
+			elif sq == last_move_to:
+				var to_col = theme.get("last_move_to", theme.get("last_move", Color("#facc1550")))
+				draw_rect(rect, to_col)
+				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, 1.5)
 
 			# Case sélectionnée avec bordure fine et aura lumineuse
 			if gc and sq == gc.selected_square:
@@ -742,11 +781,66 @@ func _draw() -> void:
 	# 2. Contour fin du plateau
 	draw_rect(Rect2(0, 0, board_size, board_size), Color(0.1, 0.15, 0.2, 0.25), false, 1.0)
 
-	# 3. Flèche tactique moderne pour l'analyse
-	if best_move_arrow_from != -1 and best_move_arrow_to != -1:
-		_draw_modern_move_arrow(best_move_arrow_from, best_move_arrow_to, theme)
+	# 3. Flèches déléguées à arrow_overlay (z_index=5) ou dessinées directement en fallback
+	if arrow_overlay:
+		arrow_overlay.size = Vector2(board_size, board_size)
+		arrow_overlay.queue_redraw()
+	else:
+		_draw_arrows_on_layer(self)
 
-func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary) -> void:
+func _draw_arrows_on_layer(ci: CanvasItem) -> void:
+	var theme = _get_active_theme()
+	# 1. Flèche fine rouge carmin en pointillés du dernier coup joué
+	if last_move_from != -1 and last_move_to != -1 and not is_animating_move:
+		_draw_last_move_arrow(last_move_from, last_move_to, theme, ci)
+	
+	# 2. Flèche tactique moderne pour l'analyse Stockfish (meilleur coup)
+	if best_move_arrow_from != -1 and best_move_arrow_to != -1:
+		_draw_modern_move_arrow(best_move_arrow_from, best_move_arrow_to, theme, ci)
+
+func _draw_last_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: CanvasItem = null) -> void:
+	var canvas: CanvasItem = ci if ci != null else self
+	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
+	var end_pos = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
+	
+	var dir = (end_pos - start_pos).normalized()
+	var dist = start_pos.distance_to(end_pos)
+	if dist < 1.0:
+		return
+	
+	var arrow_color: Color = theme.get("last_move_arrow", Color("#ef4444ee"))
+	var shadow_color: Color = Color(0, 0, 0, 0.35)
+	
+	# Flèche fine, élégante et distincte de l'évaluation Stockfish ("rouge et fine, en pointillés")
+	var shaft_width: float = clampf(square_size * 0.055, 2.4, 3.8)
+	var head_length: float = clampf(square_size * 0.24, 10.0, 15.0)
+	var head_width: float = clampf(square_size * 0.26, 11.0, 16.0)
+	var dash_len: float = clampf(square_size * 0.10, 4.0, 6.0)
+	
+	var shaft_end = end_pos - dir * (head_length * 0.8)
+	var perp = Vector2(-dir.y, dir.x)
+	var shadow_offset = Vector2(1.2, 1.2)
+	
+	# Disque discret d'origine sur la case de départ
+	var start_disc_r = shaft_width * 1.3
+	canvas.draw_circle(start_pos + shadow_offset, start_disc_r, shadow_color)
+	canvas.draw_circle(start_pos, start_disc_r, arrow_color)
+	
+	# Fût en pointillés fins
+	canvas.draw_dashed_line(start_pos + shadow_offset, shaft_end + shadow_offset, shadow_color, shaft_width, dash_len, true, true)
+	canvas.draw_dashed_line(start_pos, shaft_end, arrow_color, shaft_width, dash_len, true, true)
+	
+	# Tête de flèche fine et pointue sur la case d'arrivée
+	var p1 = end_pos
+	var p2 = shaft_end + perp * (head_width * 0.5)
+	var p3 = shaft_end - perp * (head_width * 0.5)
+	
+	canvas.draw_colored_polygon(PackedVector2Array([p1 + shadow_offset, p2 + shadow_offset, p3 + shadow_offset]), shadow_color)
+	canvas.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
+	canvas.draw_polyline(PackedVector2Array([p2, p1, p3]), Color(1.0, 1.0, 1.0, 0.45), 1.0, true)
+
+func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: CanvasItem = null) -> void:
+	var canvas: CanvasItem = ci if ci != null else self
 	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
 	var end_pos = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
 	
@@ -765,19 +859,19 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary) -> voi
 	
 	# Ombre portée fine
 	var shadow_offset = Vector2(1.5, 1.5)
-	draw_line(start_pos + shadow_offset, shaft_end + shadow_offset, Color(0, 0, 0, 0.25), shaft_width + 2.0, true)
+	canvas.draw_line(start_pos + shadow_offset, shaft_end + shadow_offset, Color(0, 0, 0, 0.25), shaft_width + 2.0, true)
 	var shadow_p1 = end_pos + shadow_offset
 	var shadow_p2 = shaft_end + shadow_offset + perp * (head_width * 0.5)
 	var shadow_p3 = shaft_end + shadow_offset - perp * (head_width * 0.5)
-	draw_colored_polygon(PackedVector2Array([shadow_p1, shadow_p2, shadow_p3]), Color(0, 0, 0, 0.25))
+	canvas.draw_colored_polygon(PackedVector2Array([shadow_p1, shadow_p2, shadow_p3]), Color(0, 0, 0, 0.25))
 	
 	# Corps & Tête
-	draw_circle(start_pos, shaft_width * 0.65, arrow_color)
-	draw_line(start_pos, shaft_end, arrow_color, shaft_width, true)
+	canvas.draw_circle(start_pos, shaft_width * 0.65, arrow_color)
+	canvas.draw_line(start_pos, shaft_end, arrow_color, shaft_width, true)
 	var p1 = end_pos
 	var p2 = shaft_end + perp * (head_width * 0.5)
 	var p3 = shaft_end - perp * (head_width * 0.5)
-	draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
+	canvas.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
 
 # --- GESTION TACTILE & SOURIS ---
 
@@ -889,12 +983,21 @@ func _on_move_navigated(target_ply: int) -> void:
 	if target_ply == displayed_ply_index + 1 and target_ply >= 0 and target_ply < total_moves:
 		var move = gc.game.move_history[target_ply]
 		displayed_ply_index = target_ply
+		last_move_from = move.from_sq
+		last_move_to = move.to_sq
 		_animate_navigation_forward(move)
 		return
 	# 2. Recul d'un demi-coup (-1 ply) : véritable glissement inverse vers l'arrière
 	elif target_ply == displayed_ply_index - 1 and displayed_ply_index >= 0 and displayed_ply_index < total_moves:
 		var move = gc.game.move_history[displayed_ply_index]
 		displayed_ply_index = target_ply
+		if target_ply >= 0 and target_ply < total_moves:
+			var prev_m = gc.game.move_history[target_ply]
+			last_move_from = prev_m.from_sq
+			last_move_to = prev_m.to_sq
+		else:
+			last_move_from = -1
+			last_move_to = -1
 		_animate_navigation_backward(move)
 		return
 	
