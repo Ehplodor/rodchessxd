@@ -253,6 +253,8 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 0
+z_index = 200
+z_as_relative = false
 
 [node name="Bg" type="Panel" parent="AnalyseOverlay"]
 layout_mode = 1
@@ -304,6 +306,8 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 0
+z_index = 200
+z_as_relative = false
 
 [node name="Bg" type="Panel" parent="CoachOverlay"]
 layout_mode = 1

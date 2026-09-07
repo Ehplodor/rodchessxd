@@ -340,12 +340,15 @@ func _on_btn_flip_pressed() -> void:
 
 func _open_analyse_overlay() -> void:
 	move_list.refresh()
-	analyse_overlay.visible = true
-	move_child(analyse_overlay, get_child_count() - 1)
+	_show_overlay(analyse_overlay)
 
 func _open_coach_overlay() -> void:
-	coach_overlay.visible = true
-	move_child(coach_overlay, get_child_count() - 1)
+	_show_overlay(coach_overlay)
+
+func _show_overlay(overlay: Control) -> void:
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.visible = true
+	move_child(overlay, get_child_count() - 1)
 
 func _close_overlays() -> void:
 	analyse_overlay.visible = false
