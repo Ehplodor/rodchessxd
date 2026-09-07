@@ -151,6 +151,6 @@ func _init() -> void:
 	board._gui_input(ev_d5_down)
 	print("After tap d5 down (CAPTURE): is_animating=", board.is_animating_move, " tweens=", board.active_tweens.size(), " fx_children=", board.fx_layer.get_child_count())
 	board._gui_input(ev_d5_up)
-	print("After tap d5 up (CAPTURE): is_animating=", board.is_animating_move, " tweens=", board.active_tweens.size())
 	print("\nFin de l'investigation.")
+	main_instance.queue_free()
 	quit(0)

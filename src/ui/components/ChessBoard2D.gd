@@ -75,6 +75,14 @@ var hovered_sq: int = -1
 var press_sq: int = -1
 var press_pos: Vector2 = Vector2.ZERO
 var is_pointer_down: bool = false
+var last_touch_timestamp: int = -999999
+
+# Rétrocompatibilité pour les suites de tests et scripts appelants
+var dragged_sq: int:
+	get: return press_sq
+	set(val): press_sq = val
+var drag_texture_rect: TextureRect:
+	get: return flying_piece
 
 var last_move_from: int = -1
 var last_move_to: int = -1
@@ -188,7 +196,7 @@ func _get_engine_manager() -> Node:
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(350, 350)
-	mouse_filter = Control.MOUSE_FILTER_PASS
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_process(false)
 	
 	_preload_piece_textures()
@@ -894,7 +902,26 @@ func _redraw_board_and_overlays() -> void:
 	queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
+	if event is InputEventScreenTouch:
+		last_touch_timestamp = Time.get_ticks_msec()
+		var local_pos = make_input_local(event).position
+		var sq = _pos_to_square(local_pos)
+		if event.pressed:
+			is_pointer_down = true
+			press_sq = sq
+			press_pos = local_pos
+			_handle_pointer_press(sq, local_pos)
+		else:
+			if is_pointer_down:
+				_handle_pointer_release(sq, local_pos)
+				is_pointer_down = false
+				press_sq = -1
+	elif event is InputEventScreenDrag:
+		last_touch_timestamp = Time.get_ticks_msec()
+	elif event is InputEventMouseButton:
+		# Ignorer les événements souris émulés automatiquement suite à un événement tactile
+		if Time.get_ticks_msec() - last_touch_timestamp < 350:
+			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			var sq = _pos_to_square(event.position)
 			if event.pressed:
@@ -907,19 +934,9 @@ func _gui_input(event: InputEvent) -> void:
 					_handle_pointer_release(sq, event.position)
 					is_pointer_down = false
 					press_sq = -1
-	elif event is InputEventScreenTouch:
-		var sq = _pos_to_square(event.position)
-		if event.pressed:
-			is_pointer_down = true
-			press_sq = sq
-			press_pos = event.position
-			_handle_pointer_press(sq, event.position)
-		else:
-			if is_pointer_down:
-				_handle_pointer_release(sq, event.position)
-				is_pointer_down = false
-				press_sq = -1
 	elif event is InputEventMouseMotion:
+		if Time.get_ticks_msec() - last_touch_timestamp < 350:
+			return
 		var sq = _pos_to_square(event.position)
 		if sq != hovered_sq:
 			hovered_sq = sq
@@ -962,10 +979,19 @@ func _handle_pointer_release(to_sq: int, pos: Vector2) -> void:
 		if dist > square_size * 0.35:
 			if gc.selected_square == press_sq and to_sq in gc.legal_destinations:
 				gc.try_play_move(press_sq, to_sq)
-			elif gc.selected_square != -1:
-				gc.deselect_square()
-			_redraw_board_and_overlays()
+				_redraw_board_and_overlays()
+			# Si relâché ailleurs : ne pas désélectionner, préserve la sélection pour le clic suivant !
 	# Si release sur la même case (simple clic/tap) : ne rien faire, la pièce reste sélectionnée !
+
+# Alias de rétrocompatibilité pour les suites de tests
+func _handle_press(sq: int, pos: Vector2) -> void:
+	press_sq = sq
+	press_pos = pos
+	_handle_pointer_press(sq, pos)
+
+func _handle_release(to_sq: int, pos: Vector2) -> void:
+	_handle_pointer_release(to_sq, pos)
+	press_sq = -1
 
 func _pos_to_square(pos: Vector2) -> int:
 	if pos.x < 0 or pos.x >= board_size or pos.y < 0 or pos.y >= board_size:
