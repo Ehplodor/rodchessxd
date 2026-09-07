@@ -525,5 +525,7 @@ func _on_analysis_finished(report: Dictionary) -> void:
 			var game_rec = dm.get_game(gid)
 			advantage_graph.update_stored_analyses(game_rec.get("engine_analyses", []))
 
+	move_list.refresh()
+
 	# Basculer immédiatement sur l'onglet du graphe pour que l'utilisateur le visualise en direct
 	bottom_tabs.current_tab = 0
