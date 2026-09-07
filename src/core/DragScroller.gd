@@ -16,19 +16,27 @@ func _ready() -> void:
 func register(sc: ScrollContainer) -> void:
 	if is_instance_valid(sc):
 		_registry[sc.get_instance_id()] = sc
+		if not sc.tree_exiting.is_connected(_on_sc_tree_exiting):
+			sc.tree_exiting.connect(_on_sc_tree_exiting.bind(sc))
 
-func unregister(sc: ScrollContainer) -> void:
+func _on_sc_tree_exiting(sc: ScrollContainer) -> void:
 	if is_instance_valid(sc):
 		_registry.erase(sc.get_instance_id())
+	else:
+		for id in _registry.keys():
+			if _registry[id] == sc:
+				_registry.erase(id)
+				return
 
 func _scroll_at(pos: Vector2) -> ScrollContainer:
 	var best: ScrollContainer = null
 	var best_area := INF
-	for id in _registry:
-		var sc: ScrollContainer = _registry[id]
-		if not is_instance_valid(sc):
+	for id in _registry.keys():
+		var raw = _registry[id]
+		if raw == null or not is_instance_valid(raw):
 			_registry.erase(id)
 			continue
+		var sc: ScrollContainer = raw
 		if sc.visible and sc.get_global_rect().has_point(pos):
 			var area := sc.get_global_rect().size.x * sc.get_global_rect().size.y
 			if area < best_area:
@@ -52,7 +60,7 @@ func _input(event: InputEvent) -> void:
 		if event.index in _active:
 			_on_drag(event.index, event.relative)
 		else:
-			# Appui peut-être parti ailleurs : démarrage souple au premier glissé.
+			# Appui parti ailleurs : démarrage souple au premier glissé.
 			var sc := _scroll_at(event.position)
 			if sc:
 				_active[event.index] = {"sc": sc, "dragging": true, "acc": Vector2.ZERO}
@@ -70,8 +78,8 @@ func _input(event: InputEvent) -> void:
 			_on_drag("mouse", event.relative)
 
 func _on_drag(key: Variant, rel: Vector2) -> void:
-	var e: Dictionary = _active.get(key)
-	if e.is_empty():
+	var e = _active.get(key)
+	if e == null:
 		return
 	if not e["dragging"]:
 		e["acc"] = e["acc"] + rel
@@ -93,9 +101,10 @@ func _scroll_by(sc: ScrollContainer, delta: Vector2) -> void:
 		sc.scroll_horizontal += -delta.x
 
 func _release_pointer(key: Variant) -> void:
-	var e: Dictionary = _active.get(key)
-	if not e.is_empty():
-		# Si on était en glissement, consommer le relâchement pour éviter le clic.
-		if e["dragging"]:
-			get_viewport().set_input_as_handled()
+	var e = _active.get(key)
+	if e == null:
+		return
+	# Si on glissait, consommer le relâchement pour éviter un clic parasite.
+	if e["dragging"]:
+		get_viewport().set_input_as_handled()
 	_active.erase(key)
