@@ -57,8 +57,8 @@ func _write_header() -> void:
 		return
 	var ver: String = str(ProjectSettings.get_setting("application/config/version", "?"))
 	_file.store_line("# RodChessXD log — session %s" % session_id)
-	_file.store_line("# version=%s | godot=%s | os=%s | device=%s" % [
-		ver, Engine.get_version_info().get("string", "?"), OS.get_name(), OS.get_processor_name()])
+	_file.store_line("# version=%s | os=%s (%s) | device=%s" % [
+		ver, OS.get_name(), Engine.get_architecture_name(), OS.get_processor_name()])
 	_file.store_line("# début %s" % Time.get_datetime_string_from_system(false, true))
 	_file.flush()
 
@@ -75,9 +75,8 @@ func export_logs() -> String:
 		_file.flush()
 	return _path
 
-## Résumé version / appareil / session, affiché dans « À propos ».
+## Résumé version / moteur / appareil / session, affiché dans « À propos ».
 func info_line() -> String:
 	var ver: String = str(ProjectSettings.get_setting("application/config/version", "?"))
-	return "RodChessXD v%s — %s\nGodot %s — %s\nSession : %s" % [
-		ver, OS.get_name(),
-		Engine.get_version_info().get("string", "?"), OS.get_processor_name(), session_id]
+	return "RodChessXD v%s\nMoteur : Stockfish\nOS : %s (%s)\nAppareil : %s\nSession : %s" % [
+		ver, OS.get_name(), Engine.get_architecture_name(), OS.get_processor_name(), session_id]
