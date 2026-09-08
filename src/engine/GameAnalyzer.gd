@@ -93,12 +93,33 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		sim_game.make_move(move)
 		var fen_after = sim_game.get_fen()
 
-		# Évaluation de la position résultante selon le mode (profondeur, temps fixe ou dynamique adaptatif)
-		var eval_after_data = _evaluate_move_position(fen_after, depth, mode, dynamic_base, dynamic_max, time_per_move, score_before)
-		if eval_after_data.has("error"):
-			return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
-		if eval_after_data.get("timed_out", false) and eval_after_data.get("depth", 0) <= 0:
-			return _fail_analysis("Le moteur n'a pas répondu dans le délai pour le coup %s." % move.san)
+		# Détection immédiate de fin de partie (échec et mat ou pat) : évite le blocage du moteur
+		var is_mate = move.is_checkmate or move.san.ends_with("#") or (sim_game.is_in_check(sim_game.active_color) and sim_game.get_legal_moves(sim_game.active_color).is_empty())
+		var is_stalemate = (not is_mate) and (not sim_game.is_in_check(sim_game.active_color)) and sim_game.get_legal_moves(sim_game.active_color).is_empty()
+
+		var eval_after_data: Dictionary
+		if is_mate:
+			var mate_score = 10000 if is_white else -10000
+			eval_after_data = {
+				"score_cp": mate_score,
+				"best_move": move.uci,
+				"depth": depth,
+				"mate_in": 0
+			}
+		elif is_stalemate:
+			eval_after_data = {
+				"score_cp": 0,
+				"best_move": "",
+				"depth": depth,
+				"mate_in": 0
+			}
+		else:
+			# Évaluation de la position résultante selon le mode (profondeur, temps fixe ou dynamique adaptatif)
+			eval_after_data = _evaluate_move_position(fen_after, depth, mode, dynamic_base, dynamic_max, time_per_move, score_before)
+			if eval_after_data.has("error"):
+				return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
+			if eval_after_data.get("timed_out", false) and eval_after_data.get("depth", 0) <= 0:
+				return _fail_analysis("Le moteur n'a pas répondu dans le délai pour le coup %s." % move.san)
 		if cancel_requested:
 			break
 		var score_after = eval_after_data.get("score_cp", score_before)
@@ -246,11 +267,32 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		sim_game.make_move(move)
 		var fen_after = sim_game.get_fen()
 
-		var eval_after_data = await _evaluate_move_position_async(fen_after, depth, mode, dynamic_base, dynamic_max, time_per_move, score_before)
-		if eval_after_data.has("error"):
-			return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
-		if eval_after_data.get("timed_out", false) and eval_after_data.get("depth", 0) <= 0:
-			return _fail_analysis("Le moteur n'a pas répondu à l'évaluation du coup %s." % move.san)
+		# Détection immédiate de fin de partie (échec et mat ou pat) : évite le blocage du moteur
+		var is_mate = move.is_checkmate or move.san.ends_with("#") or (sim_game.is_in_check(sim_game.active_color) and sim_game.get_legal_moves(sim_game.active_color).is_empty())
+		var is_stalemate = (not is_mate) and (not sim_game.is_in_check(sim_game.active_color)) and sim_game.get_legal_moves(sim_game.active_color).is_empty()
+
+		var eval_after_data: Dictionary
+		if is_mate:
+			var mate_score = 10000 if is_white else -10000
+			eval_after_data = {
+				"score_cp": mate_score,
+				"best_move": move.uci,
+				"depth": depth,
+				"mate_in": 0
+			}
+		elif is_stalemate:
+			eval_after_data = {
+				"score_cp": 0,
+				"best_move": "",
+				"depth": depth,
+				"mate_in": 0
+			}
+		else:
+			eval_after_data = await _evaluate_move_position_async(fen_after, depth, mode, dynamic_base, dynamic_max, time_per_move, score_before)
+			if eval_after_data.has("error"):
+				return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
+			if eval_after_data.get("timed_out", false) and eval_after_data.get("depth", 0) <= 0:
+				return _fail_analysis("Le moteur n'a pas répondu à l'évaluation du coup %s." % move.san)
 
 		var score_after = eval_after_data.get("score_cp", score_before)
 		var best_move_eval = eval_after_data.get("best_move", "")

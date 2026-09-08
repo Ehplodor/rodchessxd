@@ -546,10 +546,12 @@ func make_move(move: ChessMove) -> bool:
 	if opp_in_check:
 		if not opp_has_moves:
 			move.is_checkmate = true
-			move.san += "#"
+			if not move.san.ends_with("#"):
+				move.san += "#"
 		else:
 			move.is_check = true
-			move.san += "+"
+			if not move.san.ends_with("+") and not move.san.ends_with("#"):
+				move.san += "+"
 
 	# Historique : si on joue un coup depuis une position antérieure (variante), tronquer proprement
 	if history_index < state_history.size() - 1:

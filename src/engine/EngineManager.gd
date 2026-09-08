@@ -1244,15 +1244,15 @@ func _parse_engine_line(line: String) -> void:
 
 		var normalized_cp = score_cp if white_to_move else -score_cp
 
-		if depth > 0:
+		if depth > 0 or mate_in != 0 or line.contains("score mate"):
 			state_mutex.lock()
-			eval_depth = depth
+			eval_depth = maxi(depth, 1 if mate_in != 0 else 0)
 			eval_score_cp = normalized_cp
 			eval_mate_in = mate_in
 			pv_line = pv
 			if pv.size() > 0:
 				best_move_uci = pv[0]
-			var emit_args = [normalized_cp, mate_in, depth, best_move_uci, pv_line, multipv_lines]
+			var emit_args = [normalized_cp, mate_in, eval_depth, best_move_uci, pv_line, multipv_lines]
 			state_mutex.unlock()
 			_emit_evaluation_deferred.call_deferred(emit_args)
 
@@ -1261,6 +1261,10 @@ func _parse_engine_line(line: String) -> void:
 		state_mutex.lock()
 		if parts.size() > 1:
 			best_move_uci = parts[1]
+		# Si bestmove est "(none)", la position est terminale (mat ou pat)
+		if best_move_uci == "(none)":
+			if eval_score_cp == 0 and eval_mate_in != 0:
+				eval_score_cp = 10000 if eval_mate_in > 0 else -10000
 		is_evaluating = false
 		var b_move = best_move_uci
 		var s_cp = eval_score_cp
