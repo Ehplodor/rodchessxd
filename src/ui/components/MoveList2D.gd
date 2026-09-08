@@ -524,7 +524,7 @@ func _loss_suffix(m: ChessMove) -> String:
 	if m.quality == ChessMove.Quality.NONE or MoveQualityService.group(m.quality) == 0:
 		return ""
 	if m.centipawn_loss > 0:
-		return " (−%d)" % int(m.centipawn_loss)
+		return " (-%d)" % int(m.centipawn_loss)
 	return ""
 
 func _passes_filter(q: int) -> bool:

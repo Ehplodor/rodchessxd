@@ -134,14 +134,23 @@ static func adapt_modal_size(win: Window, base_w: float = 410.0, base_h: float =
 	var target_h = int(clampf(screen_h * 0.88, 380.0, base_h))
 	win.size = Vector2i(target_w, target_h)
 
-## Initialise la police vectorielle universelle et la police de secours d'icônes/émojis
-## garantissant un rendu identique et net sur toutes les plateformes (Web, Android, iOS, Desktop).
+## Initialise la police vectorielle universelle et les polices de secours d'icônes/symboles/émojis
+## garantissant un rendu identique, exhaustif et net sur toutes les plateformes (Web, Android, iOS, Desktop).
 static func setup_global_fonts() -> void:
 	var sans_path := "res://assets/NotoSans-Regular.ttf"
+	var symbols_path := "res://assets/NotoSansSymbols2-Regular.ttf"
 	var emoji_path := "res://assets/NotoEmoji.ttf"
-	if ResourceLoader.exists(sans_path) and ResourceLoader.exists(emoji_path):
+	if ResourceLoader.exists(sans_path):
 		var sans := load(sans_path) as FontFile
-		var emoji := load(emoji_path) as FontFile
-		if sans and emoji:
-			sans.fallbacks = [emoji]
+		var fallbacks: Array[Font] = []
+		if ResourceLoader.exists(symbols_path):
+			var symbols := load(symbols_path) as FontFile
+			if symbols:
+				fallbacks.append(symbols)
+		if ResourceLoader.exists(emoji_path):
+			var emoji := load(emoji_path) as FontFile
+			if emoji:
+				fallbacks.append(emoji)
+		if sans:
+			sans.fallbacks = fallbacks
 			ThemeDB.fallback_font = sans

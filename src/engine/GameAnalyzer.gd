@@ -463,7 +463,7 @@ func _perform_elo_comparison_test(w_data: Dictionary, b_data: Dictionary) -> Dic
 	elif p_value < 0.05:
 		desc = "Différence significative (p < 0.05 *)"
 	else:
-		desc = "Différence non significative (p ≥ 0.05 ns)"
+		desc = "Différence non significative (p >= 0.05 ns)"
 		
 	return {
 		"diff_elo": int(round(diff)),

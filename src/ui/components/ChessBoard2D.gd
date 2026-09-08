@@ -279,6 +279,7 @@ func _create_piece_nodes() -> void:
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		add_child(tr)
 		piece_sprites[sq] = tr
 	
@@ -297,6 +298,7 @@ func _create_piece_nodes() -> void:
 	flying_piece.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	flying_piece.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	flying_piece.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flying_piece.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	flying_piece.visible = false
 	flying_piece.z_index = 32
 	add_child(flying_piece)
@@ -728,7 +730,8 @@ func _draw() -> void:
 		flipped = gc.board_flipped
 	
 	var font = ThemeDB.fallback_font
-	var coord_font_size = int(clampf(square_size * 0.19, 9.0, 13.0))
+	var coord_font_size = int(clampf(square_size * 0.20, 10.0, 20.0))
+	var coord_pad = clampf(square_size * 0.05, 3.0, 7.0)
 
 	# 1. Tracé des 64 cases
 	for r in range(8):
@@ -748,16 +751,19 @@ func _draw() -> void:
 			if sq == last_move_from:
 				var from_col = theme.get("last_move_from", theme.get("last_move", Color("#fef08a38")))
 				draw_rect(rect, from_col)
-				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, 1.0)
+				var b_w = clampf(square_size * 0.025, 1.0, 2.8)
+				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, b_w)
 			elif sq == last_move_to:
 				var to_col = theme.get("last_move_to", theme.get("last_move", Color("#facc1550")))
 				draw_rect(rect, to_col)
-				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, 1.5)
+				var b_w = clampf(square_size * 0.035, 1.5, 3.8)
+				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, b_w)
 
 			# Case sélectionnée avec fond lumineux chaleureux (sous la pièce)
 			if gc and sq == gc.selected_square:
 				draw_rect(rect, theme["selected"])
-				draw_rect(rect, theme.get("selected_border", Color("#eab308")), false, 1.5)
+				var b_w = clampf(square_size * 0.035, 1.5, 3.8)
+				draw_rect(rect, theme.get("selected_border", Color("#eab308")), false, b_w)
 
 			# Surbrillance subtile au survol d'une case de destination autorisée
 			if show_move_hints and gc and gc.selected_square != -1 and sq == hovered_sq and sq in gc.legal_destinations:
@@ -768,21 +774,22 @@ func _draw() -> void:
 			if sq == in_check_sq:
 				var pulse = (sin(check_pulse_timer) + 1.0) * 0.5
 				draw_rect(rect, Color(0.95, 0.2, 0.2, 0.30 + 0.25 * pulse))
-				draw_rect(rect, Color(0.9, 0.1, 0.1, 0.85), false, 1.5)
+				var b_w = clampf(square_size * 0.035, 1.5, 3.8)
+				draw_rect(rect, Color(0.9, 0.1, 0.1, 0.85), false, b_w)
 
 			# Coordonnées discrètes et élégantes intégrées aux cases
 			if disp_f == 0:
 				var rank_num = str(r + 1)
 				var text_col = theme["dark"] if is_light else theme["light"]
 				text_col.a = 0.72
-				var text_pos = rect.position + Vector2(3, coord_font_size + 3)
+				var text_pos = rect.position + Vector2(coord_pad, coord_font_size + coord_pad)
 				draw_string(font, text_pos, rank_num, HORIZONTAL_ALIGNMENT_LEFT, -1, coord_font_size, text_col)
 
 			if disp_r == 7:
 				var file_char = char(97 + f)
 				var text_col = theme["dark"] if is_light else theme["light"]
 				text_col.a = 0.72
-				var text_pos = rect.position + Vector2(square_size - coord_font_size - 4, square_size - 3)
+				var text_pos = rect.position + Vector2(square_size - coord_font_size - coord_pad, square_size - coord_pad)
 				draw_string(font, text_pos, file_char, HORIZONTAL_ALIGNMENT_LEFT, -1, coord_font_size, text_col)
 
 			# Points de déplacement & anneaux de capture (rendus si pas d'arrow_overlay)
@@ -790,12 +797,14 @@ func _draw() -> void:
 				var center = rect.position + rect.size * 0.5
 				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
 				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
-					draw_arc(center, square_size * 0.43, 0, TAU, 48, theme["legal_ring"], 2.5)
+					var ring_w = clampf(square_size * 0.05, 2.0, 5.0)
+					draw_arc(center, square_size * 0.43, 0, TAU, 48, theme["legal_ring"], ring_w)
 				else:
 					draw_circle(center, square_size * 0.16, theme["legal_dot"])
 
 	# 2. Contour fin du plateau
-	draw_rect(Rect2(0, 0, board_size, board_size), Color(0.1, 0.15, 0.2, 0.25), false, 1.0)
+	var outer_b_w = clampf(board_size * 0.003, 1.0, 2.5)
+	draw_rect(Rect2(0, 0, board_size, board_size), Color(0.1, 0.15, 0.2, 0.25), false, outer_b_w)
 
 	# 3. Flèches déléguées à arrow_overlay (z_index=5) ou dessinées directement en fallback
 	if arrow_overlay:
@@ -851,17 +860,17 @@ func _draw_last_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Canv
 	var shadow_color: Color = Color(0, 0, 0, 0.35)
 	
 	# Flèche fine, élégante et distincte de l'évaluation Stockfish ("rouge et fine, en pointillés")
-	var shaft_width: float = clampf(square_size * 0.055, 2.4, 3.8)
-	var head_length: float = clampf(square_size * 0.24, 10.0, 15.0)
-	var head_width: float = clampf(square_size * 0.26, 11.0, 16.0)
-	var dash_len: float = clampf(square_size * 0.10, 4.0, 6.0)
+	var shaft_width: float = clampf(square_size * 0.06, 2.5, 6.5)
+	var head_length: float = clampf(square_size * 0.24, 10.0, 26.0)
+	var head_width: float = clampf(square_size * 0.26, 11.0, 28.0)
+	var dash_len: float = clampf(square_size * 0.10, 4.0, 11.0)
 	
 	var shaft_end = end_pos - dir * (head_length * 0.8)
 	var perp = Vector2(-dir.y, dir.x)
-	var shadow_offset = Vector2(1.2, 1.2)
+	var shadow_offset = Vector2(clampf(square_size * 0.02, 1.2, 2.5), clampf(square_size * 0.02, 1.2, 2.5))
 	
 	# Disque discret d'origine sur la case de départ
-	var start_disc_r = shaft_width * 1.3
+	var start_disc_r = shaft_width * 1.35
 	canvas.draw_circle(start_pos + shadow_offset, start_disc_r, shadow_color)
 	canvas.draw_circle(start_pos, start_disc_r, arrow_color)
 	
@@ -889,15 +898,15 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 		return
 	
 	var arrow_color: Color = theme.get("best_move_arrow", Color("#0284c7"))
-	var shaft_width: float = clampf(square_size * 0.12, 5.0, 9.0)
-	var head_length: float = clampf(square_size * 0.35, 15.0, 24.0)
-	var head_width: float = clampf(square_size * 0.40, 18.0, 28.0)
+	var shaft_width: float = clampf(square_size * 0.12, 5.0, 14.0)
+	var head_length: float = clampf(square_size * 0.35, 15.0, 36.0)
+	var head_width: float = clampf(square_size * 0.40, 18.0, 42.0)
 	
 	var shaft_end = end_pos - dir * (head_length * 0.85)
 	var perp = Vector2(-dir.y, dir.x)
 	
 	# Ombre portée fine
-	var shadow_offset = Vector2(1.5, 1.5)
+	var shadow_offset = Vector2(clampf(square_size * 0.025, 1.5, 3.0), clampf(square_size * 0.025, 1.5, 3.0))
 	canvas.draw_line(start_pos + shadow_offset, shaft_end + shadow_offset, Color(0, 0, 0, 0.25), shaft_width + 2.0, true)
 	var shadow_p1 = end_pos + shadow_offset
 	var shadow_p2 = shaft_end + shadow_offset + perp * (head_width * 0.5)

@@ -175,6 +175,8 @@ func _apply_adaptive_layout(target_landscape: bool) -> void:
 		dashboard.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		
 		center_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		if is_instance_valid(eval_bar):
+			eval_bar.custom_minimum_size = Vector2(24, 0)
 	else:
 		# --- MODE PORTRAIT (9/16, Smartphones standard) ---
 		# Restauration de l'arborescence verticale initiale dans vbox
@@ -195,6 +197,8 @@ func _apply_adaptive_layout(target_landscape: bool) -> void:
 		dashboard.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 		
 		center_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		if is_instance_valid(eval_bar):
+			eval_bar.custom_minimum_size = Vector2(20, 0)
 
 	if analyse_overlay and analyse_overlay.visible:
 		_dock_overlay(analyse_overlay)
@@ -413,7 +417,7 @@ func _update_player_labels() -> void:
 		if m.san != "":
 			last_move_text = m.san
 		elif m.from_sq >= 0 and m.to_sq >= 0:
-			last_move_text = ChessMove.square_to_coord(m.from_sq) + "→" + ChessMove.square_to_coord(m.to_sq)
+			last_move_text = ChessMove.square_to_coord(m.from_sq) + " ➔ " + ChessMove.square_to_coord(m.to_sq)
 
 	# --- DÉTECTION ÉTAT DE FIN DE PARTIE & ÉCHEC ---
 	var is_checkmate: bool = false

@@ -34,9 +34,11 @@ func _notification(what: int) -> void:
 
 func _update_label_position() -> void:
 	if score_label:
-		score_label.size = Vector2(size.x, 18)
+		var f_size = int(clampf(size.x * 0.55, 10.0, 15.0))
+		score_label.add_theme_font_size_override("font_size", f_size)
+		score_label.size = Vector2(size.x, f_size + 6)
 		# Positionner le badge près de la démarcation
-		var y_pos = clampf((1.0 - current_ratio) * size.y - 9, 2, size.y - 20)
+		var y_pos = clampf((1.0 - current_ratio) * size.y - (f_size * 0.5), 2, size.y - (f_size + 6))
 		score_label.position = Vector2(0, y_pos)
 
 func _draw() -> void:
