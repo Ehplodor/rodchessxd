@@ -337,41 +337,109 @@ func _update_player_labels() -> void:
 		elif m.from_sq >= 0 and m.to_sq >= 0:
 			last_move_text = ChessMove.square_to_coord(m.from_sq) + "→" + ChessMove.square_to_coord(m.to_sq)
 
-	# Badges d'état (⭐ Au trait pour le joueur actif, Dernier coup pour le joueur qui vient de jouer)
-	_update_turn_badge(turn_badge_top, turn_badge_label_top, top_is_active, last_move_text if not top_is_active else "")
-	_update_turn_badge(turn_badge_bottom, turn_badge_label_bottom, bottom_is_active, last_move_text if not bottom_is_active else "")
+	# --- DÉTECTION ÉTAT DE FIN DE PARTIE & ÉCHEC ---
+	var is_checkmate: bool = false
+	var is_stalemate: bool = false
+	var checkmate_winner_is_white: bool = false
+	var side_in_check: int = -1
 
-func _update_turn_badge(badge: PanelContainer, label: Label, is_active: bool, last_move_san: String) -> void:
+	if GameController.game:
+		var in_chk = GameController.game.is_in_check(active_color)
+		if in_chk:
+			side_in_check = active_color
+		var legal_moves = GameController.game.get_legal_moves(active_color)
+		if legal_moves.is_empty():
+			if in_chk:
+				is_checkmate = true
+				checkmate_winner_is_white = (active_color == ChessPiece.PieceColor.BLACK)
+			else:
+				is_stalemate = true
+
+	var pgn_result = str(headers.get("Result", "*")).strip_edges()
+	var at_last_ply = (GameController.game and GameController.current_ply_index == GameController.game.move_history.size() - 1 and GameController.game.move_history.size() > 0)
+
+	if is_checkmate:
+		var top_is_winner = (top_side_white == checkmate_winner_is_white)
+		_style_status_badge(turn_badge_top, turn_badge_label_top, "🏆 Gagné • Échec et mat" if top_is_winner else "💀 Perdu • Maté", "winner" if top_is_winner else "loser")
+		_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🏆 Gagné • Échec et mat" if not top_is_winner else "💀 Perdu • Maté", "winner" if not top_is_winner else "loser")
+		if stats_label and not (analyzer and analyzer.is_analyzing):
+			var winner_label = white_name if checkmate_winner_is_white else black_name
+			stats_label.text = "🏁 Fin de partie : Échec et mat ! %s l'emporte." % winner_label
+	elif is_stalemate:
+		_style_status_badge(turn_badge_top, turn_badge_label_top, "🤝 Nulle • Pat", "draw")
+		_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🤝 Nulle • Pat", "draw")
+		if stats_label and not (analyzer and analyzer.is_analyzing):
+			stats_label.text = "🏁 Fin de partie : Nulle par pat."
+	elif at_last_ply and pgn_result in ["1-0", "0-1", "1/2-1/2", "0.5-0.5"]:
+		if pgn_result == "1-0":
+			_style_status_badge(turn_badge_top, turn_badge_label_top, "🏆 1-0 • Gagné" if top_side_white else "💀 0-1 • Perdu", "winner" if top_side_white else "loser")
+			_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🏆 1-0 • Gagné" if bottom_side_white else "💀 0-1 • Perdu", "winner" if bottom_side_white else "loser")
+			if stats_label and not (analyzer and analyzer.is_analyzing):
+				stats_label.text = "🏁 Fin de partie : Victoire de %s (1-0)." % white_name
+		elif pgn_result == "0-1":
+			_style_status_badge(turn_badge_top, turn_badge_label_top, "🏆 0-1 • Gagné" if not top_side_white else "💀 1-0 • Perdu", "winner" if not top_side_white else "loser")
+			_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🏆 0-1 • Gagné" if not bottom_side_white else "💀 1-0 • Perdu", "winner" if not bottom_side_white else "loser")
+			if stats_label and not (analyzer and analyzer.is_analyzing):
+				stats_label.text = "🏁 Fin de partie : Victoire de %s (0-1)." % black_name
+		else:
+			_style_status_badge(turn_badge_top, turn_badge_label_top, "🤝 ½ - ½ • Nulle", "draw")
+			_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🤝 ½ - ½ • Nulle", "draw")
+			if stats_label and not (analyzer and analyzer.is_analyzing):
+				stats_label.text = "🏁 Fin de partie : Nulle convenue (½ - ½)."
+	elif side_in_check != -1:
+		var top_is_in_check = (top_side_white == (side_in_check == 0))
+		if top_is_in_check:
+			_style_status_badge(turn_badge_top, turn_badge_label_top, "⚠️ Échec au Roi !", "check")
+			_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, ("Dernier coup : " + last_move_text) if last_move_text != "" else "", "last_move")
+		else:
+			_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "⚠️ Échec au Roi !", "check")
+			_style_status_badge(turn_badge_top, turn_badge_label_top, ("Dernier coup : " + last_move_text) if last_move_text != "" else "", "last_move")
+	else:
+		_style_status_badge(turn_badge_top, turn_badge_label_top, "⭐ Au trait" if top_is_active else (("Dernier coup : " + last_move_text) if last_move_text != "" else ""), "active" if top_is_active else "last_move")
+		_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "⭐ Au trait" if bottom_is_active else (("Dernier coup : " + last_move_text) if last_move_text != "" else ""), "active" if bottom_is_active else "last_move")
+
+func _style_status_badge(badge: PanelContainer, label: Label, text: String, type: String) -> void:
 	if badge == null or label == null:
 		return
-	if is_active:
-		badge.visible = true
-		var active_style = DesignTokens.flat(
-			Color(0.06, 0.72, 0.51, 0.18),
-			DesignTokens.RADIUS_SMALL,
-			Color(0.06, 0.72, 0.51, 0.80),
-			1,
-			Vector2(8, 2)
-		)
-		badge.add_theme_stylebox_override("panel", active_style)
-		label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		label.add_theme_color_override("font_color", Color("#34d399"))
-		label.text = "⭐ Au trait"
-	elif last_move_san != "":
-		badge.visible = true
-		var last_style = DesignTokens.flat(
-			Color(0.94, 0.27, 0.27, 0.14),
-			DesignTokens.RADIUS_SMALL,
-			Color(0.94, 0.27, 0.27, 0.55),
-			1,
-			Vector2(8, 2)
-		)
-		badge.add_theme_stylebox_override("panel", last_style)
-		label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		label.add_theme_color_override("font_color", Color("#f87171"))
-		label.text = "Dernier coup : " + last_move_san
-	else:
+	if text == "":
 		badge.visible = false
+		return
+	badge.visible = true
+	label.text = text
+	label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+
+	var bg_col: Color
+	var border_col: Color
+	var text_col: Color
+	match type:
+		"winner":
+			bg_col = Color(0.06, 0.72, 0.51, 0.28)
+			border_col = Color(0.16, 0.85, 0.55, 0.95)
+			text_col = Color("#34d399")
+		"loser":
+			bg_col = Color(0.90, 0.20, 0.20, 0.25)
+			border_col = Color(0.95, 0.25, 0.25, 0.95)
+			text_col = Color("#f87171")
+		"draw":
+			bg_col = Color(0.35, 0.45, 0.55, 0.25)
+			border_col = Color(0.50, 0.60, 0.70, 0.85)
+			text_col = Color("#cbd5e1")
+		"check":
+			bg_col = Color(0.95, 0.55, 0.10, 0.28)
+			border_col = Color(0.98, 0.65, 0.15, 0.95)
+			text_col = Color("#fbbf24")
+		"active":
+			bg_col = Color(0.06, 0.72, 0.51, 0.18)
+			border_col = Color(0.06, 0.72, 0.51, 0.80)
+			text_col = Color("#34d399")
+		_: # "last_move"
+			bg_col = Color(0.94, 0.27, 0.27, 0.14)
+			border_col = Color(0.94, 0.27, 0.27, 0.55)
+			text_col = Color("#f87171")
+
+	var style = DesignTokens.flat(bg_col, DesignTokens.RADIUS_SMALL, border_col, 1, Vector2(8, 2))
+	badge.add_theme_stylebox_override("panel", style)
+	label.add_theme_color_override("font_color", text_col)
 
 func _clip_player_name(name: String, max_chars := 24) -> String:
 	if name.length() <= max_chars:
@@ -519,6 +587,9 @@ func _display_analysis_stats(report_or_entry: Dictionary, is_partial: bool = fal
 
 func _on_stored_analysis_selected(analysis_entry: Dictionary) -> void:
 	_display_analysis_stats(analysis_entry, false)
+	if move_list:
+		move_list.set_analysis_report(analysis_entry)
+		move_list.refresh()
 	var cur_ply = GameController.current_ply_index if GameController else -1
 	_sync_eval_to_ply(cur_ply)
 
@@ -672,6 +743,52 @@ func _show_error_banner(msg: String) -> void:
 			error_label.hide()
 	)
 
+# --- NOTIFICATIONS FLOTTANTES (TOAST) ---
+
+var toast_label: Label = null
+var _toast_token := 0
+
+func _show_toast(msg: String, is_success: bool = true) -> void:
+	if msg.is_empty():
+		return
+	if toast_label == null:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.06, 0.72, 0.51, 0.92) if is_success else DesignTokens.SURFACE_ELEVATED
+		style.border_color = Color("#34d399") if is_success else DesignTokens.BORDER
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(DesignTokens.RADIUS_MEDIUM)
+		style.set_content_margin_all(10)
+		toast_label = Label.new()
+		toast_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+		toast_label.offset_left = 24
+		toast_label.offset_right = -24
+		toast_label.offset_top = 54
+		toast_label.offset_bottom = 94
+		toast_label.add_theme_stylebox_override("normal", style)
+		toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		toast_label.add_theme_color_override("font_color", Color.WHITE)
+		toast_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(toast_label)
+		toast_label.hide()
+	else:
+		var style: StyleBoxFlat = toast_label.get_theme_stylebox("normal")
+		if style:
+			style.bg_color = Color(0.06, 0.72, 0.51, 0.92) if is_success else DesignTokens.SURFACE_ELEVATED
+			style.border_color = Color("#34d399") if is_success else DesignTokens.BORDER
+
+	_toast_token += 1
+	var token := _toast_token
+	toast_label.text = msg
+	toast_label.show()
+	move_child(toast_label, get_child_count() - 1)
+	var timer := get_tree().create_timer(2.8)
+	timer.timeout.connect(func() -> void:
+		if token == _toast_token and is_instance_valid(toast_label):
+			toast_label.hide()
+	)
+
 # --- ACTIONS DES BOUTONS DE NAVIGATION ---
 
 func _on_btn_first_pressed() -> void:
@@ -692,10 +809,13 @@ func _on_btn_flip_pressed() -> void:
 ## Vues superposées (Analyse / Coach) par-dessus la vue principale.
 
 func _open_analyse_overlay() -> void:
-	move_list.refresh()
+	if move_list:
+		move_list.refresh()
 	_show_overlay(analyse_overlay)
 
 func _open_coach_overlay() -> void:
+	if coach_panel:
+		coach_panel.refresh_for_current_ply()
 	_show_overlay(coach_overlay)
 
 func _show_overlay(overlay: Control) -> void:
@@ -711,7 +831,7 @@ func _close_overlays() -> void:
 func show_board_tab() -> void:
 	_close_overlays()
 
-# --- MENU « IMPORTER » (PNG / PGN / Chess.com) ---
+# --- MENU « PLUS / ACTIONS » (PNG / PGN / Reset / Export / Chess.com / Aides) ---
 
 var import_menu: PopupMenu = null
 
@@ -728,9 +848,14 @@ func _build_import_menu() -> void:
 	import_menu.add_theme_stylebox_override("panel", panel_style)
 	import_menu.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	import_menu.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
-	import_menu.add_item("🖼️  Photo du plateau (PNG)")
-	import_menu.add_item("📄  Fichier / texte PGN")
-	import_menu.add_item("🌐  Synchroniser Chess.com")
+	import_menu.add_item("🖼️  Photo du plateau (PNG)", 0)
+	import_menu.add_item("📄  Fichier / texte PGN", 1)
+	import_menu.add_item("🌐  Synchroniser Chess.com", 2)
+	import_menu.add_separator("Partie")
+	import_menu.add_item("📋  Exporter le PGN (Copier)", 3)
+	import_menu.add_item("✨  Nouvelle partie (Reset)", 4)
+	import_menu.add_separator("Affichage")
+	import_menu.add_item("🎯  Aides de coups (ON/OFF)", 5)
 	import_menu.id_pressed.connect(_on_import_menu_id_pressed)
 	add_child(import_menu)
 
@@ -739,6 +864,75 @@ func _on_import_menu_id_pressed(id: int) -> void:
 		0: _on_btn_import_png_pressed()
 		1: _on_btn_import_pgn_pressed()
 		2: _on_btn_chess_com_pressed()
+		3: _export_pgn()
+		4: _on_btn_new_game_pressed()
+		5: _toggle_move_hints()
+
+func _export_pgn() -> void:
+	if GameController == null or GameController.game == null:
+		_show_error_banner("Aucune partie à exporter.")
+		return
+	var pgn_text: String = GameController.game.export_pgn()
+	DisplayServer.clipboard_set(pgn_text)
+	var pgn_modal := PGNModal.new()
+	pgn_modal.set_export_mode(pgn_text)
+	_open_modal(pgn_modal)
+	_show_toast("PGN copié dans le presse-papiers !")
+
+func _on_btn_new_game_pressed() -> void:
+	if GameController.game and not GameController.game.move_history.is_empty():
+		var dialog := ConfirmationDialog.new()
+		dialog.title = "Nouvelle partie"
+		dialog.dialog_text = "Voulez-vous réinitialiser l'échiquier et démarrer une nouvelle partie ?\nLa partie en cours sera effacée."
+		dialog.ok_button_text = "Réinitialiser"
+		dialog.cancel_button_text = "Annuler"
+		dialog.confirmed.connect(_do_reset_game)
+		add_child(dialog)
+		dialog.popup_centered()
+	else:
+		_do_reset_game()
+
+func _do_reset_game() -> void:
+	if analyzer and analyzer.is_analyzing:
+		analyzer.cancel_analysis()
+	GameController.reset_to_initial()
+	advantage_graph.set_evaluations([])
+	advantage_graph.update_stored_analyses([])
+	if stats_grid:
+		stats_grid.visible = false
+	if stats_label:
+		stats_label.text = "Nouvelle partie commencée. Échiquier réinitialisé."
+	if eval_bar:
+		eval_bar.set_score(20, 0)
+	if top_eval_label:
+		top_eval_label.text = "+0.2"
+	if chess_board:
+		chess_board.last_move_from = -1
+		chess_board.last_move_to = -1
+		chess_board.best_move_arrow_from = -1
+		chess_board.best_move_arrow_to = -1
+		chess_board.reset_board_visuals()
+	_update_player_labels()
+	if move_list:
+		move_list.set_analysis_report({})
+		move_list.refresh()
+	_show_toast("Nouvelle partie initialisée")
+	_trigger_live_eval()
+
+func _toggle_move_hints() -> void:
+	var cur_val: bool = SettingsManager.get_setting("show_move_hints", true)
+	var new_val: bool = not cur_val
+	SettingsManager.set_setting("show_move_hints", new_val)
+	if chess_board:
+		chess_board.show_move_hints = new_val
+		if not new_val:
+			chess_board.best_move_arrow_from = -1
+			chess_board.best_move_arrow_to = -1
+		if chess_board.arrow_overlay:
+			chess_board.arrow_overlay.queue_redraw()
+		chess_board.queue_redraw()
+	var state_str = "activées" if new_val else "désactivées"
+	_show_toast("Aides visuelles %s" % state_str)
 
 func _on_btn_more_pressed() -> void:
 	if import_menu == null:
@@ -1036,7 +1230,9 @@ func _on_analysis_finished(report: Dictionary) -> void:
 			var game_rec = dm.get_game(gid)
 			advantage_graph.update_stored_analyses(game_rec.get("engine_analyses", []))
 
-	move_list.refresh()
+	if move_list:
+		move_list.set_analysis_report(report)
+		move_list.refresh()
 
 	# Reprise automatique du Live SF19 à la position courante
 	if live_eval_enabled:

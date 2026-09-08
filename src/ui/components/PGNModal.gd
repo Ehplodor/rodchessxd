@@ -55,9 +55,9 @@ func _setup_ui() -> void:
 	btn_copy.text = "💾 Copier PGN"
 	btn_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_copy.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
-	btn_copy.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_copy.pressed.connect(func():
-		var cur_pgn = GameController.game.export_pgn()
+		var gc = _get_game_controller()
+		var cur_pgn = gc.game.export_pgn() if (gc and gc.game) else ""
 		DisplayServer.clipboard_set(cur_pgn)
 		pgn_text_edit.text = cur_pgn
 		status_lbl.text = "✅ PGN de la partie copié dans le presse-papier."
@@ -74,8 +74,9 @@ func _setup_ui() -> void:
 	vbox.add_child(pgn_text_edit)
 
 	# Pré-remplir avec la partie en cours si existante
-	if GameController.game.move_history.size() > 0:
-		pgn_text_edit.text = GameController.game.export_pgn()
+	var gc_init = _get_game_controller()
+	if gc_init and gc_init.game and gc_init.game.move_history.size() > 0:
+		pgn_text_edit.text = gc_init.game.export_pgn()
 
 	status_lbl = Label.new()
 	status_lbl.text = ""
@@ -118,9 +119,31 @@ func _on_load_pressed() -> void:
 		status_lbl.text = "Veuillez coller ou charger un texte PGN."
 		return
 
-	var success = GameController.load_pgn(text)
+	var gc = _get_game_controller()
+	var success = gc.load_pgn(text) if gc else false
 	if success:
 		pgn_loaded.emit(text)
 		queue_free()
 	else:
 		status_lbl.text = "❌ Format PGN non reconnu ou aucun coup valide trouvé."
+
+func set_export_mode(pgn: String = "") -> void:
+	title = "💾 Exporter la partie (PGN)"
+	var export_text = pgn
+	if export_text == "":
+		var gc = _get_game_controller()
+		if gc and gc.game:
+			export_text = gc.game.export_pgn()
+	if pgn_text_edit:
+		pgn_text_edit.text = export_text
+		pgn_text_edit.editable = false
+	if export_text != "":
+		DisplayServer.clipboard_set(export_text)
+		if status_lbl:
+			status_lbl.text = "✅ PGN de la partie copié dans le presse-papier !"
+
+func _get_game_controller() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("GameController"):
+		return tree.root.get_node("GameController")
+	return null

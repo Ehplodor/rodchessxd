@@ -429,6 +429,16 @@ func _setup_ui() -> void:
 	sound_check.toggled.connect(func(val): SettingsManager.set_setting("sound_enabled", val))
 	vbox.add_child(sound_check)
 
+	# Aides visuelles aux coups
+	var hints_check = CheckButton.new()
+	hints_check.text = "Aides de coups (points et flèches)"
+	hints_check.clip_text = true
+	hints_check.button_pressed = SettingsManager.get_setting("show_move_hints", true)
+	hints_check.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	hints_check.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	hints_check.toggled.connect(func(val): SettingsManager.set_setting("show_move_hints", val))
+	vbox.add_child(hints_check)
+
 	# --- SECTION À PROPOS & LOGS (M8 / observabilité beta) ---
 	_add_section_header(vbox, "🛠️ À propos & Logs")
 

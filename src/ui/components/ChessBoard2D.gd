@@ -92,6 +92,7 @@ var check_pulse_timer: float = 0.0
 
 var best_move_arrow_from: int = -1
 var best_move_arrow_to: int = -1
+var show_move_hints: bool = true
 
 # Système d'animations et effets visuels
 class CaptureBurstFX extends Control:
@@ -218,6 +219,15 @@ func _ready() -> void:
 	var eng = _get_engine_manager()
 	if eng != null:
 		eng.evaluation_updated.connect(_on_engine_eval)
+	
+	var sm = _get_settings_manager()
+	if sm != null:
+		show_move_hints = sm.get_setting("show_move_hints", true)
+		sm.settings_changed.connect(func(key, val):
+			if key == "show_move_hints":
+				show_move_hints = bool(val)
+				_redraw_board_and_overlays()
+		)
 	
 	reset_board_visuals()
 
@@ -748,7 +758,7 @@ func _draw() -> void:
 				draw_rect(rect, theme.get("selected_border", Color("#eab308")), false, 1.5)
 
 			# Surbrillance subtile au survol d'une case de destination autorisée
-			if gc and gc.selected_square != -1 and sq == hovered_sq and sq in gc.legal_destinations:
+			if show_move_hints and gc and gc.selected_square != -1 and sq == hovered_sq and sq in gc.legal_destinations:
 				var hov_col = theme.get("legal_hover", Color(1.0, 1.0, 1.0, 0.22))
 				draw_rect(rect, hov_col)
 
@@ -774,7 +784,7 @@ func _draw() -> void:
 				draw_string(font, text_pos, file_char, HORIZONTAL_ALIGNMENT_LEFT, -1, coord_font_size, text_col)
 
 			# Points de déplacement & anneaux de capture (rendus si pas d'arrow_overlay)
-			if not arrow_overlay and gc and sq in gc.legal_destinations:
+			if show_move_hints and not arrow_overlay and gc and sq in gc.legal_destinations:
 				var center = rect.position + rect.size * 0.5
 				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
 				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
@@ -803,25 +813,26 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 			# Bordure nette au premier plan encadrant la pièce sélectionnée
 			ci.draw_rect(sel_rect, theme.get("selected_border", Color("#0ea5e9")), false, 2.5)
 
-		for sq in gc.legal_destinations:
-			var center = _get_square_screen_pos(sq) + Vector2(square_size * 0.5, square_size * 0.5)
-			var piece_on_target = gc.game.get_piece(sq) if gc.game else null
-			if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
-				# Anneau de capture bien visible au-dessus de la pièce ennemie prenable
-				var ring_col = theme.get("legal_ring", Color(0.92, 0.28, 0.28, 0.88))
-				ci.draw_arc(center + Vector2(1.0, 1.0), square_size * 0.43, 0, TAU, 48, Color(0, 0, 0, 0.35), 3.5)
-				ci.draw_arc(center, square_size * 0.43, 0, TAU, 48, ring_col, 3.5)
-			else:
-				# Disque discret et lisible pour case vide
-				var dot_col = theme.get("legal_dot", Color(0.12, 0.16, 0.22, 0.35))
-				ci.draw_circle(center, square_size * 0.16, dot_col)
+		if show_move_hints:
+			for sq in gc.legal_destinations:
+				var center = _get_square_screen_pos(sq) + Vector2(square_size * 0.5, square_size * 0.5)
+				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
+				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
+					# Anneau de capture bien visible au-dessus de la pièce ennemie prenable
+					var ring_col = theme.get("legal_ring", Color(0.92, 0.28, 0.28, 0.88))
+					ci.draw_arc(center + Vector2(1.0, 1.0), square_size * 0.43, 0, TAU, 48, Color(0, 0, 0, 0.35), 3.5)
+					ci.draw_arc(center, square_size * 0.43, 0, TAU, 48, ring_col, 3.5)
+				else:
+					# Disque discret et lisible pour case vide
+					var dot_col = theme.get("legal_dot", Color(0.12, 0.16, 0.22, 0.35))
+					ci.draw_circle(center, square_size * 0.16, dot_col)
 
 	# 2. Flèche fine rouge carmin en pointillés du dernier coup joué
 	if last_move_from != -1 and last_move_to != -1 and not is_animating_move:
 		_draw_last_move_arrow(last_move_from, last_move_to, theme, ci)
 	
 	# 3. Flèche tactique moderne pour l'analyse Stockfish (meilleur coup)
-	if best_move_arrow_from != -1 and best_move_arrow_to != -1:
+	if show_move_hints and best_move_arrow_from != -1 and best_move_arrow_to != -1:
 		_draw_modern_move_arrow(best_move_arrow_from, best_move_arrow_to, theme, ci)
 
 func _draw_last_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: CanvasItem = null) -> void:

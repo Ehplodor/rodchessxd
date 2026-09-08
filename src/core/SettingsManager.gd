@@ -36,7 +36,8 @@ var settings := {
 	"last_catalog_sync": "",
 	"local_slm_url": "http://127.0.0.1:11434/api/generate", # Ollama / llama.cpp standard
 	"coach_personality": "mentor", # "mentor", "blunder_hunter", "kids_simple"
-	"flip_board": false
+	"flip_board": false,
+	"show_move_hints": true
 }
 
 func _ready() -> void:

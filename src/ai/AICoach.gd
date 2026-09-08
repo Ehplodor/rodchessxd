@@ -180,6 +180,17 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 		_:
 			system_prompt += "\n\nAdopte un ton de mentor bienveillant, encourageant et constructif. Valorise les bonnes idées tout en expliquant les erreurs avec patience."
 
+	var is_comeback = extra_context.get("prompt_type", "") == "comeback" or "remonter la pente" in user_question.to_lower()
+	if is_comeback:
+		system_prompt += "\n\n6. DIRECTIVE SPÉCIALE « REMONTER LA PENTE » (SANS SPOILER LE COUP DIRECT) :\n" \
+			+ "- Le camp conseillé (%s) est sous pression ou cherche à renverser la tendance.\n" % perspective_label \
+			+ "- RÈGLE STRICTE : Tu as l'interdiction de lui révéler directement le coup exact ('Jouez %s') ou d'écrire la solution sous forme de recette toute faite.\n" % best_move \
+			+ "- À la place, donne-lui les clés fondamentales pour remonter la pente par lui-même :\n" \
+			+ "  * Attitude et combativité : ne rien céder, compliquer au maximum chaque décision adverse.\n" \
+			+ "  * Défense active et contre-jeu : sortir de la passivité, activer les pièces endormies, ouvrir des contre-chances.\n" \
+			+ "  * Cibles adverses : repérer les faiblesses structurelles, pièces non protégées ou roi ennemi mal abrité.\n" \
+			+ "  * Complications et pièges : orienter sa réflexion tactique vers les zones à exploiter sans lui dicter le coup."
+
 	# Décodage naturel du meilleur coup et de la variante calculée
 	var best_move_desc = "N/A"
 	if best_move != "":

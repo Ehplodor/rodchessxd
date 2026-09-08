@@ -85,10 +85,16 @@ layout_mode = 2
 tooltip_text = "Retourner le plateau"
 text = "🔄"
 
+[node name="BtnNewGame" type="Button" parent="VBox/TopBar"]
+custom_minimum_size = Vector2(46, 60)
+layout_mode = 2
+tooltip_text = "Nouvelle partie (réinitialiser l'échiquier)"
+text = "✨"
+
 [node name="BtnMore" type="Button" parent="VBox/TopBar"]
 custom_minimum_size = Vector2(46, 60)
 layout_mode = 2
-tooltip_text = "Importer une partie (image, PGN, Chess.com)"
+tooltip_text = "Menu partie (Import, Export PGN, Aides)"
 text = "📥"
 
 [node name="BtnEngineHub" type="Button" parent="VBox/TopBar"]
@@ -429,6 +435,7 @@ stream = ExtResource("8_sfx_capture")
 stream = ExtResource("9_sfx_check")
 
 [connection signal="pressed" from="VBox/TopBar/BtnFlip" to="." method="_on_btn_flip_pressed"]
+[connection signal="pressed" from="VBox/TopBar/BtnNewGame" to="." method="_on_btn_new_game_pressed"]
 [connection signal="pressed" from="VBox/TopBar/BtnMore" to="." method="_on_btn_more_pressed"]
 [connection signal="pressed" from="VBox/TopBar/BtnEngineHub" to="." method="_on_btn_engine_hub_pressed"]
 [connection signal="pressed" from="VBox/TopBar/BtnLibrary" to="." method="_on_btn_library_pressed"]

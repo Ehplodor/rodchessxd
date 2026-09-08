@@ -1,9 +1,9 @@
 class_name MoveList2D
 extends ScrollContainer
-## MoveList2D.gd - Feuille de notation des coups avec pastilles d'analyse,
-## perte en cp et filtres par qualité (jalon M3), navigation interactive.
-## La qualité/loss des coups est posée par GameAnalyzer sur move_history
-## (move.quality, move.centipawn_loss) ; refresh() est appelé en fin d'analyse.
+## MoveList2D.gd - Écran d'analyse et feuille de coups.
+## Affiche en haut les statistiques parallèles des deux joueurs (3 colonnes),
+## le résumé synthétique en un coup d'œil (vainqueur, ELO, qualité, répartition des coups),
+## puis en dessous la feuille de notation interactive avec filtres de qualité.
 
 const MoveQualityService = preload("res://src/ui/components/MoveQualityService.gd")
 
@@ -11,6 +11,7 @@ var container: VBoxContainer
 var move_buttons: Array[Button] = []
 var _active_btn: Button = null
 var _last_moves_count: int = -1
+var _analysis_report: Dictionary = {}
 
 # Filtre actif : 0 = tout, 1 = ?! , 2 = ? , 3 = ?? , 4 = positifs (✓ ! ★ !!)
 var _filter := 0
@@ -24,83 +25,357 @@ const _FILTERS := [
 ]
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(200, 90)
+	custom_minimum_size = Vector2(200, 120)
 	horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	DesignTokens.touch_scroll(self)
 
 	container = VBoxContainer.new()
 	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	container.add_theme_constant_override("separation", 2)
+	container.add_theme_constant_override("separation", 8)
 	add_child(container)
 
-	GameController.position_changed.connect(_on_position_changed)
-	GameController.move_navigated.connect(_on_move_navigated)
+	var gc = _get_game_controller()
+	if gc:
+		gc.position_changed.connect(_on_position_changed)
+		gc.move_navigated.connect(_on_move_navigated)
+
+## Permet à Main d'injecter le rapport d'analyse complet
+func set_analysis_report(report: Dictionary) -> void:
+	_analysis_report = report
+	_refresh_moves()
 
 ## Rafraîchissement public (appelé aussi à la fin de l'analyse, cf. Main).
 func refresh() -> void:
 	_refresh_moves()
 
 func _on_position_changed() -> void:
-	var cur_count = GameController.game.move_history.size() if (GameController and GameController.game) else 0
+	var gc = _get_game_controller()
+	var cur_count = gc.game.move_history.size() if (gc and gc.game) else 0
 	if cur_count != _last_moves_count:
 		_refresh_moves()
 	else:
-		_update_active_button(GameController.current_ply_index if GameController else -1)
+		_update_active_button(gc.current_ply_index if gc else -1)
+
+func _get_game_controller() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("GameController"):
+		return tree.root.get_node("GameController")
+	return null
+
+func _get_database_manager() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("DatabaseManager"):
+		return tree.root.get_node("DatabaseManager")
+	return null
 
 func _refresh_moves() -> void:
 	for child in container.get_children():
 		child.queue_free()
 	move_buttons.clear()
 	_active_btn = null
-	_last_moves_count = GameController.game.move_history.size() if (GameController and GameController.game) else 0
-	scroll_vertical = 0  # revenir en haut : le récap reste visible
+	var gc = _get_game_controller()
+	_last_moves_count = gc.game.move_history.size() if (gc and gc.game) else 0
+	scroll_vertical = 0
 
-	_build_recap()
+	# Récupérer automatiquement l'analyse en base si non fournie
+	if _analysis_report.is_empty():
+		var dm = _get_database_manager()
+		if dm and gc and gc.current_game_id != "":
+			var g = dm.get_game(gc.current_game_id)
+			var ea = g.get("engine_analyses", [])
+			if not ea.is_empty():
+				_analysis_report = ea.back()
+
+	# 1. Tableau comparatif parallèle 3 colonnes (Blancs, Libellé de Stat, Noirs)
+	_build_parallel_stats_table()
+
+	# 2. Carte Résumé synthétique en un coup d'œil (Vainqueur, ELO, Qualité, Types de coups)
+	_build_summary_card()
+
+	# 3. Séparateur et en-tête des coups
+	_build_moves_header()
+
+	# 4. Ligne de filtres
 	_build_filter_row()
+
+	# 5. Liste des coups détaillée
 	_build_moves()
 	call_deferred("_scroll_to_active")
 
-# --- RÉCAP PAR QUALITÉ ---
+# --- NOMS DES JOUEURS ---
+func _get_player_names() -> Dictionary:
+	var gc = _get_game_controller()
+	var headers: Dictionary = gc.game.pgn_headers if (gc and gc.game) else {}
+	var w: String = str(headers.get("White", "")).strip_edges()
+	var b: String = str(headers.get("Black", "")).strip_edges()
+	if w == "" or w.to_lower() in ["player 1", "joueur 1", "?"]:
+		w = "Blancs"
+	if b == "" or b.to_lower() in ["player 2", "joueur 2", "?"]:
+		b = "Noirs"
+	return {"white": w, "black": b}
 
-func _quality_counts() -> Dictionary:
-	var c := {"gaffes": 0, "erreurs": 0, "imprecisions": 0, "brillants": 0}
-	for m in GameController.game.move_history:
-		var q: int = m.quality
-		match q:
-			ChessMove.Quality.BLUNDER, ChessMove.Quality.MISS:
-				c["gaffes"] += 1
-			ChessMove.Quality.MISTAKE:
-				c["erreurs"] += 1
-			ChessMove.Quality.INACCURACY:
-				c["imprecisions"] += 1
-			ChessMove.Quality.BRILLIANT, ChessMove.Quality.BEST, ChessMove.Quality.GREAT:
-				c["brillants"] += 1
-	return c
+# --- STATISTIQUES QUALITATIVES DES DEUX CAMPS ---
+func _get_player_quality_stats() -> Dictionary:
+	var w_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0, "miss": 0}
+	var b_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0, "miss": 0}
+	
+	var gc = _get_game_controller()
+	if _analysis_report.has("white_stats") and not _analysis_report["white_stats"].is_empty():
+		w_stats = _analysis_report["white_stats"]
+		b_stats = _analysis_report.get("black_stats", {})
+	elif gc and gc.game:
+		for i in range(gc.game.move_history.size()):
+			var m = gc.game.move_history[i]
+			var is_w = (i % 2 == 0)
+			var target = w_stats if is_w else b_stats
+			match m.quality:
+				ChessMove.Quality.BRILLIANT: target["brilliant"] += 1
+				ChessMove.Quality.BEST: target["best"] += 1
+				ChessMove.Quality.GREAT: target["great"] += 1
+				ChessMove.Quality.EXCELLENT: target["excellent"] += 1
+				ChessMove.Quality.GOOD: target["good"] += 1
+				ChessMove.Quality.INACCURACY: target["inaccuracy"] += 1
+				ChessMove.Quality.MISTAKE: target["mistake"] += 1
+				ChessMove.Quality.BLUNDER: target["blunder"] += 1
+				ChessMove.Quality.MISS: target["miss"] += 1
+	return {"white": w_stats, "black": b_stats}
 
-func _build_recap() -> void:
-	var c := _quality_counts()
-	var parts: Array[String] = []
-	if c["gaffes"] > 0:
-		parts.append("🤯 Gaffes %d" % c["gaffes"])
-	if c["erreurs"] > 0:
-		parts.append("😬 Erreurs %d" % c["erreurs"])
-	if c["imprecisions"] > 0:
-		parts.append("🤔 Imprécisions %d" % c["imprecisions"])
-	if c["brillants"] > 0:
-		parts.append("👏 Brillants %d" % c["brillants"])
+# --- 1. TABLEAU COMPARATIF 3 COLONNES ---
+func _build_parallel_stats_table() -> void:
+	var names = _get_player_names()
+	var q_stats = _get_player_quality_stats()
+	var w_s = q_stats["white"]
+	var b_s = q_stats["black"]
 
-	var recap := Label.new()
-	recap.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	recap.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	recap.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
-	if parts.is_empty():
-		recap.text = "Récap qualité : analyse la partie pour détailler les coups."
-	else:
-		recap.text = "Récap : " + " · ".join(parts)
-	container.add_child(recap)
+	var panel = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var p_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(10, 8))
+	panel.add_theme_stylebox_override("panel", p_style)
+	container.add_child(panel)
 
-# --- LIGNE DE FILTRES ---
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
 
+	var title_lbl = Label.new()
+	title_lbl.text = "⚔️ Statistiques des Joueurs en Parallèle"
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	vbox.add_child(title_lbl)
+
+	var grid = GridContainer.new()
+	grid.columns = 3
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 4)
+	vbox.add_child(grid)
+
+	# Ligne d'en-tête (Blancs, Libellé, Noirs)
+	var head_w = Label.new()
+	head_w.text = "⚪ " + names["white"]
+	head_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_w.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	head_w.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	head_w.add_theme_color_override("font_color", Color("#f8fafc"))
+	grid.add_child(head_w)
+
+	var head_m = Label.new()
+	head_m.text = "📊 Indicateur"
+	head_m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head_m.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	head_m.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	grid.add_child(head_m)
+
+	var head_b = Label.new()
+	head_b.text = "⚫ " + names["black"]
+	head_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_b.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	head_b.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	head_b.add_theme_color_override("font_color", Color("#cbd5e1"))
+	grid.add_child(head_b)
+
+	# Métriques principales
+	var has_report = not _analysis_report.is_empty()
+	var w_acc = _analysis_report.get("white_accuracy", 0.0)
+	var b_acc = _analysis_report.get("black_accuracy", 0.0)
+	var w_elo = _analysis_report.get("white_estimated_elo", 1500)
+	var b_elo = _analysis_report.get("black_estimated_elo", 1500)
+	var w_ci = _analysis_report.get("white_elo_ci", 0)
+	var b_ci = _analysis_report.get("black_elo_ci", 0)
+	var w_acpl = _analysis_report.get("white_acpl", 0.0)
+	var b_acpl = _analysis_report.get("black_acpl", 0.0)
+
+	var w_acc_str = ("%.1f %%" % w_acc) if has_report else "—"
+	var b_acc_str = ("%.1f %%" % b_acc) if has_report else "—"
+	var w_elo_str = ("%d" % w_elo + (" ±%d" % w_ci if w_ci > 0 else "")) if has_report else "—"
+	var b_elo_str = ("%d" % b_elo + (" ±%d" % b_ci if b_ci > 0 else "")) if has_report else "—"
+	var w_acpl_str = ("%.1f cp" % w_acpl) if has_report else "—"
+	var b_acpl_str = ("%.1f cp" % b_acpl) if has_report else "—"
+
+	_add_stat_row(grid, w_acc_str, "🎯 Précision CAPS2", b_acc_str, Color("#34d399"))
+	_add_stat_row(grid, w_elo_str, "📈 ELO estimé", b_elo_str, Color("#38bdf8"))
+	_add_stat_row(grid, w_acpl_str, "📉 Perte moy. (ACPL)", b_acpl_str, Color("#fde047"))
+
+	# Catégories de coups
+	_add_stat_row(grid, str(w_s.get("brilliant", 0)), "‼ Coups brillants", str(b_s.get("brilliant", 0)), Color("#38bdf8"))
+	_add_stat_row(grid, str(w_s.get("best", 0)), "★ Meilleurs coups", str(b_s.get("best", 0)), Color("#10b981"))
+	_add_stat_row(grid, str(w_s.get("great", 0) + w_s.get("excellent", 0)), "✓+ Excellents coups", str(b_s.get("great", 0) + b_s.get("excellent", 0)), Color("#14b8a6"))
+	_add_stat_row(grid, str(w_s.get("good", 0)), "✓ Bons coups", str(b_s.get("good", 0)), Color("#94a3b8"))
+	_add_stat_row(grid, str(w_s.get("inaccuracy", 0)), "?! Imprécisions", str(b_s.get("inaccuracy", 0)), Color("#eab308"))
+	_add_stat_row(grid, str(w_s.get("mistake", 0)), "? Erreurs", str(b_s.get("mistake", 0)), Color("#f97316"))
+	_add_stat_row(grid, str(w_s.get("blunder", 0) + w_s.get("miss", 0)), "?? Gaffes", str(b_s.get("blunder", 0) + b_s.get("miss", 0)), Color("#ef4444"))
+
+func _add_stat_row(grid: GridContainer, val_w: String, label_text: String, val_b: String, accent_col: Color) -> void:
+	var lbl_w = Label.new()
+	lbl_w.text = val_w
+	lbl_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_w.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lbl_w.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl_w.add_theme_color_override("font_color", accent_col)
+	grid.add_child(lbl_w)
+
+	var lbl_m = Label.new()
+	lbl_m.text = label_text
+	lbl_m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_m.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl_m.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	grid.add_child(lbl_m)
+
+	var lbl_b = Label.new()
+	lbl_b.text = val_b
+	lbl_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_b.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	lbl_b.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl_b.add_theme_color_override("font_color", accent_col)
+	grid.add_child(lbl_b)
+
+# --- 2. CARTE RÉSUMÉ SYNTHÉTIQUE ---
+func _build_summary_card() -> void:
+	var names = _get_player_names()
+	var q_stats = _get_player_quality_stats()
+	var w_s = q_stats["white"]
+	var b_s = q_stats["black"]
+
+	var card = PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var c_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(10, 8))
+	card.add_theme_stylebox_override("panel", c_style)
+	container.add_child(card)
+
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 6)
+	card.add_child(vbox)
+
+	# Résultat / Vainqueur
+	var outcome_text = "♟️ Partie en cours"
+	var outcome_color = DesignTokens.ACCENT
+	
+	var gc = _get_game_controller()
+	if gc and gc.game:
+		var cur_col = gc.game.active_color
+		var in_chk = gc.game.is_in_check(cur_col)
+		var no_moves = gc.game.get_legal_moves(cur_col).is_empty()
+		var pgn_res = str(gc.game.pgn_headers.get("Result", "*")).strip_edges()
+
+		if no_moves:
+			if in_chk:
+				var winner_is_white = (cur_col == ChessPiece.PieceColor.BLACK)
+				var winner_name = names["white"] if winner_is_white else names["black"]
+				outcome_text = "🏆 Victoire de %s (Échec et mat)" % winner_name
+				outcome_color = Color("#34d399")
+			else:
+				outcome_text = "🤝 Partie Nulle par pat"
+				outcome_color = Color("#94a3b8")
+		elif pgn_res == "1-0":
+			outcome_text = "🏆 Victoire de %s (1-0)" % names["white"]
+			outcome_color = Color("#34d399")
+		elif pgn_res == "0-1":
+			outcome_text = "🏆 Victoire de %s (0-1)" % names["black"]
+			outcome_color = Color("#34d399")
+		elif pgn_res in ["1/2-1/2", "0.5-0.5"]:
+			outcome_text = "🤝 Partie Nulle convenue (½ - ½)"
+			outcome_color = Color("#94a3b8")
+
+	var outcome_lbl = Label.new()
+	outcome_lbl.text = outcome_text
+	outcome_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	outcome_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	outcome_lbl.add_theme_color_override("font_color", outcome_color)
+	vbox.add_child(outcome_lbl)
+
+	# Qualité globale de la partie
+	if not _analysis_report.is_empty():
+		var w_acc = _analysis_report.get("white_accuracy", 0.0)
+		var b_acc = _analysis_report.get("black_accuracy", 0.0)
+		var avg_acc = (w_acc + b_acc) * 0.5
+
+		var qual_label = "Partie équilibrée"
+		if avg_acc >= 85.0:
+			qual_label = "Partie d'excellence (Niveau Maître)"
+		elif avg_acc >= 75.0:
+			qual_label = "Très bonne partie (Haute précision)"
+		elif avg_acc >= 65.0:
+			qual_label = "Partie disputée avec imprécisions tactiques"
+		else:
+			qual_label = "Partie animée et riche en rebondissements"
+
+		var qual_lbl = Label.new()
+		qual_lbl.text = "⭐ Qualité globale : %s (Précision moy. %.1f%%)" % [qual_label, avg_acc]
+		qual_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		qual_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		qual_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		qual_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		vbox.add_child(qual_lbl)
+
+		# Différentiel ELO & test statistique
+		var comp: Dictionary = _analysis_report.get("elo_comparison", {})
+		var diff_elo = int(comp.get("diff_elo", _analysis_report.get("white_estimated_elo", 1500) - _analysis_report.get("black_estimated_elo", 1500)))
+		var stars = comp.get("stars", "ns")
+		var p_val = float(comp.get("p_value", 1.0))
+		var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
+		var favored_name = names["white"] if diff_elo >= 0 else names["black"]
+
+		var elo_lbl = Label.new()
+		elo_lbl.text = "📈 Différentiel : Δ %+d ELO en faveur de %s • %s %s" % [abs(diff_elo), favored_name, p_str, stars]
+		elo_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		elo_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		elo_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		elo_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+		vbox.add_child(elo_lbl)
+
+	# Résumé synthétique des types de coups (de brillants aux grosses gaffes)
+	var breakdown_lbl = Label.new()
+	breakdown_lbl.text = "Répartition : ⚪ [★ %d • ✓ %d • ?! %d • ?? %d]   VS   ⚫ [★ %d • ✓ %d • ?! %d • ?? %d]" % [
+		w_s.get("best", 0) + w_s.get("brilliant", 0),
+		w_s.get("good", 0) + w_s.get("great", 0) + w_s.get("excellent", 0),
+		w_s.get("inaccuracy", 0),
+		w_s.get("blunder", 0) + w_s.get("mistake", 0),
+		b_s.get("best", 0) + b_s.get("brilliant", 0),
+		b_s.get("good", 0) + b_s.get("great", 0) + b_s.get("excellent", 0),
+		b_s.get("inaccuracy", 0),
+		b_s.get("blunder", 0) + b_s.get("mistake", 0)
+	]
+	breakdown_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	breakdown_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	breakdown_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	breakdown_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	vbox.add_child(breakdown_lbl)
+
+# --- 3. TITRE DE LA SECTION COUPS ---
+func _build_moves_header() -> void:
+	var lbl = Label.new()
+	lbl.text = "📜 Feuille des Coups & Navigation Interactive :"
+	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	container.add_child(lbl)
+
+# --- 4. LIGNE DE FILTRES ---
 func _build_filter_row() -> void:
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -125,11 +400,11 @@ func _build_filter_row() -> void:
 		)
 		row.add_child(btn)
 
-# --- LIGNES DE COUPS ---
-
+# --- 5. LIGNES DE COUPS ---
 func _build_moves() -> void:
-	var moves = GameController.game.move_history
-	var cur_ply = GameController.current_ply_index
+	var gc = _get_game_controller()
+	var moves = gc.game.move_history if (gc and gc.game) else []
+	var cur_ply = gc.current_ply_index if gc else -1
 	var filtered := _filter != 0
 
 	if not filtered:
@@ -161,14 +436,13 @@ func _build_dense(moves: Array, cur_ply: int) -> void:
 			_active_btn = btn
 		move_buttons.append(btn)
 
-# Mode filtré : une ligne par coup visible (pleine largeur), pas de trou de layout.
+# Mode filtré : une ligne par coup visible (pleine largeur).
 func _build_filtered_single(moves: Array, cur_ply: int) -> void:
 	for i in range(moves.size()):
 		var m = moves[i]
 		if not _passes_filter(m.quality):
 			continue
 		var btn := _make_move_button(m, i)
-		# Préfixe "N." intégré puisque le couple Blanc/Noir n'est pas conservé.
 		btn.text = str((i / 2) + 1) + ("..." if i % 2 == 1 else ". ") + btn.text
 		container.add_child(btn)
 		if i == cur_ply:
@@ -181,7 +455,7 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.flat = true
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size = Vector2(0, 48)  # M1 : dense, 2/ligne quand "Tout"
+	btn.custom_minimum_size = Vector2(0, 48)
 	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	btn.set_meta("ply", ply)
 
@@ -198,8 +472,9 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 		btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 
 	btn.pressed.connect(func():
-		GameController.navigate_to_ply(ply)
-		# Clic sur un coup : revenir à l'échiquier, positionné à ce coup.
+		var gc = _get_game_controller()
+		if gc:
+			gc.navigate_to_ply(ply)
 		var main := find_parent("Main")
 		if main and main.has_method("show_board_tab"):
 			main.show_board_tab()
@@ -220,7 +495,8 @@ func _reset_button_style(btn: Button) -> void:
 		return
 	btn.remove_theme_stylebox_override("normal")
 	var ply = btn.get_meta("ply", -1)
-	var moves = GameController.game.move_history if (GameController and GameController.game) else []
+	var gc = _get_game_controller()
+	var moves = gc.game.move_history if (gc and gc.game) else []
 	if ply >= 0 and ply < moves.size():
 		var m = moves[ply]
 		if m.quality != ChessMove.Quality.NONE:
@@ -244,7 +520,6 @@ func _update_active_button(ply_idx: int) -> void:
 			break
 	call_deferred("_scroll_to_active")
 
-## Suffixe "−N" de perte en centipions pour les coups fautifs (mini-texte).
 func _loss_suffix(m: ChessMove) -> String:
 	if m.quality == ChessMove.Quality.NONE or MoveQualityService.group(m.quality) == 0:
 		return ""
@@ -271,16 +546,17 @@ func _passes_filter(q: int) -> bool:
 			return true
 
 func _on_move_navigated(ply_idx: int) -> void:
-	var cur_count = GameController.game.move_history.size() if (GameController and GameController.game) else 0
+	var gc = _get_game_controller()
+	var cur_count = gc.game.move_history.size() if (gc and gc.game) else 0
 	if cur_count != _last_moves_count or move_buttons.is_empty():
 		_refresh_moves()
 	else:
 		_update_active_button(ply_idx)
 
 func _scroll_to_active() -> void:
-	var cur_ply = GameController.current_ply_index
+	var gc = _get_game_controller()
+	var cur_ply = gc.current_ply_index if gc else -1
 	for btn in move_buttons:
 		if is_instance_valid(btn) and btn.get_meta("ply", -1) == cur_ply:
 			ensure_control_visible(btn)
 			return
-
