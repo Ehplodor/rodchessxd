@@ -151,6 +151,30 @@ func _init() -> void:
 	print("  -> CoachPanel2D structure conforme : OK ✓")
 	coach_panel.queue_free()
 
+	# 7. Test CoachReadingModal : Modale superposée (mode normal & mode erreur)
+	print("\n[TEST 7] CoachReadingModal (lecture confortable & diagnostic)...")
+	const CoachReadingModalScript = preload("res://src/ui/components/CoachReadingModal.gd")
+	var sample_note = {
+		"move_san": "e4",
+		"perspective": "white",
+		"model_id": "z-ai/glm-5.3-flash:free",
+		"elapsed_sec": 1.4,
+		"cost_label": "Gratuit",
+		"user_question": "Pourquoi ce coup ?",
+		"response_text": "### Diagnostic\nExplication du coup **e4**..."
+	}
+	var modal_normal = CoachReadingModalScript.new(sample_note)
+	root.add_child(modal_normal)
+	assert(modal_normal.title.contains("e4"), "Le titre de la modale doit contenir le coup 'e4'")
+	modal_normal.queue_free()
+
+	var modal_error = CoachReadingModalScript.new({}, true, "Erreur HTTP 429 - Quota temporaire")
+	root.add_child(modal_error)
+	assert(modal_error.is_error_mode == true, "La modale doit être en mode erreur")
+	assert(modal_error.title.contains("Diagnostic"), "Le titre doit indiquer Diagnostic Erreur")
+	modal_error.queue_free()
+	print("  -> CoachReadingModal modes normal & erreur : OK ✓")
+
 	print("\n[TEST] ================================================================")
 	print("[TEST] TOUS LES TESTS DES NOUVELLES FONCTIONNALITÉS ONT RÉUSSI (100% OK) !")
 	print("[TEST] ================================================================\n")

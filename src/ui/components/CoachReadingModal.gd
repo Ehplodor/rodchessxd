@@ -67,7 +67,7 @@ func _setup_ui() -> void:
 	if is_error_mode:
 		var err_title = Label.new()
 		err_title.text = "⚠️ Échec de la requête vers le modèle IA"
-		err_title.add_theme_font_size_override("font_size", DesignTokens.FONT_SUBTITLE)
+		err_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 		err_title.add_theme_color_override("font_color", DesignTokens.DANGER)
 		header_vbox.add_child(err_title)
 
