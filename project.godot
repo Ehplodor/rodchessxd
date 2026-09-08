@@ -41,11 +41,15 @@ window/size/window_width_override=450
 window/size/window_height_override=800
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation=1
+window/handheld/orientation=6
 
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/RodChessUci/plugin.cfg")
+
+[gui]
+
+theme/custom_font="res://assets/NotoSans-Regular.ttf"
 
 [rendering]
 
@@ -53,8 +57,3 @@ renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
 anti_aliasing/screen_space_roughness_limiter/enabled=false
-
-[gui]
-
-theme/custom_font="res://assets/NotoSans-Regular.ttf"
-

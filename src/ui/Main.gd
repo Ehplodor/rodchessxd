@@ -14,6 +14,14 @@ const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
 const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 
+@onready var vbox: VBoxContainer = $VBox
+@onready var top_bar: HBoxContainer = $VBox/TopBar
+@onready var center_area: HBoxContainer = $VBox/CenterArea
+@onready var board_column: VBoxContainer = $VBox/CenterArea/BoardColumn
+@onready var board_container: AspectRatioContainer = $VBox/CenterArea/BoardColumn/BoardContainer
+@onready var nav_row: HBoxContainer = $VBox/NavRow
+@onready var dashboard: VBoxContainer = $VBox/Dashboard
+
 @onready var eval_bar: EvalBar2D = $VBox/CenterArea/EvalBar
 @onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
 @onready var advantage_graph: AdvantageGraph2D = $VBox/Dashboard/GraphPanel/AdvantageGraph
@@ -33,6 +41,8 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 @onready var btn_analyze_game: Button = $VBox/NavRow/BtnAnalyzeGame
 @onready var btn_toggle_live: Button = $VBox/NavRow/BtnToggleLive
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
+
+var is_landscape_layout: bool = false
 
 @onready var player_top_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerTop
 @onready var player_bottom_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerBottom
@@ -109,6 +119,7 @@ func _ready() -> void:
 		_apply_safe_insets()
 	_update_player_labels()
 	_update_live_button_style()
+	_check_and_update_layout()
 	call_deferred("_start_initial_eval")
 
 func _exit_tree() -> void:
@@ -123,6 +134,72 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_IN \
 			and (OS.has_feature("android") or OS.has_feature("ios")):
 		_apply_safe_insets()
+	elif what == NOTIFICATION_RESIZED:
+		_check_and_update_layout()
+
+func _check_and_update_layout() -> void:
+	if not is_inside_tree():
+		return
+	var cur_w = size.x
+	var cur_h = maxf(1.0, size.y)
+	if cur_w <= 0.0 or cur_h <= 0.0:
+		var vp_size = get_viewport_rect().size if get_viewport() else Vector2(450, 800)
+		cur_w = vp_size.x
+		cur_h = maxf(1.0, vp_size.y)
+	var aspect = cur_w / cur_h
+	var should_be_landscape = (aspect >= 1.15) and (cur_w >= 560.0)
+	_apply_adaptive_layout(should_be_landscape)
+
+func _apply_adaptive_layout(target_landscape: bool) -> void:
+	if not is_instance_valid(vbox) or not is_instance_valid(center_area) or not is_instance_valid(board_column) or not is_instance_valid(dashboard) or not is_instance_valid(nav_row):
+		return
+	
+	is_landscape_layout = target_landscape
+	
+	if is_landscape_layout:
+		# --- MODE PAYSAGE (16/9, PC, Tablettes, Téléphone tourné) ---
+		# La navigation s'intègre directement sous l'échiquier dans board_column
+		if nav_row.get_parent() != board_column:
+			nav_row.reparent(board_column)
+		
+		# Le tableau de bord se place à droite de board_column dans center_area (HBoxContainer)
+		if dashboard.get_parent() != center_area:
+			dashboard.reparent(center_area)
+		
+		board_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		board_column.size_flags_stretch_ratio = 1.15
+		board_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		
+		dashboard.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		dashboard.size_flags_stretch_ratio = 1.0
+		dashboard.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		
+		center_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		# --- MODE PORTRAIT (9/16, Smartphones standard) ---
+		# Restauration de l'arborescence verticale initiale dans vbox
+		if nav_row.get_parent() != vbox:
+			nav_row.reparent(vbox)
+			vbox.move_child(nav_row, center_area.get_index() + 1)
+		
+		if dashboard.get_parent() != vbox:
+			dashboard.reparent(vbox)
+			vbox.move_child(dashboard, nav_row.get_index() + 1)
+		
+		board_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		board_column.size_flags_stretch_ratio = 1.0
+		board_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		
+		dashboard.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		dashboard.size_flags_stretch_ratio = 1.0
+		dashboard.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		
+		center_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	if analyse_overlay and analyse_overlay.visible:
+		_dock_overlay(analyse_overlay)
+	if coach_overlay and coach_overlay.visible:
+		_dock_overlay(coach_overlay)
 
 func _apply_modern_theme() -> void:
 	var btn_normal := DesignTokens.flat(DesignTokens.BTN_BG, DesignTokens.RADIUS_SMALL,
@@ -807,20 +884,47 @@ func _on_btn_last_pressed() -> void:
 func _on_btn_flip_pressed() -> void:
 	GameController.flip_board()
 
-## Vues superposées (Analyse / Coach) par-dessus la vue principale.
+## Vues superposées (Analyse / Coach) : plein écran sur mobile portrait, ancrées à droite en paysage (échiquier 100% visible)
+
+func _dock_overlay(overlay: Control) -> void:
+	if not is_instance_valid(overlay):
+		return
+	if is_landscape_layout:
+		# En mode paysage : le panneau s'ancre sur la colonne de droite (Dashboard)
+		# Le plateau de jeu à gauche reste 100% VISIBLE et INTERACTIF !
+		var left_x: float = center_area.size.x * 0.53
+		var top_y: float = top_bar.size.y if top_bar else 56.0
+		if is_instance_valid(dashboard) and dashboard.is_inside_tree() and dashboard.size.x > 100.0:
+			left_x = dashboard.global_position.x
+			top_y = dashboard.global_position.y
+		
+		var right_w = maxf(280.0, size.x - left_x)
+		var right_h = maxf(280.0, size.y - top_y)
+		overlay.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		overlay.position = Vector2(left_x, top_y)
+		overlay.size = Vector2(right_w, right_h)
+	else:
+		# En mode portrait : plein écran complet
+		overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		overlay.offset_left = 0
+		overlay.offset_top = 0
+		overlay.offset_right = 0
+		overlay.offset_bottom = 0
 
 func _open_analyse_overlay() -> void:
+	coach_overlay.visible = false
 	if move_list:
 		move_list.refresh()
 	_show_overlay(analyse_overlay)
 
 func _open_coach_overlay() -> void:
+	analyse_overlay.visible = false
 	if coach_panel:
 		coach_panel.refresh_for_current_ply()
 	_show_overlay(coach_overlay)
 
 func _show_overlay(overlay: Control) -> void:
-	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_dock_overlay(overlay)
 	overlay.visible = true
 	move_child(overlay, get_child_count() - 1)
 
@@ -830,7 +934,8 @@ func _close_overlays() -> void:
 
 ## Retour à la vue principale (clic sur un coup dans l'analyse).
 func show_board_tab() -> void:
-	_close_overlays()
+	if not is_landscape_layout:
+		_close_overlays()
 
 # --- MENU « PLUS / ACTIONS » (PNG / PGN / Reset / Export / Chess.com / Aides) ---
 

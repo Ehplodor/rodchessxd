@@ -112,7 +112,7 @@ static func scrollbar_big(ctrl: Control, px: int = SCROLLBAR_W) -> void:
 	ctrl.add_theme_constant_override("h_scroll", px)
 	ctrl.add_theme_constant_override("v_scroll", px)
 
-## Calcule une dimension de fenêtre modale sécurisée et adaptée à la taille de l'écran du mobile.
+## Calcule une dimension de fenêtre modale sécurisée et adaptée à la taille de l'écran (mobile portrait ou écran large).
 static func adapt_modal_size(win: Window, base_w: float = 410.0, base_h: float = 560.0) -> void:
 	var screen_w = 450.0
 	var screen_h = 800.0
@@ -127,8 +127,11 @@ static func adapt_modal_size(win: Window, base_w: float = 410.0, base_h: float =
 		screen_w = win_s.x
 		screen_h = win_s.y
 
-	var target_w = int(clampf(screen_w * 0.94, 320.0, minf(base_w, 420.0)))
-	var target_h = int(clampf(screen_h * 0.88, 420.0, base_h))
+	var is_landscape: bool = (screen_w / maxf(1.0, screen_h)) >= 1.15 and screen_w >= 560.0
+	var max_w = 480.0 if is_landscape else 420.0
+	var factor_w = 0.46 if is_landscape else 0.94
+	var target_w = int(clampf(screen_w * factor_w, 320.0, minf(base_w, max_w)))
+	var target_h = int(clampf(screen_h * 0.88, 380.0, base_h))
 	win.size = Vector2i(target_w, target_h)
 
 ## Initialise la police vectorielle universelle et la police de secours d'icônes/émojis
