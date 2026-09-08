@@ -184,6 +184,147 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	call_deferred("emit_signal", "analysis_finished", report)
 	return report
 
+## Analyse asynchrone non-bloquante avec await (indispensable pour WebAssembly / HTML5 sans threads)
+func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictionary = {}) -> Dictionary:
+	is_analyzing = true
+	cancel_requested = false
+	move_evaluations.clear()
+	
+	if not engine_manager:
+		engine_manager = _get_engine_manager()
+
+	_reset_stats()
+	
+	var sm = _get_settings_manager()
+	var mode: String = str(options.get("mode", sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"))
+	var time_per_move: float = float(options.get("time_per_move", sm.get_setting("analysis_time_per_move", 0.3) if sm else 0.3))
+	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15))
+	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8))
+	
+	var moves = game.move_history
+	var total_plies = moves.size()
+	
+	if total_plies == 0:
+		is_analyzing = false
+		var rep = _build_final_report()
+		analysis_finished.emit(rep)
+		return rep
+
+	if not await _wait_for_engine_async():
+		var err_msg = "Moteur d'échecs indisponible : impossible d'analyser la partie."
+		return _fail_analysis(err_msg)
+
+	# Analyse de la position de départ (une seule fois)
+	var sim_game = ChessGame.new()
+	sim_game.load_fen(ChessGame.INITIAL_FEN)
+
+	var start_eval = await _evaluate_move_position_async(ChessGame.INITIAL_FEN, depth, mode, dynamic_base, dynamic_max, time_per_move, 20)
+	if start_eval.has("error"):
+		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
+	if start_eval.get("timed_out", false) and start_eval.get("depth", 0) <= 0:
+		return _fail_analysis("Le moteur n'a pas répondu à l'évaluation de la position de départ.")
+	var prev_score_cp = start_eval.get("score_cp", 20)
+	var white_loss_sum = 0
+	var black_loss_sum = 0
+	var white_moves_count = 0
+	var black_moves_count = 0
+
+	var tree = Engine.get_main_loop() as SceneTree
+
+	for i in range(total_plies):
+		if cancel_requested:
+			break
+		
+		if engine_manager == null or not engine_manager.is_engine_available():
+			return _fail_analysis("Le moteur d'échecs s'est arrêté en cours d'analyse de la partie.")
+		
+		var move = moves[i]
+		var is_white = (i % 2 == 0)
+		var score_before = prev_score_cp
+
+		# Exécution du coup
+		sim_game.make_move(move)
+		var fen_after = sim_game.get_fen()
+
+		var eval_after_data = await _evaluate_move_position_async(fen_after, depth, mode, dynamic_base, dynamic_max, time_per_move, score_before)
+		if eval_after_data.has("error"):
+			return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
+		if eval_after_data.get("timed_out", false) and eval_after_data.get("depth", 0) <= 0:
+			return _fail_analysis("Le moteur n'a pas répondu à l'évaluation du coup %s." % move.san)
+
+		var score_after = eval_after_data.get("score_cp", score_before)
+		var best_move_eval = eval_after_data.get("best_move", "")
+		var depth_reached = eval_after_data.get("depth", depth)
+
+		var cp_loss = 0
+		if is_white:
+			cp_loss = max(0, score_before - score_after)
+			white_loss_sum += cp_loss
+			white_moves_count += 1
+		else:
+			cp_loss = max(0, score_after - score_before)
+			black_loss_sum += cp_loss
+			black_moves_count += 1
+
+		var qual = _classify_move(cp_loss, move, best_move_eval, score_before, score_after, is_white)
+		move.quality = qual
+		move.centipawn_loss = cp_loss
+
+		if is_white:
+			_increment_quality_stat(white_stats, qual)
+		else:
+			_increment_quality_stat(black_stats, qual)
+
+		var eval_ci = int(clampf(80.0 / sqrt(float(maxi(1, depth_reached))), 8.0, 45.0))
+		var move_record = {
+			"ply": i,
+			"san": move.san,
+			"uci": move.uci,
+			"score_cp": score_after,
+			"depth": depth_reached,
+			"best_move": best_move_eval,
+			"quality": qual,
+			"cp_loss": cp_loss,
+			"is_white": is_white,
+			"ci_lower": score_after - eval_ci,
+			"ci_upper": score_after + eval_ci
+		}
+		move_evaluations.append(move_record)
+
+		prev_score_cp = score_after
+		progress_updated.emit(i + 1, total_plies)
+		ply_analyzed.emit(i, move_record, {
+			"white_loss_sum": white_loss_sum,
+			"black_loss_sum": black_loss_sum,
+			"white_moves_count": white_moves_count,
+			"black_moves_count": black_moves_count
+		})
+		if tree:
+			await tree.process_frame
+
+	# Calculs finaux ACPL
+	white_acpl = float(white_loss_sum) / maxi(1, white_moves_count)
+	black_acpl = float(black_loss_sum) / maxi(1, black_moves_count)
+
+	# Calcul de précision CAPS2
+	white_accuracy = _calculate_caps_accuracy(move_evaluations, true)
+	black_accuracy = _calculate_caps_accuracy(move_evaluations, false)
+
+	# Estimation ELO avec intervalles de confiance et test statistique
+	var w_stat = _calculate_elo_statistics(move_evaluations, true, white_accuracy, white_acpl, white_stats, white_moves_count)
+	var b_stat = _calculate_elo_statistics(move_evaluations, false, black_accuracy, black_acpl, black_stats, black_moves_count)
+	
+	white_estimated_elo = w_stat["elo"]
+	black_estimated_elo = b_stat["elo"]
+	white_elo_ci_margin = w_stat["ci_margin"]
+	black_elo_ci_margin = b_stat["ci_margin"]
+	elo_stat_test = _perform_elo_comparison_test(w_stat, b_stat)
+
+	is_analyzing = false
+	var report = _build_final_report()
+	analysis_finished.emit(report)
+	return report
+
 func cancel_analysis() -> void:
 	cancel_requested = true
 
@@ -361,6 +502,19 @@ func _wait_for_engine() -> bool:
 	while not engine_manager.is_engine_available() and waited < ENGINE_START_WAIT_MS:
 		OS.delay_msec(50)
 		waited += 50
+	return engine_manager.is_engine_available()
+
+func _wait_for_engine_async() -> bool:
+	if not engine_manager:
+		engine_manager = _get_engine_manager()
+	if engine_manager == null:
+		return false
+	var waited := 0
+	var tree = Engine.get_main_loop() as SceneTree
+	while not engine_manager.is_engine_available() and waited < ENGINE_START_WAIT_MS:
+		if tree:
+			await tree.process_frame
+		waited += 16
 	return engine_manager.is_engine_available()
 
 func _fail_analysis(msg: String) -> Dictionary:
@@ -549,6 +703,45 @@ func _evaluate_fen_sync(fen: String, depth: int, movetime_ms: int = -1) -> Dicti
 		"best_move": engine.best_move_uci,
 		"depth": engine.eval_depth
 	}
+
+func _evaluate_move_position_async(fen: String, depth: int, mode: String, base_time_sec: float, max_time_sec: float, fixed_time_sec: float, prev_score: int) -> Dictionary:
+	match mode:
+		"time":
+			var ms = int(round(fixed_time_sec * 1000.0))
+			return await _evaluate_fen_async(fen, depth, ms)
+		"dynamic":
+			var base_ms = int(round(base_time_sec * 1000.0))
+			var first_pass = await _evaluate_fen_async(fen, depth, base_ms)
+			if first_pass.has("error") or cancel_requested:
+				return first_pass
+			var score_cand = first_pass.get("score_cp", prev_score)
+			var delta_cp = abs(score_cand - prev_score)
+			if delta_cp >= 50 or abs(score_cand) >= 300:
+				var factor = clampf(float(delta_cp - 50) / 150.0, 0.25, 1.0)
+				var max_ms = int(round(max_time_sec * 1000.0))
+				var deep_ms = int(lerpf(float(base_ms), float(max_ms), factor))
+				if deep_ms > base_ms:
+					var refined = await _evaluate_fen_async(fen, depth, deep_ms)
+					if not refined.has("error") and not cancel_requested:
+						return refined
+			return first_pass
+		_: # "depth"
+			return await _evaluate_fen_async(fen, depth, -1)
+
+func _evaluate_fen_async(fen: String, depth: int, movetime_ms: int = -1) -> Dictionary:
+	var engine = engine_manager
+	if engine == null:
+		engine = _get_engine_manager()
+		engine_manager = engine
+
+	if engine == null or not engine.is_engine_available():
+		return {"error": "engine_unavailable", "score_cp": 0, "best_move": "", "depth": 0}
+
+	if engine.has_method("evaluate_position_async"):
+		var tout = EVAL_TIMEOUT_MS if movetime_ms <= 0 else (movetime_ms + 600)
+		return await engine.evaluate_position_async(fen, depth, tout, movetime_ms)
+
+	return _evaluate_fen_sync(fen, depth, movetime_ms)
 
 func _build_final_report() -> Dictionary:
 	return {

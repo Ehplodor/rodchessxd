@@ -8,6 +8,7 @@ signal download_progress(engine_name: String, percentage: float)
 signal download_completed(engine_name: String)
 signal download_failed(engine_name: String, error_msg: String)
 signal engine_profile_changed(profile_id: String)
+signal evaluation_finished(best_move: String, score_cp: int, depth: int)
 
 var is_engine_running: bool = false
 var is_evaluating: bool = false
@@ -917,11 +918,14 @@ func stop_evaluation() -> void:
 		send_command("stop")
 		state_mutex.lock()
 		is_evaluating = false
+		current_fen = ""
 		state_mutex.unlock()
 
 func interrupt_evaluation() -> void:
 	state_mutex.lock()
 	cancel_eval_requested = true
+	is_evaluating = false
+	current_fen = ""
 	state_mutex.unlock()
 	send_command("stop")
 
@@ -932,6 +936,80 @@ func _engine_io_available() -> bool:
 	if _use_plugin and _plugin_handle != null:
 		return bool(_plugin_handle.isEngineRunning())
 	return process_pipe.has("stdio")
+
+## Évaluation asynchrone non-bloquante avec await (idéale pour Web / WASM et UI fluide sans thread)
+func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 1500, movetime_ms: int = -1) -> Dictionary:
+	if not is_engine_available() or not _engine_io_available():
+		return {"score_cp": 0, "best_move": "", "depth": 0, "timed_out": false, "error": "engine_unavailable"}
+
+	if movetime_ms > 0:
+		timeout_ms = maxi(timeout_ms, movetime_ms + 600)
+
+	var tree = Engine.get_main_loop() as SceneTree
+
+	# Si une évaluation était déjà en cours, on l'interrompt
+	if is_evaluating:
+		send_command("stop")
+		if tree:
+			await tree.process_frame
+
+	state_mutex.lock()
+	current_fen = fen
+	is_evaluating = true
+	best_move_uci = ""
+	eval_depth = 0
+	cancel_eval_requested = false
+	state_mutex.unlock()
+
+	send_command("position fen " + fen)
+	if movetime_ms > 0:
+		send_command("go movetime %d" % movetime_ms)
+	else:
+		send_command("go depth %d" % depth)
+
+	var start_t = Time.get_ticks_msec()
+	var cancelled := false
+	var timed_out := false
+
+	while is_evaluating:
+		if cancel_eval_requested:
+			cancelled = true
+			break
+		if Time.get_ticks_msec() - start_t >= timeout_ms:
+			timed_out = true
+			break
+		if tree:
+			await tree.process_frame
+		else:
+			OS.delay_msec(10)
+
+	if cancelled:
+		state_mutex.lock()
+		is_evaluating = false
+		cancel_eval_requested = false
+		state_mutex.unlock()
+	elif timed_out:
+		send_command("stop")
+		for k in range(5):
+			if not is_evaluating:
+				break
+			if tree:
+				await tree.process_frame
+		if is_evaluating:
+			state_mutex.lock()
+			is_evaluating = false
+			state_mutex.unlock()
+
+	state_mutex.lock()
+	var result = {
+		"score_cp": eval_score_cp,
+		"best_move": best_move_uci,
+		"depth": eval_depth,
+		"timed_out": timed_out,
+		"cancelled": cancelled
+	}
+	state_mutex.unlock()
+	return result
 
 ## Évaluation synchrone robuste pour l'analyse globale de partie (GameAnalyzer)
 func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500, movetime_ms: int = -1) -> Dictionary:
@@ -1176,7 +1254,14 @@ func _parse_engine_line(line: String) -> void:
 		if parts.size() > 1:
 			best_move_uci = parts[1]
 		is_evaluating = false
+		var b_move = best_move_uci
+		var s_cp = eval_score_cp
+		var d = eval_depth
 		state_mutex.unlock()
+		_emit_evaluation_finished_deferred.call_deferred(b_move, s_cp, d)
+
+func _emit_evaluation_finished_deferred(b_move: String, s_cp: int, d: int) -> void:
+	evaluation_finished.emit(b_move, s_cp, d)
 
 func _emit_evaluation_deferred(emit_args: Array) -> void:
 	evaluation_updated.emit(emit_args[0], emit_args[1], emit_args[2], emit_args[3], emit_args[4], emit_args[5])

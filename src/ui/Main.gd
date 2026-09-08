@@ -1217,6 +1217,8 @@ func _on_btn_analyze_game_pressed() -> void:
 		_apply_analyze_button_style(false)
 		btn_toggle_live.disabled = false
 		stats_label.text = "Arrêt de l'analyse en cours..."
+		if live_eval_enabled:
+			_trigger_live_eval()
 		return
 
 	var moves_count = GameController.game.move_history.size()
@@ -1280,10 +1282,16 @@ func _on_btn_analyze_game_pressed() -> void:
 	analyzer.engine_manager = EngineManager
 	analyzer.settings_manager = sm
 	analyzer.is_analyzing = true
-	analysis_thread = Thread.new()
-	analysis_thread.start(func():
-		analyzer.start_game_analysis(GameController.game, a_depth, options)
-	)
+
+	if OS.has_feature("web"):
+		# Sur le Web (WASM/HTML5), pas de threads secondaires : analyse asynchrone non-bloquante avec await
+		analyzer.start_game_analysis_async(GameController.game, a_depth, options)
+	else:
+		# Sur Desktop et Android, thread dédié pour préserver le framerate à 60 FPS
+		analysis_thread = Thread.new()
+		analysis_thread.start(func():
+			analyzer.start_game_analysis(GameController.game, a_depth, options)
+		)
 
 func _on_analysis_finished(report: Dictionary) -> void:
 	if analysis_thread and analysis_thread.is_started():
@@ -1294,6 +1302,10 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	btn_analyze_game.text = "🔍 Analyser"
 	_apply_analyze_button_style(false)
 	btn_toggle_live.disabled = false
+
+	# Rétablir immédiatement l'évaluation en direct si activée
+	if live_eval_enabled:
+		_trigger_live_eval()
 
 	if report.has("error"):
 		var err: String = report["error"]
