@@ -5,6 +5,7 @@ extends Control
 const _PromotionModal = preload("res://src/ui/components/PromotionModal.gd")
 
 signal square_clicked(sq: int)
+signal navigation_forward_completed(ply_idx: int)
 
 # Palettes de couleurs raffinées, contemporaines et contrastées
 const THEMES := {
@@ -539,6 +540,7 @@ func _animate_navigation_forward(move: ChessMove) -> void:
 		if gctl:
 			displayed_ply_index = gctl.current_ply_index
 		reset_board_visuals(true)
+		navigation_forward_completed.emit(displayed_ply_index)
 	)
 	queue_redraw()
 

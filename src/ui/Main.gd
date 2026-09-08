@@ -73,6 +73,8 @@ func _ready() -> void:
 	analyzer.progress_updated.connect(_on_analysis_progress)
 	analyzer.analysis_position_ready.connect(_on_analysis_position_ready)
 	analyzer.ply_analyzed.connect(_on_ply_analyzed)
+	if chess_board and not chess_board.navigation_forward_completed.is_connected(_on_analysis_navigation_completed):
+		chess_board.navigation_forward_completed.connect(_on_analysis_navigation_completed)
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
 	GameController.position_changed.connect(_on_game_position_changed)
@@ -1177,8 +1179,16 @@ func _on_analysis_position_ready(ply_idx: int) -> void:
 		else:
 			_on_play_sound("move")
 		chess_board._animate_navigation_forward(move)
+	else:
+		analyzer.confirm_analysis_position_displayed(ply_idx)
 
 	_update_player_labels()
+
+## Le calcul suivant attend ce signal : les flèches ne peuvent plus apparaître
+## pendant que la pièce du coup précédent traverse encore le plateau.
+func _on_analysis_navigation_completed(ply_idx: int) -> void:
+	if analyzer and analyzer.is_analyzing:
+		analyzer.confirm_analysis_position_displayed(ply_idx)
 
 func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dictionary) -> void:
 	if not is_instance_valid(self) or not analyzer.is_analyzing:
@@ -1310,7 +1320,8 @@ func _on_btn_analyze_game_pressed() -> void:
 		"mode": mode,
 		"time_per_move": time_per_move,
 		"dynamic_base": dynamic_base,
-		"dynamic_max": dynamic_max
+		"dynamic_max": dynamic_max,
+		"wait_for_display": OS.has_feature("web")
 	}
 
 	if OS.has_feature("web"):

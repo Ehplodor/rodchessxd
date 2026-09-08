@@ -80,6 +80,7 @@ var _started_msec := 0
 var _stop_pending := false
 var _evaluation_generation := 0
 var _readyok_serial := 0
+var _async_analysis_session_active := false
 
 # Transport Android via plugin natif "RodChessUci" (ProcessBuilder) quand il est présent.
 var _use_plugin := false
@@ -903,6 +904,11 @@ func send_command(cmd: String) -> void:
 func evaluate_position(fen: String, depth: int = -1) -> void:
 	if not is_engine_running:
 		return
+	# Une analyse complète Web possède le worker UCI de façon exclusive. Les
+	# requêtes Live différées (navigation, réglages, modales) sont ignorées jusqu'à
+	# la fin de la session au lieu d'interrompre son calcul courant.
+	if _async_analysis_session_active:
+		return
 	
 	state_mutex.lock()
 	if current_fen == fen and is_evaluating:
@@ -984,9 +990,11 @@ func _wait_for_readyok_async(previous_serial: int, timeout_ms: int = 2000) -> bo
 func prepare_for_async_analysis(timeout_ms: int = 2000) -> bool:
 	if not is_engine_available() or not _engine_io_available():
 		return false
+	_async_analysis_session_active = true
 	if is_evaluating:
 		stop_evaluation()
 	if not await _wait_for_evaluation_stop_async(timeout_ms):
+		_async_analysis_session_active = false
 		return false
 
 	state_mutex.lock()
@@ -996,7 +1004,13 @@ func prepare_for_async_analysis(timeout_ms: int = 2000) -> bool:
 	state_mutex.unlock()
 	send_command("ucinewgame")
 	send_command("isready")
-	return await _wait_for_readyok_async(ready_serial, timeout_ms)
+	var is_ready = await _wait_for_readyok_async(ready_serial, timeout_ms)
+	if not is_ready:
+		_async_analysis_session_active = false
+	return is_ready
+
+func finish_async_analysis_session() -> void:
+	_async_analysis_session_active = false
 
 ## Vrai si un canal de communication moteur est disponible (plugin Android, Wasm Web OU pipe OS.execute).
 func _engine_io_available() -> bool:

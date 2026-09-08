@@ -14,6 +14,7 @@ const EVAL_TIMEOUT_MS: int = 1500
 
 var is_analyzing: bool = false
 var cancel_requested: bool = false
+var _awaited_display_ply: int = -1
 
 # Données du rapport
 var move_evaluations: Array[Dictionary] = []
@@ -218,6 +219,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictionary = {}) -> Dictionary:
 	is_analyzing = true
 	cancel_requested = false
+	_awaited_display_ply = -1
 	move_evaluations.clear()
 	
 	if not engine_manager:
@@ -230,6 +232,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	var time_per_move: float = float(options.get("time_per_move", sm.get_setting("analysis_time_per_move", 0.3) if sm else 0.3))
 	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15))
 	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8))
+	var wait_for_display: bool = bool(options.get("wait_for_display", false))
 	
 	var moves = game.move_history
 	var total_plies = moves.size()
@@ -249,6 +252,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		if not await engine_manager.prepare_for_async_analysis():
 			return _fail_analysis("Le moteur d'échecs n'a pas terminé l'évaluation Live précédente.")
 	if cancel_requested:
+		_release_async_engine_session()
 		is_analyzing = false
 		cancel_requested = false
 		var cancelled_report = _build_final_report()
@@ -292,9 +296,20 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		# Ordre impératif en Web : la position doit être visible avant l'évaluation.
 		# Ainsi chaque mise à jour `info` de Stockfish correspond exactement au
 		# plateau affiché, jamais au demi-coup suivant.
-		analysis_position_ready.emit(i)
-		if tree:
-			await tree.process_frame
+		if wait_for_display:
+			_awaited_display_ply = i
+			analysis_position_ready.emit(i)
+			# Une frame ne suffit pas : la pièce reste visuellement en transit
+			# pendant `move_anim_duration`. Main.gd accuse la fin du tween.
+			while _awaited_display_ply == i and not cancel_requested:
+				if tree:
+					await tree.process_frame
+				else:
+					OS.delay_msec(10)
+		else:
+			analysis_position_ready.emit(i)
+			if tree:
+				await tree.process_frame
 		if cancel_requested:
 			break
 
@@ -400,6 +415,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	black_elo_ci_margin = b_stat["ci_margin"]
 	elo_stat_test = _perform_elo_comparison_test(w_stat, b_stat)
 
+	_release_async_engine_session()
 	is_analyzing = false
 	var report = _build_final_report()
 	analysis_finished.emit(report)
@@ -407,6 +423,15 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 
 func cancel_analysis() -> void:
 	cancel_requested = true
+
+## Accusé de réception de Main.gd : le plateau a fini d'afficher ce demi-coup.
+func confirm_analysis_position_displayed(ply_idx: int) -> void:
+	if ply_idx == _awaited_display_ply:
+		_awaited_display_ply = -1
+
+func _release_async_engine_session() -> void:
+	if engine_manager and engine_manager.has_method("finish_async_analysis_session"):
+		engine_manager.finish_async_analysis_session()
 
 func _reset_stats() -> void:
 	for k in white_stats.keys():
@@ -598,6 +623,7 @@ func _wait_for_engine_async() -> bool:
 	return engine_manager.is_engine_available()
 
 func _fail_analysis(msg: String) -> Dictionary:
+	_release_async_engine_session()
 	is_analyzing = false
 	cancel_requested = false
 	_emit_engine_error(msg)
