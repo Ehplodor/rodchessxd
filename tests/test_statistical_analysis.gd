@@ -91,7 +91,7 @@ func _init() -> void:
 	gc.load_pgn("1. e4 e5")
 	assert(gc.game.move_history.size() == 2, "La partie doit comporter 2 demi-coups")
 
-	# Simuler l'analyse live du premier coup (ply 0 : 1. e4)
+	# Simuler l'affichage puis l'analyse live du premier coup (ply 0 : 1. e4)
 	main_node.analyzer.is_analyzing = true
 	var ply0_rec = {
 		"ply": 0,
@@ -105,6 +105,7 @@ func _init() -> void:
 		"quality": ChessMove.Quality.EXCELLENT,
 		"depth": 14
 	}
+	main_node._on_analysis_position_ready(0)
 	main_node._on_ply_analyzed(0, ply0_rec, {})
 
 	assert(gc.current_ply_index == 0, "GameController doit être positionné sur le ply 0")
@@ -183,4 +184,3 @@ func _init() -> void:
 	main_node.queue_free()
 	print("\n🎉 TOUS LES TESTS STATISTIQUES, LIVE SF19 & D'ANIMATION EN DIRECT SONT VALIDÉS AVEC SUCCÈS !")
 	quit(0)
-

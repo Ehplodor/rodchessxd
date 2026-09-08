@@ -74,6 +74,13 @@ var _received_any_output := false
 var _log_first_raw_line := true
 var _started_msec := 0
 
+# Barrière UCI : après `stop`, Stockfish peut encore produire quelques lignes
+# `info` avant son `bestmove`. Elles ne doivent jamais contaminer le calcul
+# suivant, particulièrement dans le worker Web mono-moteur.
+var _stop_pending := false
+var _evaluation_generation := 0
+var _readyok_serial := 0
+
 # Transport Android via plugin natif "RodChessUci" (ProcessBuilder) quand il est présent.
 var _use_plugin := false
 var _plugin_handle: Object = null
@@ -914,20 +921,82 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 	send_command("go depth %d" % depth)
 
 func stop_evaluation() -> void:
-	if is_evaluating:
-		send_command("stop")
-		state_mutex.lock()
+	state_mutex.lock()
+	var must_stop = is_evaluating
+	if must_stop:
 		is_evaluating = false
 		current_fen = ""
-		state_mutex.unlock()
+		_stop_pending = true
+		_evaluation_generation += 1
+	state_mutex.unlock()
+	if must_stop:
+		send_command("stop")
 
 func interrupt_evaluation() -> void:
 	state_mutex.lock()
+	var must_stop = is_evaluating
 	cancel_eval_requested = true
 	is_evaluating = false
 	current_fen = ""
+	if must_stop:
+		_stop_pending = true
+		_evaluation_generation += 1
 	state_mutex.unlock()
-	send_command("stop")
+	if must_stop:
+		send_command("stop")
+
+## Attend le `bestmove` qui clôt réellement un `stop`, sans bloquer le rendu.
+func _wait_for_evaluation_stop_async(timeout_ms: int = 2000) -> bool:
+	var tree = Engine.get_main_loop() as SceneTree
+	var started_at = Time.get_ticks_msec()
+	while true:
+		state_mutex.lock()
+		var is_stopping = _stop_pending
+		state_mutex.unlock()
+		if not is_stopping:
+			return true
+		if Time.get_ticks_msec() - started_at >= timeout_ms:
+			return false
+		if tree:
+			await tree.process_frame
+		else:
+			OS.delay_msec(10)
+	return false
+
+func _wait_for_readyok_async(previous_serial: int, timeout_ms: int = 2000) -> bool:
+	var tree = Engine.get_main_loop() as SceneTree
+	var started_at = Time.get_ticks_msec()
+	while true:
+		state_mutex.lock()
+		var has_readyok = _readyok_serial > previous_serial
+		state_mutex.unlock()
+		if has_readyok:
+			return true
+		if Time.get_ticks_msec() - started_at >= timeout_ms:
+			return false
+		if tree:
+			await tree.process_frame
+		else:
+			OS.delay_msec(10)
+	return false
+
+## Prépare une analyse Web isolée : plus aucun Live en transit et hash UCI neuve.
+func prepare_for_async_analysis(timeout_ms: int = 2000) -> bool:
+	if not is_engine_available() or not _engine_io_available():
+		return false
+	if is_evaluating:
+		stop_evaluation()
+	if not await _wait_for_evaluation_stop_async(timeout_ms):
+		return false
+
+	state_mutex.lock()
+	_evaluation_generation += 1
+	current_fen = ""
+	var ready_serial = _readyok_serial
+	state_mutex.unlock()
+	send_command("ucinewgame")
+	send_command("isready")
+	return await _wait_for_readyok_async(ready_serial, timeout_ms)
 
 ## Vrai si un canal de communication moteur est disponible (plugin Android, Wasm Web OU pipe OS.execute).
 func _engine_io_available() -> bool:
@@ -947,20 +1016,15 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 
 	var tree = Engine.get_main_loop() as SceneTree
 
-	# Si une évaluation était déjà en cours, on l'interrompt et on attend que le moteur soit totalement inactif
+	# Si une évaluation était déjà en cours, on l'interrompt et on attend son
+	# `bestmove` : ne jamais envoyer une position au milieu d'un `stop` UCI.
 	if is_evaluating:
-		send_command("stop")
-		var wait_frames = 20
-		while is_evaluating and wait_frames > 0:
-			if tree:
-				await tree.process_frame
-			else:
-				OS.delay_msec(10)
-			wait_frames -= 1
-		if tree:
-			await tree.process_frame
+		stop_evaluation()
+	if not await _wait_for_evaluation_stop_async(timeout_ms):
+		return {"score_cp": 0, "best_move": "", "depth": 0, "timed_out": false, "error": "engine_stop_timeout"}
 
 	state_mutex.lock()
+	_evaluation_generation += 1
 	current_fen = fen
 	is_evaluating = true
 	best_move_uci = ""
@@ -997,16 +1061,8 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 		cancel_eval_requested = false
 		state_mutex.unlock()
 	elif timed_out:
-		send_command("stop")
-		for k in range(5):
-			if not is_evaluating:
-				break
-			if tree:
-				await tree.process_frame
-		if is_evaluating:
-			state_mutex.lock()
-			is_evaluating = false
-			state_mutex.unlock()
+		stop_evaluation()
+		await _wait_for_evaluation_stop_async(600)
 
 	state_mutex.lock()
 	var result = {
@@ -1204,8 +1260,12 @@ func _parse_engine_line(line: String) -> void:
 		var i = 1
 		var depth = 0
 		state_mutex.lock()
+		if _stop_pending:
+			state_mutex.unlock()
+			return
 		var score_cp = eval_score_cp
 		var current_fen_snapshot = current_fen
+		var generation = _evaluation_generation
 		state_mutex.unlock()
 		var mate_in = 0
 		var pv: Array[String] = []
@@ -1252,13 +1312,19 @@ func _parse_engine_line(line: String) -> void:
 			pv_line = pv
 			if pv.size() > 0:
 				best_move_uci = pv[0]
-			var emit_args = [normalized_cp, mate_in, eval_depth, best_move_uci, pv_line, multipv_lines]
+			var emit_args = [normalized_cp, mate_in, eval_depth, best_move_uci, pv_line, multipv_lines, generation]
 			state_mutex.unlock()
 			_emit_evaluation_deferred.call_deferred(emit_args)
 
 	elif line.begins_with("bestmove "):
 		var parts = line.split(" ", false)
 		state_mutex.lock()
+		if _stop_pending:
+			_stop_pending = false
+			is_evaluating = false
+			current_fen = ""
+			state_mutex.unlock()
+			return
 		if parts.size() > 1:
 			best_move_uci = parts[1]
 		# Si bestmove est "(none)", la position est terminale (mat ou pat)
@@ -1271,11 +1337,20 @@ func _parse_engine_line(line: String) -> void:
 		var d = eval_depth
 		state_mutex.unlock()
 		_emit_evaluation_finished_deferred.call_deferred(b_move, s_cp, d)
+	elif line == "readyok":
+		state_mutex.lock()
+		_readyok_serial += 1
+		state_mutex.unlock()
 
 func _emit_evaluation_finished_deferred(b_move: String, s_cp: int, d: int) -> void:
 	evaluation_finished.emit(b_move, s_cp, d)
 
 func _emit_evaluation_deferred(emit_args: Array) -> void:
+	state_mutex.lock()
+	var is_current = not _stop_pending and emit_args.size() >= 7 and int(emit_args[6]) == _evaluation_generation
+	state_mutex.unlock()
+	if not is_current:
+		return
 	evaluation_updated.emit(emit_args[0], emit_args[1], emit_args[2], emit_args[3], emit_args[4], emit_args[5])
 
 func _exit_tree() -> void:

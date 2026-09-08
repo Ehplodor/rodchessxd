@@ -39,8 +39,13 @@ func _init() -> void:
 	analyzer.engine_manager = eng
 	
 	var counter = [0]
+	var event_order: Array[String] = []
+	analyzer.analysis_position_ready.connect(func(ply):
+		event_order.append("display:%d" % ply)
+	)
 	analyzer.ply_analyzed.connect(func(ply, rec, stats):
 		counter[0] += 1
+		event_order.append("result:%d" % ply)
 		print("  -> Ply %d analysé : score=%d, best=%s" % [ply, rec.get("score_cp", 0), rec.get("best_move", "")])
 	)
 	
@@ -51,6 +56,7 @@ func _init() -> void:
 	assert(not report.has("error"), "Le rapport ne doit pas contenir d'erreur : %s" % report.get("error", ""))
 	assert(report["evaluations"].size() == 2, "2 coups doivent être évalués")
 	assert(counter[0] == 2, "Le signal ply_analyzed doit avoir été émis 2 fois")
+	assert(event_order == ["display:0", "result:0", "display:1", "result:1"], "Chaque position doit être affichée avant son calcul : %s" % [event_order])
 	print("  -> Test 2 OK : Précision Blancs=%.1f%%, Noirs=%.1f%%" % [report["white_accuracy"], report["black_accuracy"]])
 	
 	# Test 4: Lancement d'une évaluation async alors que le Live est DÉJÀ en cours (conflit résolu)

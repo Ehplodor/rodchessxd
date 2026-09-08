@@ -3,6 +3,9 @@ extends RefCounted
 ## GameAnalyzer.gd - Analyse complète de partie coup par coup, métriques ACPL, précision et estimation ELO
 
 signal progress_updated(current_ply: int, total_plies: int)
+## Émis avant le calcul de chaque position Web : l'UI doit afficher le coup avant
+## que les retours `info` du moteur puissent dessiner la moindre flèche.
+signal analysis_position_ready(ply_idx: int)
 signal ply_analyzed(ply_idx: int, move_record: Dictionary, partial_stats: Dictionary)
 signal analysis_finished(report: Dictionary)
 
@@ -240,6 +243,17 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	if not await _wait_for_engine_async():
 		var err_msg = "Moteur d'échecs indisponible : impossible d'analyser la partie."
 		return _fail_analysis(err_msg)
+	# Le Web n'a qu'un worker UCI. On draine donc explicitement un éventuel Live
+	# avant de commencer la série, puis on repart d'une partie UCI propre.
+	if engine_manager.has_method("prepare_for_async_analysis"):
+		if not await engine_manager.prepare_for_async_analysis():
+			return _fail_analysis("Le moteur d'échecs n'a pas terminé l'évaluation Live précédente.")
+	if cancel_requested:
+		is_analyzing = false
+		cancel_requested = false
+		var cancelled_report = _build_final_report()
+		analysis_finished.emit(cancelled_report)
+		return cancelled_report
 
 	# Analyse de la position de départ (une seule fois)
 	var sim_game = ChessGame.new()
@@ -274,6 +288,15 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		# Exécution du coup
 		sim_game.make_move(move)
 		var fen_after = sim_game.get_fen()
+
+		# Ordre impératif en Web : la position doit être visible avant l'évaluation.
+		# Ainsi chaque mise à jour `info` de Stockfish correspond exactement au
+		# plateau affiché, jamais au demi-coup suivant.
+		analysis_position_ready.emit(i)
+		if tree:
+			await tree.process_frame
+		if cancel_requested:
+			break
 
 		# Détection immédiate de fin de partie (échec et mat ou pat) : évite le blocage du moteur
 		var is_mate = move.is_checkmate or move.san.ends_with("#") or (sim_game.is_in_check(sim_game.active_color) and sim_game.get_legal_moves(sim_game.active_color).is_empty())

@@ -96,8 +96,6 @@ var best_move_arrow_from: int = -1
 var best_move_arrow_to: int = -1
 var best_move_arrow_depth: int = 0
 var show_move_hints: bool = true
-## Drapeau piloté par Main.gd pour empêcher _on_engine_eval d'écraser les flèches pendant l'analyse complète
-var analysis_in_progress: bool = false
 
 ## Calcule une couleur vive et lumineuse sur un dégradé arc-en-ciel selon la profondeur (1 à 20+)
 ## Profondeur faible (~1-6) : Rouge / Orange / Jaune
@@ -1195,10 +1193,6 @@ func _check_king_status() -> void:
 	set_process(in_check_sq != -1)
 
 func _on_engine_eval(_score_cp: int, _mate_in: int, depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
-	# Pendant l'analyse complète, les flèches sont pilotées par _on_ply_analyzed dans Main.gd.
-	# On ne touche pas aux flèches ici pour éviter la désynchronisation avec la position affichée.
-	if analysis_in_progress:
-		return
 	best_move_arrow_depth = depth
 	if best_move.length() >= 4:
 		best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))

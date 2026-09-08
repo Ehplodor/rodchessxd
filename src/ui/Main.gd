@@ -70,12 +70,9 @@ func _ready() -> void:
 	DesignTokens.setup_global_fonts()
 	analyzer = GameAnalyzer.new()
 	analyzer.analysis_finished.connect(_on_analysis_finished)
-	analyzer.progress_updated.connect(func(cur, tot):
-		call_deferred("_on_analysis_progress", cur, tot)
-	)
-	analyzer.ply_analyzed.connect(func(ply_idx, move_record, partial_stats):
-		call_deferred("_on_ply_analyzed", ply_idx, move_record, partial_stats)
-	)
+	analyzer.progress_updated.connect(_on_analysis_progress)
+	analyzer.analysis_position_ready.connect(_on_analysis_position_ready)
+	analyzer.ply_analyzed.connect(_on_ply_analyzed)
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
 	GameController.position_changed.connect(_on_game_position_changed)
@@ -1148,6 +1145,41 @@ func _on_analysis_progress(cur: int, tot: int) -> void:
 		var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
 		stats_label.text = "⏳ Analyse par %s (%d/%d)..." % [eng_name, cur, tot]
 
+## Affiche le demi-coup avant que Stockfish ne commence à analyser sa position.
+## Ne pas émettre `position_changed` ici : celui-ci déclencherait inutilement le Live.
+func _on_analysis_position_ready(ply_idx: int) -> void:
+	if not is_instance_valid(self) or analyzer == null or not analyzer.is_analyzing:
+		return
+	if GameController == null or GameController.game == null:
+		return
+	var total_moves = GameController.game.move_history.size()
+	if ply_idx < 0 or ply_idx >= total_moves:
+		return
+
+	GameController.current_ply_index = ply_idx
+	GameController.game.restore_state(ply_idx + 1)
+
+	if chess_board:
+		var move: ChessMove = GameController.game.move_history[ply_idx]
+		# Toute flèche appartient à la position précédente jusqu'au premier retour
+		# `info` de cette nouvelle évaluation : on l'efface donc immédiatement.
+		chess_board.best_move_arrow_depth = 0
+		chess_board.best_move_arrow_from = -1
+		chess_board.best_move_arrow_to = -1
+		if chess_board.arrow_overlay:
+			chess_board.arrow_overlay.queue_redraw()
+		chess_board.queue_redraw()
+
+		if move.captured_piece != ChessPiece.Type.NONE:
+			_on_play_sound("capture")
+		elif move.is_check:
+			_on_play_sound("check")
+		else:
+			_on_play_sound("move")
+		chess_board._animate_navigation_forward(move)
+
+	_update_player_labels()
+
 func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dictionary) -> void:
 	if not is_instance_valid(self) or not analyzer.is_analyzing:
 		return
@@ -1156,13 +1188,9 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 	if total_moves == 0 or ply_idx >= total_moves:
 		return
 
-	# 1. Progression et synchronisation de l'échiquier en temps réel
-	GameController.current_ply_index = ply_idx
-	GameController.game.restore_state(ply_idx + 1)
-
+	# 1. La position a déjà été affichée juste avant le calcul. Ici, on verrouille
+	# seulement la recommandation finale et les données de ce demi-coup.
 	if chess_board:
-		var move: ChessMove = GameController.game.move_history[ply_idx]
-
 		# Flèche tactique moderne cyan de la recommandation Stockfish
 		var best_uci: String = move_record.get("best_move", "")
 		chess_board.best_move_arrow_depth = int(move_record.get("depth", 0))
@@ -1176,24 +1204,11 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 			chess_board.arrow_overlay.queue_redraw()
 		chess_board.queue_redraw()
 
-		# Animation fluide avec effets de capture et sons
-		if move.captured_piece != ChessPiece.Type.NONE:
-			_on_play_sound("capture")
-		elif move.is_check:
-			_on_play_sound("check")
-		else:
-			_on_play_sound("move")
-
-		chess_board._animate_navigation_forward(move)
-
-	# 2. Mise à jour des libellés joueurs et badges (⭐ Au trait / Dernier coup)
-	_update_player_labels()
-
-	# 3. Tracé progressif de la courbe d'avantage et de son halo de confiance
+	# 2. Tracé progressif de la courbe d'avantage et de son halo de confiance
 	if advantage_graph:
 		advantage_graph.update_live_ply(ply_idx, move_record)
 
-	# 4. Jauge d'évaluation et badge supérieur
+	# 3. Jauge d'évaluation et badge supérieur
 	var score_cp: int = move_record.get("score_cp", 0)
 	if eval_bar:
 		eval_bar.set_score(score_cp)
@@ -1201,7 +1216,7 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 		var pawns: float = score_cp / 100.0
 		top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
 
-	# 5. Bandeau de statistiques et retour en direct
+	# 4. Bandeau de statistiques et retour en direct
 	var san: String = move_record.get("san", "")
 	var move_num: int = move_record.get("move_number", (ply_idx / 2) + 1)
 	var is_w: bool = move_record.get("is_white", true)
@@ -1225,8 +1240,6 @@ func _on_btn_analyze_game_pressed() -> void:
 		analyzer.cancel_analysis()
 		if EngineManager != null:
 			EngineManager.interrupt_evaluation()
-		if chess_board:
-			chess_board.analysis_in_progress = false
 		btn_analyze_game.text = "🔍 Analyser"
 		_apply_analyze_button_style(false)
 		btn_toggle_live.disabled = false
@@ -1288,7 +1301,6 @@ func _on_btn_analyze_game_pressed() -> void:
 		chess_board.last_move_to = -1
 		chess_board.best_move_arrow_from = -1
 		chess_board.best_move_arrow_to = -1
-		chess_board.analysis_in_progress = true
 		chess_board.reset_board_visuals()
 
 	if analysis_thread and analysis_thread.is_started():
@@ -1317,8 +1329,6 @@ func _on_analysis_finished(report: Dictionary) -> void:
 
 	if analyzer:
 		analyzer.is_analyzing = false
-	if chess_board:
-		chess_board.analysis_in_progress = false
 	btn_analyze_game.text = "🔍 Analyser"
 	_apply_analyze_button_style(false)
 	btn_toggle_live.disabled = false
