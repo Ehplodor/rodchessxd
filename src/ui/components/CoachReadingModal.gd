@@ -28,23 +28,7 @@ func _configure_window() -> void:
 			title = "🎓 Conseil du Coach • Coup %s" % move_san
 		else:
 			title = "🎓 Conseil du Coach"
-
-	var screen_w = 450.0
-	var screen_h = 800.0
-	var tree = Engine.get_main_loop() as SceneTree
-	if tree and tree.root:
-		var root_rect = tree.root.get_visible_rect()
-		if root_rect.size.x > 0:
-			screen_w = root_rect.size.x
-			screen_h = root_rect.size.y
-	elif DisplayServer.window_get_size().x > 0:
-		var win_s = DisplayServer.window_get_size()
-		screen_w = win_s.x
-		screen_h = win_s.y
-
-	var target_w = int(clampf(screen_w * 0.94, 340.0, 425.0))
-	var target_h = int(clampf(screen_h * 0.85, 420.0, 700.0))
-	size = Vector2i(target_w, target_h)
+	DesignTokens.adapt_modal_size(self, 410, 680)
 
 func _setup_ui() -> void:
 	var bg_panel = PanelContainer.new()

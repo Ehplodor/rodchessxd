@@ -167,7 +167,7 @@ func _setup_ui() -> void:
 	main_vbox.add_theme_constant_override("separation", 6)
 	add_child(main_vbox)
 
-	# --- 1. EN-TÊTE : Coup ciblé, Modèle, Statut, Historique global ---
+	# --- 1. EN-TÊTE : Coup ciblé, Statut, Historique global ---
 	var header = HBoxContainer.new()
 	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_theme_constant_override("separation", 6)
@@ -176,23 +176,13 @@ func _setup_ui() -> void:
 	move_badge_label = Label.new()
 	move_badge_label.text = "♟️ Position"
 	move_badge_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	move_badge_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	move_badge_label.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	move_badge_label.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	header.add_child(move_badge_label)
 
-	model_badge_btn = Button.new()
-	model_badge_btn.text = "⚡ Modèle"
-	model_badge_btn.clip_text = true
-	model_badge_btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	model_badge_btn.tooltip_text = "Changer de modèle IA (Cloud gratuit, SLM local, Clés API)"
-	model_badge_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
-	model_badge_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	model_badge_btn.pressed.connect(_open_model_hub)
-	header.add_child(model_badge_btn)
-
 	status_label = Label.new()
 	status_label.text = "Prêt"
-	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	status_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -202,10 +192,36 @@ func _setup_ui() -> void:
 	btn_history = Button.new()
 	btn_history.text = "📜"
 	btn_history.tooltip_text = "Consulter toutes les analyses archivées de la partie"
-	btn_history.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_DENSE)
+	btn_history.custom_minimum_size = Vector2(40, DesignTokens.TOUCH_DENSE)
 	btn_history.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_history.pressed.connect(_open_history_modal)
 	header.add_child(btn_history)
+
+	# --- 1b. SÉLECTEUR DE MODÈLE IA DÉDIÉ (Proéminent, responsive et toujours visible) ---
+	var model_row = HBoxContainer.new()
+	model_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	model_row.add_theme_constant_override("separation", 6)
+	main_vbox.add_child(model_row)
+
+	var model_lbl = Label.new()
+	model_lbl.text = "Modèle IA :"
+	model_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	model_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	model_row.add_child(model_lbl)
+
+	model_badge_btn = Button.new()
+	model_badge_btn.text = "⚡ Modèle"
+	model_badge_btn.clip_text = true
+	model_badge_btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	model_badge_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	model_badge_btn.tooltip_text = "Changer de modèle IA (Cloud gratuit, SLM local, Clés API)"
+	model_badge_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+	model_badge_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	var model_btn_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			DesignTokens.BORDER, 1, Vector2(10, 4))
+	model_badge_btn.add_theme_stylebox_override("normal", model_btn_style)
+	model_badge_btn.pressed.connect(_open_model_hub)
+	model_row.add_child(model_badge_btn)
 
 	# --- 2. CHOIX DU POINT DE VUE (PERSPECTIVE) ---
 	var persp_row = HBoxContainer.new()
@@ -380,7 +396,7 @@ func _open_error_modal(error_msg: String) -> void:
 func _open_history_modal() -> void:
 	var modal = Window.new()
 	modal.title = "📜 Toutes les Analyses de la Partie"
-	modal.size = Vector2i(400, 500)
+	DesignTokens.adapt_modal_size(modal, 410, 560)
 	modal.exclusive = true
 	modal.close_requested.connect(modal.queue_free)
 

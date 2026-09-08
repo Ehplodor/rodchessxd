@@ -66,7 +66,7 @@ func _get_slm_manager() -> Node:
 
 func _ready() -> void:
 	title = "⚡ Hub des Modèles IA"
-	size = Vector2i(410, 650)
+	DesignTokens.adapt_modal_size(self, 410, 650)
 	exclusive = true
 	close_requested.connect(queue_free)
 
