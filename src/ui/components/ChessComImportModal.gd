@@ -61,7 +61,6 @@ func _setup_ui() -> void:
 	vbox.offset_top = 8
 	vbox.offset_right = -8
 	vbox.offset_bottom = -8
-	vbox.clip_contents = true
 	vbox.add_theme_constant_override("separation", 8)
 	bg_panel.add_child(vbox)
 
@@ -113,16 +112,14 @@ func _setup_ui() -> void:
 
 	# 4. Liste déroulante des parties
 	var scroll = ScrollContainer.new()
-	scroll.clip_contents = true
+	DesignTokens.touch_scroll(scroll)
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	DesignTokens.touch_scroll(scroll)
 	vbox.add_child(scroll)
 
 	games_container = VBoxContainer.new()
 	games_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	games_container.clip_contents = true
 	games_container.add_theme_constant_override("separation", 6)
 	scroll.add_child(games_container)
 
@@ -400,7 +397,6 @@ func _render_games_list() -> void:
 func _add_game_card(game_data: Dictionary) -> void:
 	var panel = PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.clip_contents = true
 
 	var card_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
 			DesignTokens.BORDER, 1, Vector2(8, 6))
@@ -512,12 +508,6 @@ func _add_game_card(game_data: Dictionary) -> void:
 		_select_game(captured_game)
 	)
 	row.add_child(btn_analyze)
-
-	# Taper n'importe où sur la carte permet aussi de sélectionner la partie
-	panel.gui_input.connect(func(ev: InputEvent):
-		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
-			_select_game(captured_game)
-	)
 
 	games_container.add_child(panel)
 
