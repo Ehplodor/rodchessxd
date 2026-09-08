@@ -130,3 +130,15 @@ static func adapt_modal_size(win: Window, base_w: float = 410.0, base_h: float =
 	var target_w = int(clampf(screen_w * 0.94, 320.0, minf(base_w, 420.0)))
 	var target_h = int(clampf(screen_h * 0.88, 420.0, base_h))
 	win.size = Vector2i(target_w, target_h)
+
+## Initialise la police vectorielle universelle et la police de secours d'icônes/émojis
+## garantissant un rendu identique et net sur toutes les plateformes (Web, Android, iOS, Desktop).
+static func setup_global_fonts() -> void:
+	var sans_path := "res://assets/NotoSans-Regular.ttf"
+	var emoji_path := "res://assets/NotoEmoji.ttf"
+	if ResourceLoader.exists(sans_path) and ResourceLoader.exists(emoji_path):
+		var sans := load(sans_path) as FontFile
+		var emoji := load(emoji_path) as FontFile
+		if sans and emoji:
+			sans.fallbacks = [emoji]
+			ThemeDB.fallback_font = sans

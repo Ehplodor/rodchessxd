@@ -199,7 +199,7 @@ func _get_engine_manager() -> Node:
 	return null
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(280, 280)
+	custom_minimum_size = Vector2(240, 240)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_process(false)
 	
@@ -250,10 +250,10 @@ func _notification(what: int) -> void:
 func _update_dimensions() -> void:
 	var side = min(size.x, size.y)
 	if side < 100:
-		side = 280
+		side = 240
 	board_size = side
 	square_size = board_size / 8.0
-	custom_minimum_size = Vector2(board_size, board_size)
+	custom_minimum_size = Vector2(240, 240)
 	if arrow_overlay:
 		arrow_overlay.size = Vector2(board_size, board_size)
 		arrow_overlay.position = Vector2.ZERO

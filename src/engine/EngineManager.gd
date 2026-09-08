@@ -79,6 +79,10 @@ var _plugin_handle: Object = null
 var _plugin_connected := false
 var _current_engine_path := ""
 
+# Transport Web/Wasm via JavaScriptBridge pour le Web Worker Stockfish.
+var _use_wasm := false
+var _wasm_callback = null
+
 func _ready() -> void:
 	command_mutex = Mutex.new()
 	state_mutex = Mutex.new()
@@ -425,6 +429,8 @@ func is_engine_available() -> bool:
 	return running
 
 func has_engine_binary() -> bool:
+	if OS.has_feature("web"):
+		return true
 	if _current_engine_path != "" and FileAccess.file_exists(_current_engine_path):
 		return true
 	if OS.has_feature("android") and Engine.has_singleton("RodChessUci"):
@@ -679,6 +685,9 @@ func start_engine() -> bool:
 	if _booting:
 		return false
 
+	if OS.has_feature("web"):
+		return _start_wasm_engine()
+
 	var is_lc0 = is_lc0_profile()
 	var exe_path = _get_engine_executable_path()
 	_current_engine_path = exe_path
@@ -866,6 +875,11 @@ func get_engine_display_name() -> String:
 func send_command(cmd: String) -> void:
 	if not is_engine_running:
 		return
+	if _use_wasm:
+		if ClassDB.class_exists("JavaScriptBridge"):
+			var js_cmd := cmd.c_escape()
+			JavaScriptBridge.eval("if (window.RodChessUci) { window.RodChessUci.sendCommand(\"%s\"); }" % js_cmd)
+		return
 	if _use_plugin and _plugin_handle != null:
 		_plugin_handle.sendCommand(cmd)
 		return
@@ -911,8 +925,10 @@ func interrupt_evaluation() -> void:
 	state_mutex.unlock()
 	send_command("stop")
 
-## Vrai si un canal de communication moteur est disponible (plugin Android OU pipe OS.execute).
+## Vrai si un canal de communication moteur est disponible (plugin Android, Wasm Web OU pipe OS.execute).
 func _engine_io_available() -> bool:
+	if _use_wasm:
+		return is_engine_running
 	if _use_plugin and _plugin_handle != null:
 		return bool(_plugin_handle.isEngineRunning())
 	return process_pipe.has("stdio")
@@ -1173,10 +1189,56 @@ func stop_engine() -> void:
 		_is_intentionally_stopping = true
 		should_stop_thread = true
 		send_command("quit")
-		if _use_plugin and _plugin_handle != null:
+		if _use_wasm:
+			if ClassDB.class_exists("JavaScriptBridge"):
+				JavaScriptBridge.eval("if (window.RodChessUci) { window.RodChessUci.stopEngine(); }")
+		elif _use_plugin and _plugin_handle != null:
 			_plugin_handle.stopEngine()
 		state_mutex.lock()
 		is_engine_running = false
 		state_mutex.unlock()
-		if not _use_plugin and engine_thread and engine_thread.is_started():
+		if not _use_wasm and not _use_plugin and engine_thread and engine_thread.is_started():
 			engine_thread.wait_to_finish()
+
+func _start_wasm_engine() -> bool:
+	if not ClassDB.class_exists("JavaScriptBridge"):
+		engine_error.emit("JavaScriptBridge non disponible dans cet environnement Web.")
+		return false
+
+	print("EngineManager: Démarrage du moteur Web Stockfish (Wasm/Worker)...")
+	_wasm_callback = JavaScriptBridge.create_callback(_on_wasm_uci_line)
+	var window = JavaScriptBridge.get_interface("window")
+	if not window or not window.RodChessUci:
+		engine_error.emit("Module window.RodChessUci introuvable dans la page HTML.")
+		return false
+
+	var ok = window.RodChessUci.init(_wasm_callback)
+	if not ok:
+		engine_error.emit("Impossible d'initialiser le Web Worker Stockfish.")
+		return false
+
+	_use_wasm = true
+	state_mutex.lock()
+	is_engine_running = true
+	state_mutex.unlock()
+
+	_received_any_output = false
+	_log_first_raw_line = true
+	_started_msec = Time.get_ticks_msec()
+
+	send_command("uci")
+	send_command("isready")
+	send_command("ucinewgame")
+
+	engine_ready.emit()
+	print("EngineManager: moteur Web Stockfish Wasm démarré et prêt.")
+	return true
+
+func _on_wasm_uci_line(args: Array) -> void:
+	if args.is_empty():
+		return
+	var line: String = str(args[0])
+	if _log_first_raw_line:
+		_log_first_raw_line = false
+		print("EngineManager: [Wasm brut] ", line.substr(0, 160))
+	_parse_engine_line(line)

@@ -57,6 +57,7 @@ var error_label: Label = null
 var _error_token := 0
 
 func _ready() -> void:
+	DesignTokens.setup_global_fonts()
 	analyzer = GameAnalyzer.new()
 	analyzer.analysis_finished.connect(_on_analysis_finished)
 	analyzer.progress_updated.connect(func(cur, tot):
