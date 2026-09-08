@@ -1172,6 +1172,9 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 		else:
 			chess_board.best_move_arrow_from = -1
 			chess_board.best_move_arrow_to = -1
+		if chess_board.arrow_overlay:
+			chess_board.arrow_overlay.queue_redraw()
+		chess_board.queue_redraw()
 
 		# Animation fluide avec effets de capture et sons
 		if move.captured_piece != ChessPiece.Type.NONE:
@@ -1222,6 +1225,8 @@ func _on_btn_analyze_game_pressed() -> void:
 		analyzer.cancel_analysis()
 		if EngineManager != null:
 			EngineManager.interrupt_evaluation()
+		if chess_board:
+			chess_board.analysis_in_progress = false
 		btn_analyze_game.text = "🔍 Analyser"
 		_apply_analyze_button_style(false)
 		btn_toggle_live.disabled = false
@@ -1283,6 +1288,7 @@ func _on_btn_analyze_game_pressed() -> void:
 		chess_board.last_move_to = -1
 		chess_board.best_move_arrow_from = -1
 		chess_board.best_move_arrow_to = -1
+		chess_board.analysis_in_progress = true
 		chess_board.reset_board_visuals()
 
 	if analysis_thread and analysis_thread.is_started():
@@ -1311,6 +1317,8 @@ func _on_analysis_finished(report: Dictionary) -> void:
 
 	if analyzer:
 		analyzer.is_analyzing = false
+	if chess_board:
+		chess_board.analysis_in_progress = false
 	btn_analyze_game.text = "🔍 Analyser"
 	_apply_analyze_button_style(false)
 	btn_toggle_live.disabled = false
