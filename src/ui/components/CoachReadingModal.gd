@@ -29,9 +29,21 @@ func _configure_window() -> void:
 		else:
 			title = "🎓 Conseil du Coach"
 
-	var vis = get_viewport().get_visible_rect().size if get_viewport() else Vector2(400, 700)
-	var target_w = int(clampf(vis.x * 0.94, 280.0, 430.0)) if vis.x > 0 else 390
-	var target_h = int(clampf(vis.y * 0.90, 380.0, 700.0)) if vis.y > 0 else 600
+	var screen_w = 450.0
+	var screen_h = 800.0
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root:
+		var root_rect = tree.root.get_visible_rect()
+		if root_rect.size.x > 0:
+			screen_w = root_rect.size.x
+			screen_h = root_rect.size.y
+	elif DisplayServer.window_get_size().x > 0:
+		var win_s = DisplayServer.window_get_size()
+		screen_w = win_s.x
+		screen_h = win_s.y
+
+	var target_w = int(clampf(screen_w * 0.94, 340.0, 425.0))
+	var target_h = int(clampf(screen_h * 0.85, 420.0, 700.0))
 	size = Vector2i(target_w, target_h)
 
 func _setup_ui() -> void:
@@ -44,10 +56,11 @@ func _setup_ui() -> void:
 
 	var root_vbox = VBoxContainer.new()
 	root_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root_vbox.offset_left = 8
-	root_vbox.offset_top = 8
-	root_vbox.offset_right = -8
-	root_vbox.offset_bottom = -8
+	root_vbox.offset_left = 10
+	root_vbox.offset_top = 10
+	root_vbox.offset_right = -10
+	root_vbox.offset_bottom = -10
+	root_vbox.clip_contents = true
 	root_vbox.add_theme_constant_override("separation", 8)
 	bg_panel.add_child(root_vbox)
 
@@ -67,12 +80,16 @@ func _setup_ui() -> void:
 	if is_error_mode:
 		var err_title = Label.new()
 		err_title.text = "⚠️ Échec de la requête vers le modèle IA"
+		err_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		err_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		err_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 		err_title.add_theme_color_override("font_color", DesignTokens.DANGER)
 		header_vbox.add_child(err_title)
 
 		var err_sub = Label.new()
 		err_sub.text = "Explication détaillée et suggestions pour rétablir la connexion :"
+		err_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		err_sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		err_sub.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		err_sub.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		header_vbox.add_child(err_sub)
@@ -131,6 +148,7 @@ func _setup_ui() -> void:
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.clip_contents = true
 	DesignTokens.touch_scroll(scroll)
 	root_vbox.add_child(scroll)
 
@@ -138,6 +156,7 @@ func _setup_ui() -> void:
 	text_lbl.bbcode_enabled = true
 	text_lbl.fit_content = true
 	text_lbl.scroll_active = false
+	text_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	text_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 
