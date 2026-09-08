@@ -2,8 +2,8 @@ class_name CoachPanel2D
 extends PanelContainer
 ## CoachPanel2D.gd - Panneau de coaching IA contextuel par coup.
 ## Affiche uniquement les conversations associées au coup sélectionné.
-## Tuiles de prompts directes au-dessus, piste de conversations cliquables
-## sous forme de boutons 2 lignes, et suppression du champ de saisie libre.
+## Tuiles de prompts directes au-dessus, liste classique et flexible de conversations
+## avec icône de lecture "📖 Lire" ouvrant une fenêtre de lecture superposée dédiée (CoachReadingModal).
 
 const PROMPTS := [
 	["💡 Pourquoi ce coup ?", "Explique pourquoi le coup joué est bon ou mauvais et comment mon camp doit réagir.", "why"],
@@ -24,9 +24,6 @@ var persp_buttons: Dictionary = {}
 var prompt_grid: GridContainer
 var conv_scroll: ScrollContainer
 var conv_list_vbox: VBoxContainer
-var response_scroll: ScrollContainer
-var response_label: RichTextLabel
-var response_card: PanelContainer
 
 var active_perspective: String = "white"
 var is_thinking: bool = false
@@ -34,11 +31,15 @@ var thinking_start_time: float = 0.0
 var active_query_title: String = ""
 var active_query_ply: int = -1
 
+var last_error_message: String = ""
+var last_error_ply: int = -1
+
 var current_ply_index: int = -1
-var selected_note_index: int = -1
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(280, 220)
+	custom_minimum_size = Vector2(0, 200)
+	size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_load_saved_perspective()
 	_setup_ui()
 
@@ -53,7 +54,7 @@ func _ready() -> void:
 	if dm:
 		dm.analysis_added.connect(func(_gid, type):
 			if type == "coach":
-				_populate_conversation_buttons(not is_thinking)
+				_populate_conversation_buttons()
 		)
 
 	var gc = _get_game_controller()
@@ -152,9 +153,9 @@ func _setup_ui() -> void:
 	bg_style.corner_radius_top_right = 12
 	bg_style.corner_radius_bottom_left = 12
 	bg_style.corner_radius_bottom_right = 12
-	bg_style.content_margin_left = 10
+	bg_style.content_margin_left = 8
 	bg_style.content_margin_top = 8
-	bg_style.content_margin_right = 10
+	bg_style.content_margin_right = 8
 	bg_style.content_margin_bottom = 8
 	add_theme_stylebox_override("panel", bg_style)
 
@@ -172,12 +173,15 @@ func _setup_ui() -> void:
 
 	move_badge_label = Label.new()
 	move_badge_label.text = "♟️ Position"
+	move_badge_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	move_badge_label.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	move_badge_label.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	header.add_child(move_badge_label)
 
 	model_badge_btn = Button.new()
 	model_badge_btn.text = "⚡ Modèle"
+	model_badge_btn.clip_text = true
+	model_badge_btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	model_badge_btn.tooltip_text = "Changer de modèle IA (Cloud gratuit, SLM local, Clés API)"
 	model_badge_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
 	model_badge_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -196,7 +200,7 @@ func _setup_ui() -> void:
 	btn_history = Button.new()
 	btn_history.text = "📜"
 	btn_history.tooltip_text = "Consulter toutes les analyses archivées de la partie"
-	btn_history.custom_minimum_size = Vector2(48, DesignTokens.TOUCH_DENSE)
+	btn_history.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_DENSE)
 	btn_history.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_history.pressed.connect(_open_history_modal)
 	header.add_child(btn_history)
@@ -216,6 +220,8 @@ func _setup_ui() -> void:
 	for p in ["white", "black", "neutral"]:
 		var b = Button.new()
 		b.text = _perspective_label(p)
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
 		b.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -256,13 +262,15 @@ func _setup_ui() -> void:
 
 		var btn = Button.new()
 		btn.text = p_label
+		btn.clip_text = true
+		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.custom_minimum_size = Vector2(0, 42)
 		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		btn.add_theme_stylebox_override("normal", normal_tile)
 		btn.add_theme_stylebox_override("hover", hover_tile)
 		btn.add_theme_stylebox_override("pressed", pressed_tile)
-		
+
 		# Couleurs thématiques spéciales pour prompts phares
 		if p_type == "comeback":
 			btn.add_theme_color_override("font_color", Color("#fbbf24")) # Ambre éclatant
@@ -276,16 +284,16 @@ func _setup_ui() -> void:
 		)
 		prompt_grid.add_child(btn)
 
-	# --- 4. SÉPARATEUR & TITRE DE LA PISTE DE CONVERSATIONS ---
+	# --- 4. SÉPARATEUR & TITRE DE LA LISTE DES CONVERSATIONS ---
 	var conv_header = Label.new()
-	conv_header.text = "💬 Conversations associées à ce coup :"
+	conv_header.text = "💬 Analyses & Conseils pour ce coup :"
 	conv_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	conv_header.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 	main_vbox.add_child(conv_header)
 
-	# --- 5. PISTE DE CONVERSATIONS (LISTE DE BOUTONS CLIQUABLES) ---
+	# --- 5. LISTE FLEXIBLE DE CONVERSATIONS (SCROLLABLE) ---
 	conv_scroll = ScrollContainer.new()
-	conv_scroll.custom_minimum_size = Vector2(0, 110)
+	conv_scroll.custom_minimum_size = Vector2(0, 120)
 	conv_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	conv_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	conv_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -294,34 +302,8 @@ func _setup_ui() -> void:
 
 	conv_list_vbox = VBoxContainer.new()
 	conv_list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	conv_list_vbox.add_theme_constant_override("separation", 4)
+	conv_list_vbox.add_theme_constant_override("separation", 6)
 	conv_scroll.add_child(conv_list_vbox)
-
-	# --- 6. ZONE DE LECTURE DÉTAILLÉE DE LA CONVERSATION SÉLECTIONNÉE ---
-	response_card = PanelContainer.new()
-	response_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	response_card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	response_card.custom_minimum_size = Vector2(0, 120)
-	var card_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
-			DesignTokens.BORDER, 1, Vector2(10, 8))
-	response_card.add_theme_stylebox_override("panel", card_style)
-	main_vbox.add_child(response_card)
-
-	response_scroll = ScrollContainer.new()
-	response_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	response_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	response_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	DesignTokens.touch_scroll(response_scroll)
-	response_card.add_child(response_scroll)
-
-	response_label = RichTextLabel.new()
-	response_label.bbcode_enabled = true
-	response_label.fit_content = true
-	response_label.scroll_active = false
-	response_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	response_label.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	response_label.text = "[color=%s]Sélectionnez une conversation ci-dessus ou touchez une tuile pour consulter le coach.[/color]" % DesignTokens.TEXT_MUTED.to_html()
-	response_scroll.add_child(response_label)
 
 func _update_perspective_buttons_style() -> void:
 	for p in persp_buttons.keys():
@@ -372,6 +354,24 @@ func _open_model_hub() -> void:
 		main._open_modal(ModelHubModal.new())
 	else:
 		var modal = ModelHubModal.new()
+		add_child(modal)
+		modal.popup_centered()
+
+func _open_reading_modal(note: Dictionary) -> void:
+	var modal = CoachReadingModal.new(note)
+	var main = find_parent("Main")
+	if main and main.has_method("_open_modal"):
+		main._open_modal(modal)
+	else:
+		add_child(modal)
+		modal.popup_centered()
+
+func _open_error_modal(error_msg: String) -> void:
+	var modal = CoachReadingModal.new({}, true, error_msg)
+	var main = find_parent("Main")
+	if main and main.has_method("_open_modal"):
+		main._open_modal(modal)
+	else:
 		add_child(modal)
 		modal.popup_centered()
 
@@ -431,11 +431,11 @@ func _open_history_modal() -> void:
 		for note in notes:
 			var card = PanelContainer.new()
 			var c_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
-					Color.TRANSPARENT, 0, Vector2(8, 6))
+					DesignTokens.BORDER, 1, Vector2(8, 6))
 			card.add_theme_stylebox_override("panel", c_style)
 
 			var c_vbox = VBoxContainer.new()
-			c_vbox.add_theme_constant_override("separation", 3)
+			c_vbox.add_theme_constant_override("separation", 4)
 			card.add_child(c_vbox)
 
 			var c_head = Label.new()
@@ -448,21 +448,26 @@ func _open_history_modal() -> void:
 			]
 			c_head.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			c_head.add_theme_color_override("font_color", DesignTokens.WARNING)
-			c_head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			c_head.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			c_vbox.add_child(c_head)
 
 			var q_lbl = Label.new()
 			q_lbl.text = "Q: %s" % note.get("user_question", "")
 			q_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			q_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-			q_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			q_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			c_vbox.add_child(q_lbl)
 
-			var resp_txt = RichTextLabel.new()
-			resp_txt.bbcode_enabled = true
-			resp_txt.fit_content = true
-			resp_txt.text = _format_markdown_to_bbcode(note.get("response_text", ""))
-			c_vbox.add_child(resp_txt)
+			var btn_read = Button.new()
+			btn_read.text = "📖 Lire l'analyse dans la fenêtre dédiée"
+			btn_read.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+			btn_read.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+			var captured_note = note
+			btn_read.pressed.connect(func():
+				modal.queue_free()
+				_open_reading_modal(captured_note)
+			)
+			c_vbox.add_child(btn_read)
 
 			list_box.add_child(card)
 
@@ -499,9 +504,9 @@ func refresh_for_current_ply() -> void:
 		move_badge_label.text = "♟️ " + move_title
 
 	# Récupération des conversations associées à ce coup
-	_populate_conversation_buttons(true)
+	_populate_conversation_buttons()
 
-func _populate_conversation_buttons(select_latest: bool = true) -> void:
+func _populate_conversation_buttons() -> void:
 	if conv_list_vbox == null:
 		return
 	for c in conv_list_vbox.get_children():
@@ -520,111 +525,139 @@ func _populate_conversation_buttons(select_latest: bool = true) -> void:
 				if n.get("ply_index", -999) == current_ply_index:
 					current_plies_notes.append(n)
 
-	# Si une réflexion est en cours pour ce coup, afficher un bouton de chargement
+	# 1. Si une réflexion est en cours pour ce coup, afficher un indicateur visuel
 	if is_thinking and active_query_ply == current_ply_index:
 		var thinking_card = PanelContainer.new()
+		thinking_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var t_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
-				DesignTokens.WARNING, 1, Vector2(10, 6))
+				DesignTokens.WARNING, 1, Vector2(8, 6))
 		thinking_card.add_theme_stylebox_override("panel", t_style)
 		
 		var t_lbl = Label.new()
 		t_lbl.text = "⏳ [%s] %s • Réflexion en cours..." % [_perspective_badge_char(active_perspective), active_query_title]
+		t_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		t_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		t_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		t_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
 		thinking_card.add_child(t_lbl)
 		conv_list_vbox.add_child(thinking_card)
 
+	# 2. Si une erreur est survenue pour ce coup, afficher une bannière explicative avec bouton d'aide
+	if last_error_ply == current_ply_index and last_error_message != "":
+		var err_card = PanelContainer.new()
+		err_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var e_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+				DesignTokens.DANGER, 1, Vector2(8, 6))
+		err_card.add_theme_stylebox_override("panel", e_style)
+
+		var err_hbox = HBoxContainer.new()
+		err_hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		err_hbox.add_theme_constant_override("separation", 6)
+		err_card.add_child(err_hbox)
+
+		var e_lbl = Label.new()
+		e_lbl.text = "⚠️ Erreur IA pour ce coup"
+		e_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		e_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		e_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		e_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+		err_hbox.add_child(e_lbl)
+
+		var btn_err_detail = Button.new()
+		btn_err_detail.text = "🔍 Diagnostic"
+		btn_err_detail.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+		btn_err_detail.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		btn_err_detail.pressed.connect(func():
+			_open_error_modal(last_error_message)
+		)
+		err_hbox.add_child(btn_err_detail)
+		conv_list_vbox.add_child(err_card)
+
+	# 3. État vide
 	if current_plies_notes.is_empty() and not (is_thinking and active_query_ply == current_ply_index):
 		var empty_lbl = Label.new()
 		empty_lbl.text = "Aucune analyse pour ce coup.\nTouchez une tuile ci-dessus pour lancer le coach !"
 		empty_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		empty_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		empty_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		empty_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		conv_list_vbox.add_child(empty_lbl)
-		if select_latest:
-			response_label.text = "[color=%s]Touchez une tuile ci-dessus pour obtenir un conseil pour ce coup.[/color]" % DesignTokens.TEXT_MUTED.to_html()
 		return
 
-	# Créer un bouton pour chaque conversation de ce coup
-	var btn_normal := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+	# 4. Liste classique de conversations avec icône de lecture dédiée
+	var row_normal := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
 			DesignTokens.BORDER, 1, Vector2(8, 6))
-	var btn_hover := btn_normal.duplicate() as StyleBoxFlat
-	btn_hover.bg_color = DesignTokens.BTN_BG_HOVER
-	btn_hover.border_color = DesignTokens.BTN_BORDER_ACTIVE
-	var btn_pressed := btn_normal.duplicate() as StyleBoxFlat
-	btn_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
-	btn_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
+	var row_hover := row_normal.duplicate() as StyleBoxFlat
+	row_hover.bg_color = DesignTokens.BTN_BG_HOVER
+	row_hover.border_color = DesignTokens.BTN_BORDER_ACTIVE
 
 	for idx in range(current_plies_notes.size()):
 		var note = current_plies_notes[idx]
-		var btn = Button.new()
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		btn.custom_minimum_size = Vector2(0, 52)
-		btn.add_theme_stylebox_override("normal", btn_normal)
-		btn.add_theme_stylebox_override("hover", btn_hover)
-		btn.add_theme_stylebox_override("pressed", btn_pressed)
+		var card = PanelContainer.new()
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.custom_minimum_size = Vector2(0, 50)
+		card.add_theme_stylebox_override("panel", row_normal)
 
-		var p_badge = _perspective_badge_char(note.get("perspective", "white"))
-		var model_name = note.get("model_id", "")
-		if model_name.length() > 16:
-			model_name = model_name.substr(0, 14) + ".."
+		var hbox = HBoxContainer.new()
+		hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hbox.add_theme_constant_override("separation", 8)
+		card.add_child(hbox)
+
+		# Pastille de perspective
+		var p_badge_lbl = Label.new()
+		p_badge_lbl.text = _perspective_badge_char(note.get("perspective", "white"))
+		p_badge_lbl.custom_minimum_size = Vector2(22, 0)
+		p_badge_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		p_badge_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+		hbox.add_child(p_badge_lbl)
+
+		# Textes Titre + Modèle / Extrait (sécurisés contre tout débordement)
+		var text_vbox = VBoxContainer.new()
+		text_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text_vbox.add_theme_constant_override("separation", 2)
+		hbox.add_child(text_vbox)
 
 		var q_title = note.get("user_question", "Conseil")
-		if q_title.length() > 30:
-			q_title = q_title.substr(0, 28) + "…"
+		var title_lbl = Label.new()
+		title_lbl.text = q_title
+		title_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		text_vbox.add_child(title_lbl)
 
-		# Extraction des premiers mots de la réponse
+		var model_name = note.get("model_id", "Modèle")
 		var resp_full = note.get("response_text", "")
 		var clean_resp = resp_full.replace("\n", " ").replace("#", "").replace("*", "").strip_edges()
-		var words = clean_resp.split(" ", false)
-		var excerpt_words: Array[String] = []
-		for w_idx in range(mini(10, words.size())):
-			excerpt_words.append(words[w_idx])
-		var excerpt = " ".join(excerpt_words)
-		if words.size() > 10:
-			excerpt += "…"
+		var sub_lbl = Label.new()
+		sub_lbl.text = "%s • %s" % [model_name, clean_resp]
+		sub_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		sub_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sub_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
+		sub_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		text_vbox.add_child(sub_lbl)
 
-		# Texte sur deux lignes
-		btn.text = "%s %s  •  %s\n%s" % [p_badge, q_title, model_name, excerpt]
-		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		# Bouton dédié "📖 Lire"
+		var btn_read = Button.new()
+		btn_read.text = "📖 Lire"
+		btn_read.tooltip_text = "Ouvrir l'analyse dans la fenêtre de lecture dédiée"
+		btn_read.custom_minimum_size = Vector2(72, DesignTokens.TOUCH_DENSE)
+		btn_read.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 
 		var captured_note = note
-		btn.pressed.connect(func():
-			_show_note_detail(captured_note)
+		btn_read.pressed.connect(func():
+			_open_reading_modal(captured_note)
 		)
-		conv_list_vbox.add_child(btn)
+		hbox.add_child(btn_read)
 
-	# Afficher par défaut la dernière conversation seulement si demandé
-	if select_latest and not current_plies_notes.is_empty() and not is_thinking:
-		_show_note_detail(current_plies_notes.back())
+		# Clic sur la carte entière pour ouvrir la modal
+		card.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				_open_reading_modal(captured_note)
+		)
 
-func _show_note_detail(note: Dictionary) -> void:
-	if response_label == null:
-		return
-	var p_badge = _perspective_label(note.get("perspective", "white"))
-	var model_name = note.get("model_id", "Modèle")
-	var elapsed = note.get("elapsed_sec", 0.0)
-	var date_str = note.get("date_str", "")
-	var q_text = note.get("user_question", "")
-	var ans = note.get("response_text", "")
-
-	var meta_header = "[color=%s][b]%s[/b] • Modèle : %s (%.1fs) • %s[/color]\n[color=%s]Prompt : %s[/color]\n\n" % [
-		DesignTokens.ACCENT.to_html(),
-		p_badge,
-		model_name,
-		elapsed,
-		date_str,
-		DesignTokens.TEXT_MUTED.to_html(),
-		_bbcode_escape(q_text)
-	]
-
-	var body = _format_markdown_to_bbcode(ans)
-	response_label.text = meta_header + body
-	if response_scroll:
-		response_scroll.scroll_vertical = 0
+		conv_list_vbox.add_child(card)
 
 func _execute_prompt(label_text: String, query_text: String, prompt_type: String) -> void:
 	if is_thinking:
@@ -678,56 +711,41 @@ func _begin_thinking() -> void:
 	thinking_start_time = Time.get_ticks_msec() / 1000.0
 	status_label.text = "⏳ Réflexion..."
 	status_label.add_theme_color_override("font_color", DesignTokens.WARNING)
-	response_label.text = "[color=%s]⏳ Réflexion du coach en cours pour : %s (Point de vue : %s)...[/color]" % [
-		DesignTokens.WARNING.to_html(),
-		active_query_title,
-		_perspective_label(active_perspective)
-	]
-	_populate_conversation_buttons(false)
+	_populate_conversation_buttons()
 
 func _on_thinking_started() -> void:
 	_begin_thinking()
 
-func _on_response_received(response: String) -> void:
+func _on_response_received(_response: String) -> void:
 	is_thinking = false
 	status_label.text = "Prêt"
 	status_label.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	_populate_conversation_buttons(true)
+	_populate_conversation_buttons()
 
 func _on_response_with_meta(_response: String, cost_label: String, elapsed_sec: float) -> void:
 	is_thinking = false
+	last_error_message = ""
+	last_error_ply = -1
 	status_label.text = "Prêt (%.1fs • %s)" % [elapsed_sec, cost_label]
 	status_label.add_theme_color_override("font_color", DesignTokens.SUCCESS)
-	_populate_conversation_buttons(true)
+	_populate_conversation_buttons()
+
+	# Ouverture automatique de la fenêtre de lecture superposée pour une consultation optimale
+	var dm = _get_database_manager()
+	var gc = _get_game_controller()
+	if dm and gc and gc.current_game_id != "":
+		var game_record = dm.get_game(gc.current_game_id)
+		var notes = game_record.get("coach_analyses", [])
+		for i in range(notes.size() - 1, -1, -1):
+			if notes[i].get("ply_index", -999) == current_ply_index:
+				_open_reading_modal(notes[i])
+				break
 
 func _on_error(error_msg: String) -> void:
 	is_thinking = false
-	status_label.text = "Erreur (détails ci-dessous)"
+	last_error_message = error_msg
+	last_error_ply = current_ply_index
+	status_label.text = "Erreur (cliquez pour voir)"
 	status_label.add_theme_color_override("font_color", DesignTokens.DANGER)
-	var err_bbcode = "[color=%s][b]⚠️ Diagnostic de l'erreur du Coach IA :[/b][/color]\n\n[color=%s]%s[/color]\n\n[color=%s][i]💡 Conseils pratiques :\n• Si le fournisseur indique une cadence trop rapide (quota / 429), patientez quelques secondes avant de relancer.\n• Vous pouvez changer de modèle à tout moment en cliquant sur le badge du modèle en haut (⚡).\n• Vous pouvez vérifier ou changer votre clé API dans les Paramètres (⚙️).[/i][/color]" % [
-		DesignTokens.DANGER.to_html(),
-		Color("#fca5a5").to_html(),
-		_bbcode_escape(error_msg),
-		DesignTokens.TEXT_MUTED.to_html()
-	]
-	response_label.text = err_bbcode
-	if response_scroll:
-		response_scroll.scroll_vertical = 0
-	_populate_conversation_buttons(false)
-
-func _bbcode_escape(s: String) -> String:
-	return s.replace("[", "[lb]").replace("]", "[rb]")
-
-func _format_markdown_to_bbcode(md: String) -> String:
-	var text = md
-	var regex_b = RegEx.new()
-	regex_b.compile("\\*\\*(.*?)\\*\\*")
-	text = regex_b.sub(text, "[b]$1[/b]", true)
-
-	var regex_h = RegEx.new()
-	regex_h.compile("(?m)^###?\\s+(.+)$")
-	text = regex_h.sub(text, "[b][color=#38bdf8]$1[/color][/b]", true)
-
-	text = text.replace("\n- ", "\n [color=#38bdf8]•[/color] ")
-	text = text.replace("\n* ", "\n [color=#38bdf8]•[/color] ")
-	return text
+	_populate_conversation_buttons()
+	_open_error_modal(error_msg)
