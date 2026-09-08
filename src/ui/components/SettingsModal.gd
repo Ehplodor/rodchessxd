@@ -9,9 +9,21 @@ var _init_analysis_depth: int = 18
 
 func _ready() -> void:
 	title = "Paramètres & Clés IA"
-	var vis = get_viewport().get_visible_rect().size if get_viewport() else Vector2(400, 700)
-	var target_w = int(clampf(vis.x * 0.94, 280.0, 390.0)) if vis.x > 0 else 380
-	var target_h = int(clampf(vis.y * 0.90, 440.0, 680.0)) if vis.y > 0 else 640
+	var screen_w = 450.0
+	var screen_h = 800.0
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root:
+		var root_rect = tree.root.get_visible_rect()
+		if root_rect.size.x > 0:
+			screen_w = root_rect.size.x
+			screen_h = root_rect.size.y
+	elif DisplayServer.window_get_size().x > 0:
+		var win_s = DisplayServer.window_get_size()
+		screen_w = win_s.x
+		screen_h = win_s.y
+
+	var target_w = int(clampf(screen_w * 0.94, 340.0, 425.0))
+	var target_h = int(clampf(screen_h * 0.90, 440.0, 720.0))
 	size = Vector2i(target_w, target_h)
 	exclusive = true
 	close_requested.connect(_on_save_and_close)
