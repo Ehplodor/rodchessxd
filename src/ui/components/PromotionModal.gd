@@ -27,18 +27,7 @@ func _on_close_requested() -> void:
 	queue_free()
 
 func _setup_ui() -> void:
-	var screen_w = 400.0
-	var tree = Engine.get_main_loop() as SceneTree
-	if tree and tree.root and tree.root.get_visible_rect().size.x > 0:
-		screen_w = tree.root.get_visible_rect().size.x
-	elif DisplayServer.window_get_size().x > 0:
-		screen_w = DisplayServer.window_get_size().x
-
-	# 4 boutons de 72px + espacements + marges
-	var btn_size = 72
-	var target_w = int(clampf(btn_size * 4 + 48, 320.0, screen_w * 0.95))
-	var target_h = 160
-	size = Vector2i(target_w, target_h)
+	DesignTokens.adapt_modal_size(self, 380, 160)
 
 	var bg_panel = PanelContainer.new()
 	bg_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
