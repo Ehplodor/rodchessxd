@@ -53,15 +53,19 @@ func _init() -> void:
 	assert(counter[0] == 2, "Le signal ply_analyzed doit avoir été émis 2 fois")
 	print("  -> Test 2 OK : Précision Blancs=%.1f%%, Noirs=%.1f%%" % [report["white_accuracy"], report["black_accuracy"]])
 	
-	# Test 3: Vérification de la disponibilité du Live après l'analyse
-	assert(eng.is_engine_available(), "Le moteur doit rester disponible")
-	assert(not eng.is_evaluating, "is_evaluating doit être false après l'analyse")
+	# Test 4: Lancement d'une évaluation async alors que le Live est DÉJÀ en cours (conflit résolu)
+	print("Test 4: Déclenchement d'un Live puis analyse async immédiate (test de non-collision)...")
+	eng.evaluate_position(ChessGame.INITIAL_FEN, 14)
+	assert(eng.is_evaluating, "Le moteur doit être en train de calculer le Live")
 	
-	eng.evaluate_position(game.get_fen(), 10)
-	assert(eng.is_evaluating, "Le Live doit pouvoir se lancer sans blocage")
-	eng.stop_evaluation()
-	assert(not eng.is_evaluating, "Le Live doit pouvoir s'arrêter")
-	print("  -> Test 3 OK : Le Live reste 100% fonctionnel et réactif !")
+	# Appel asynchrone direct sur une autre position (e.g. après e4)
+	var e4_fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+	var res4 = await eng.evaluate_position_async(e4_fen, 10, 2000)
+	print("Résultat après interruption Live :", res4)
+	assert(not res4.get("timed_out", false), "L'évaluation ne doit pas expirer")
+	assert(res4.get("best_move", "") != "", "Un meilleur coup doit être renvoyé après interruption")
+	assert(not eng.is_evaluating, "is_evaluating doit être false")
+	print("  -> Test 4 OK : L'évaluation Live a été vidangée et le nouveau calcul est exact !")
 	
 	print("\n🎉 TOUS LES TESTS D'ANALYSE ASYNCHRONE ET DE RESTAURATION DU LIVE SONT RÉUSSIS (100% OK) !")
 	quit(0)

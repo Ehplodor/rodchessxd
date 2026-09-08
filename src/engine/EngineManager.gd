@@ -947,9 +947,16 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 
 	var tree = Engine.get_main_loop() as SceneTree
 
-	# Si une évaluation était déjà en cours, on l'interrompt
+	# Si une évaluation était déjà en cours, on l'interrompt et on attend que le moteur soit totalement inactif
 	if is_evaluating:
 		send_command("stop")
+		var wait_frames = 20
+		while is_evaluating and wait_frames > 0:
+			if tree:
+				await tree.process_frame
+			else:
+				OS.delay_msec(10)
+			wait_frames -= 1
 		if tree:
 			await tree.process_frame
 
@@ -958,6 +965,7 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 	is_evaluating = true
 	best_move_uci = ""
 	eval_depth = 0
+	eval_score_cp = 0
 	cancel_eval_requested = false
 	state_mutex.unlock()
 

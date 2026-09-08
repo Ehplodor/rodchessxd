@@ -1254,6 +1254,13 @@ func _on_btn_analyze_game_pressed() -> void:
 	var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
 	stats_label.text = "⏳ Démarrage de l'analyse %s (%s, 0/%d)..." % [eng_name, mode_label, moves_count]
 
+	# Verrouillage immédiat du mode analyse et arrêt du Live avant toute manipulation de l'échiquier
+	analyzer.engine_manager = EngineManager
+	analyzer.settings_manager = sm
+	analyzer.is_analyzing = true
+	if EngineManager != null:
+		EngineManager.stop_evaluation()
+
 	# Initialisation de la courbe d'avantage avec halo d'incertitude initial large
 	if advantage_graph:
 		advantage_graph.prepare_live_analysis(moves_count)
@@ -1279,10 +1286,6 @@ func _on_btn_analyze_game_pressed() -> void:
 		"dynamic_max": dynamic_max
 	}
 
-	analyzer.engine_manager = EngineManager
-	analyzer.settings_manager = sm
-	analyzer.is_analyzing = true
-
 	if OS.has_feature("web"):
 		# Sur le Web (WASM/HTML5), pas de threads secondaires : analyse asynchrone non-bloquante avec await
 		analyzer.start_game_analysis_async(GameController.game, a_depth, options)
@@ -1303,14 +1306,12 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	_apply_analyze_button_style(false)
 	btn_toggle_live.disabled = false
 
-	# Rétablir immédiatement l'évaluation en direct si activée
-	if live_eval_enabled:
-		_trigger_live_eval()
-
 	if report.has("error"):
 		var err: String = report["error"]
 		stats_label.text = "❌ %s" % err
 		_show_error_banner(err)
+		if live_eval_enabled:
+			_trigger_live_eval()
 		return
 
 	var evals = report.get("evaluations", [])
@@ -1321,6 +1322,10 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	var total_moves = GameController.game.move_history.size() if GameController.game else 0
 	var is_partial = (evals.size() < total_moves)
 	_display_analysis_stats(report, is_partial)
+
+	# Rétablir l'évaluation en direct si activée, une fois le graphe et l'UI synchronisés
+	if live_eval_enabled:
+		_trigger_live_eval()
 
 	# Archivage automatique dans DatabaseManager pour la partie active
 	var dm = get_node_or_null("/root/DatabaseManager")
