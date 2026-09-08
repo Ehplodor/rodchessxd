@@ -26,6 +26,9 @@ func _ready() -> void:
 	score_label.add_theme_font_size_override("font_size", 12)
 	score_label.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	add_child(score_label)
+	var em = get_node_or_null("/root/EngineManager")
+	if em:
+		em.evaluation_updated.connect(_on_engine_eval)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:

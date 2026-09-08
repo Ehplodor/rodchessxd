@@ -692,6 +692,7 @@ func _sync_eval_to_ply(ply_idx: int) -> void:
 			
 			var best_uci: String = rec.get("best_move", "")
 			if chess_board:
+				chess_board.best_move_arrow_depth = int(rec.get("depth", 0))
 				if best_uci.length() >= 4:
 					chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_uci.substr(0, 2))
 					chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_uci.substr(2, 2))
@@ -707,6 +708,7 @@ func _sync_eval_to_ply(ply_idx: int) -> void:
 			if top_eval_label:
 				top_eval_label.text = "+0.2"
 			if chess_board:
+				chess_board.best_move_arrow_depth = 0
 				chess_board.best_move_arrow_from = -1
 				chess_board.best_move_arrow_to = -1
 				if chess_board.arrow_overlay:
@@ -723,6 +725,12 @@ func _on_play_sound(sound_type: String) -> void:
 
 func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
 	if analyzer != null and analyzer.is_analyzing:
+		if top_eval_label:
+			if mate_in != 0:
+				top_eval_label.text = "Mat %d" % mate_in
+			else:
+				var pawns = score_cp / 100.0
+				top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
 		return
 
 	# Si la position actuelle correspond à un coup déjà analysé dans le graphe,
@@ -1157,6 +1165,7 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 
 		# Flèche tactique moderne cyan de la recommandation Stockfish
 		var best_uci: String = move_record.get("best_move", "")
+		chess_board.best_move_arrow_depth = int(move_record.get("depth", 0))
 		if best_uci.length() >= 4:
 			chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_uci.substr(0, 2))
 			chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_uci.substr(2, 2))

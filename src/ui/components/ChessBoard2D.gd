@@ -94,7 +94,21 @@ var check_pulse_timer: float = 0.0
 
 var best_move_arrow_from: int = -1
 var best_move_arrow_to: int = -1
+var best_move_arrow_depth: int = 0
 var show_move_hints: bool = true
+
+## Calcule une couleur vive et lumineuse sur un dégradé arc-en-ciel selon la profondeur (1 à 20+)
+## Profondeur faible (~1-6) : Rouge / Orange / Jaune
+## Profondeur moyenne (~7-13) : Vert lime / Émeraude / Cyan
+## Profondeur élevée (~14-22+) : Bleu électrique / Indigo / Violet magenta éclatant
+static func get_depth_rainbow_color(depth: int) -> Color:
+	if depth <= 0:
+		return Color("#0284c7")
+	# Calibrage : progression de 0.0 (prof. 1) à 1.0 (prof. 20)
+	var t = clampf(float(depth - 1) / 19.0, 0.0, 1.0)
+	# Déroulé spectral HSV : rouge (0.00) -> orange (0.08) -> jaune (0.15) -> vert (0.33) -> cyan (0.50) -> bleu (0.62) -> magenta (0.83)
+	var hue = t * 0.83
+	return Color.from_hsv(hue, 0.88, 0.98)
 
 # Système d'animations et effets visuels
 class CaptureBurstFX extends Control:
@@ -897,7 +911,13 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 	if dist < 1.0:
 		return
 	
-	var arrow_color: Color = theme.get("best_move_arrow", Color("#0284c7"))
+	# Gradient arc-en-ciel dynamique selon la profondeur atteinte
+	var arrow_color: Color
+	if best_move_arrow_depth > 0:
+		arrow_color = get_depth_rainbow_color(best_move_arrow_depth)
+	else:
+		arrow_color = theme.get("best_move_arrow", Color("#0284c7"))
+
 	var shaft_width: float = clampf(square_size * 0.12, 5.0, 14.0)
 	var head_length: float = clampf(square_size * 0.35, 15.0, 36.0)
 	var head_width: float = clampf(square_size * 0.40, 18.0, 42.0)
@@ -913,13 +933,15 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 	var shadow_p3 = shaft_end + shadow_offset - perp * (head_width * 0.5)
 	canvas.draw_colored_polygon(PackedVector2Array([shadow_p1, shadow_p2, shadow_p3]), Color(0, 0, 0, 0.25))
 	
-	# Corps & Tête
+	# Corps & Tête avec contour subtil pour lisibilité maximale
 	canvas.draw_circle(start_pos, shaft_width * 0.65, arrow_color)
 	canvas.draw_line(start_pos, shaft_end, arrow_color, shaft_width, true)
 	var p1 = end_pos
 	var p2 = shaft_end + perp * (head_width * 0.5)
 	var p3 = shaft_end - perp * (head_width * 0.5)
 	canvas.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
+	# Filet lumineux blanc discret pour faire ressortir la flèche sur les cases sombres ou claires
+	canvas.draw_polyline(PackedVector2Array([p2, p1, p3]), Color(1.0, 1.0, 1.0, 0.45), 1.2, true)
 
 # --- GESTION TACTILE & SOURIS (Clic pour sélectionner, Clic pour déplacer) ---
 
@@ -1170,10 +1192,8 @@ func _check_king_status() -> void:
 				break
 	set_process(in_check_sq != -1)
 
-func _on_engine_eval(_score_cp: int, _mate_in: int, _depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
-	var main = find_parent("Main")
-	if main != null and main.analyzer != null and main.analyzer.is_analyzing:
-		return
+func _on_engine_eval(_score_cp: int, _mate_in: int, depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
+	best_move_arrow_depth = depth
 	if best_move.length() >= 4:
 		best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))
 		best_move_arrow_to = ChessMove.coord_to_square(best_move.substr(2, 2))
