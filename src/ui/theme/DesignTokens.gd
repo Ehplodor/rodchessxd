@@ -111,3 +111,22 @@ static func touch_scroll(ctrl: Control) -> void:
 static func scrollbar_big(ctrl: Control, px: int = SCROLLBAR_W) -> void:
 	ctrl.add_theme_constant_override("h_scroll", px)
 	ctrl.add_theme_constant_override("v_scroll", px)
+
+## Calcule une dimension de fenêtre modale sécurisée et adaptée à la taille de l'écran du mobile.
+static func adapt_modal_size(win: Window, base_w: float = 410.0, base_h: float = 560.0) -> void:
+	var screen_w = 450.0
+	var screen_h = 800.0
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root:
+		var root_rect = tree.root.get_visible_rect()
+		if root_rect.size.x > 0:
+			screen_w = root_rect.size.x
+			screen_h = root_rect.size.y
+	elif DisplayServer.window_get_size().x > 0:
+		var win_s = DisplayServer.window_get_size()
+		screen_w = win_s.x
+		screen_h = win_s.y
+
+	var target_w = int(clampf(screen_w * 0.94, 320.0, minf(base_w, 420.0)))
+	var target_h = int(clampf(screen_h * 0.88, 420.0, base_h))
+	win.size = Vector2i(target_w, target_h)

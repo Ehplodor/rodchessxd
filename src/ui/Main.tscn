@@ -80,37 +80,31 @@ layout_mode = 2
 size_flags_horizontal = 3
 
 [node name="BtnFlip" type="Button" parent="VBox/TopBar"]
-custom_minimum_size = Vector2(46, 60)
+custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Retourner le plateau"
 text = "🔄"
 
-[node name="BtnNewGame" type="Button" parent="VBox/TopBar"]
-custom_minimum_size = Vector2(46, 60)
-layout_mode = 2
-tooltip_text = "Nouvelle partie (réinitialiser l'échiquier)"
-text = "✨"
-
 [node name="BtnMore" type="Button" parent="VBox/TopBar"]
-custom_minimum_size = Vector2(46, 60)
+custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
-tooltip_text = "Menu partie (Import, Export PGN, Aides)"
+tooltip_text = "Menu partie (Nouvelle partie, Import, Export PGN, Aides)"
 text = "📥"
 
 [node name="BtnEngineHub" type="Button" parent="VBox/TopBar"]
-custom_minimum_size = Vector2(46, 60)
+custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Moteurs d'échecs"
 text = "⚡"
 
 [node name="BtnLibrary" type="Button" parent="VBox/TopBar"]
-custom_minimum_size = Vector2(46, 60)
+custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Bibliothèque des parties & analyses archivées"
 text = "📚"
 
 [node name="BtnSettings" type="Button" parent="VBox/TopBar"]
-custom_minimum_size = Vector2(46, 60)
+custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Réglages"
 text = "⚙️"
@@ -165,7 +159,7 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 
 [node name="ChessBoard" type="Control" parent="VBox/CenterArea/BoardColumn/BoardContainer"]
-custom_minimum_size = Vector2(350, 350)
+custom_minimum_size = Vector2(280, 280)
 layout_mode = 2
 script = ExtResource("3_board")
 
@@ -198,40 +192,41 @@ text = ""
 [node name="NavRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
 alignment = 1
-theme_override_constants/separation = 6
+theme_override_constants/separation = 4
 
 [node name="BtnFirst" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(48, 56)
+custom_minimum_size = Vector2(40, 52)
 layout_mode = 2
 tooltip_text = "Début de la partie"
 text = "⏮"
 
 [node name="BtnPrev" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(48, 56)
+custom_minimum_size = Vector2(40, 52)
 layout_mode = 2
 tooltip_text = "Coup précédent"
 text = "◀"
 
 [node name="BtnNext" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(48, 56)
+custom_minimum_size = Vector2(40, 52)
 layout_mode = 2
 tooltip_text = "Coup suivant"
 text = "▶"
 
 [node name="BtnLast" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(48, 56)
+custom_minimum_size = Vector2(40, 52)
 layout_mode = 2
 tooltip_text = "Fin de la partie"
 text = "⏭"
 
 [node name="BtnAnalyzeGame" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(130, 56)
+custom_minimum_size = Vector2(105, 52)
 layout_mode = 2
+size_flags_horizontal = 3
 tooltip_text = "Analyser toute la partie (moteur d'échecs)"
 text = "🔍 Analyser"
 
 [node name="BtnToggleLive" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(68, 56)
+custom_minimum_size = Vector2(60, 52)
 layout_mode = 2
 tooltip_text = "Activer ou désactiver l'évaluation Stockfish continue en direct"
 text = "⚡ Live"
@@ -435,7 +430,6 @@ stream = ExtResource("8_sfx_capture")
 stream = ExtResource("9_sfx_check")
 
 [connection signal="pressed" from="VBox/TopBar/BtnFlip" to="." method="_on_btn_flip_pressed"]
-[connection signal="pressed" from="VBox/TopBar/BtnNewGame" to="." method="_on_btn_new_game_pressed"]
 [connection signal="pressed" from="VBox/TopBar/BtnMore" to="." method="_on_btn_more_pressed"]
 [connection signal="pressed" from="VBox/TopBar/BtnEngineHub" to="." method="_on_btn_engine_hub_pressed"]
 [connection signal="pressed" from="VBox/TopBar/BtnLibrary" to="." method="_on_btn_library_pressed"]

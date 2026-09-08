@@ -199,7 +199,7 @@ func _get_engine_manager() -> Node:
 	return null
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(350, 350)
+	custom_minimum_size = Vector2(280, 280)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_process(false)
 	
@@ -250,7 +250,7 @@ func _notification(what: int) -> void:
 func _update_dimensions() -> void:
 	var side = min(size.x, size.y)
 	if side < 100:
-		side = 350
+		side = 280
 	board_size = side
 	square_size = board_size / 8.0
 	custom_minimum_size = Vector2(board_size, board_size)

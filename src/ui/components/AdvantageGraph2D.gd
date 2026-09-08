@@ -97,19 +97,27 @@ func _setup_hud() -> void:
 
 func _update_button_positions() -> void:
 	var right_cursor = size.x - 8
+	var min_allowed_x = 36.0
 	if depth_badge:
 		depth_badge.reset_size()
-		depth_badge.position = Vector2(right_cursor - depth_badge.size.x, 6)
-		right_cursor -= (depth_badge.size.x + 6)
+		var badge_w = depth_badge.size.x
+		var badge_x = maxf(min_allowed_x, right_cursor - badge_w)
+		depth_badge.position = Vector2(badge_x, 6)
+		right_cursor = badge_x - 6.0
 	if btn_switch_analysis and btn_switch_analysis.visible:
 		btn_switch_analysis.reset_size()
-		btn_switch_analysis.position = Vector2(right_cursor - btn_switch_analysis.size.x, 6)
+		var btn_w = btn_switch_analysis.size.x
+		var btn_x = maxf(min_allowed_x, right_cursor - btn_w)
+		btn_switch_analysis.position = Vector2(btn_x, 6)
 
 func _get_active_engine_name() -> String:
 	var em = get_node_or_null("/root/EngineManager")
 	if em and em.has_method("get_engine_display_name"):
-		return em.get_engine_display_name()
-	return "Stockfish"
+		var raw = em.get_engine_display_name()
+		if raw.begins_with("Stockfish"):
+			return "SF"
+		return raw
+	return "SF"
 
 func _on_position_changed() -> void:
 	if depth_progress_bar:
@@ -173,6 +181,8 @@ func _show_switch_analysis_button() -> void:
 	btn_switch_analysis.visible = true
 	var cur = stored_analyses[current_analysis_idx]
 	var eng = cur.get("engine_name", "Stockfish")
+	if eng.begins_with("Stockfish"):
+		eng = "SF"
 	var d = cur.get("depth", 10)
 	btn_switch_analysis.text = "⚡ %s (d%d) [%d/%d]" % [eng, d, current_analysis_idx + 1, stored_analyses.size()]
 	btn_switch_analysis.reset_size()

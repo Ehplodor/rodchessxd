@@ -21,7 +21,7 @@ var square_buttons: Array[Button] = []
 
 func _ready() -> void:
 	title = "Importer et Vérifier une Position"
-	size = Vector2i(410, 640)
+	DesignTokens.adapt_modal_size(self, 410, 640)
 	exclusive = true
 	unresizable = false
 	close_requested.connect(queue_free)

@@ -12,7 +12,7 @@ var status_lbl: Label
 
 func _ready() -> void:
 	title = "📚 Bibliothèque des Parties & Analyses"
-	size = Vector2i(410, 560)
+	DesignTokens.adapt_modal_size(self, 410, 560)
 	exclusive = true
 	close_requested.connect(queue_free)
 	_setup_ui()

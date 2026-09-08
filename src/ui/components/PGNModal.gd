@@ -10,7 +10,7 @@ var status_lbl: Label
 
 func _ready() -> void:
 	title = "Import / Export PGN"
-	size = Vector2i(410, 540)
+	DesignTokens.adapt_modal_size(self, 410, 540)
 	exclusive = true
 	close_requested.connect(queue_free)
 	_setup_ui()

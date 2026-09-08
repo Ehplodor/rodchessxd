@@ -9,7 +9,7 @@ var status_lbl: Label
 
 func _ready() -> void:
 	title = "Engine Hub : Téléchargement de Moteurs"
-	size = Vector2i(410, 520)
+	DesignTokens.adapt_modal_size(self, 410, 520)
 	exclusive = true
 	close_requested.connect(queue_free)
 	
