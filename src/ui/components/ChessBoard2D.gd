@@ -76,6 +76,7 @@ var press_sq: int = -1
 var press_pos: Vector2 = Vector2.ZERO
 var is_pointer_down: bool = false
 var last_touch_timestamp: int = -999999
+var last_mouse_timestamp: int = -999999
 
 # Rétrocompatibilité pour les suites de tests et scripts appelants
 var dragged_sq: int:
@@ -448,7 +449,7 @@ func _animate_move(move: ChessMove) -> void:
 		var gctl = _get_game_controller()
 		if gctl:
 			displayed_ply_index = gctl.current_ply_index
-		reset_board_visuals()
+		reset_board_visuals(true)
 	)
 
 ## Animation fluide vers l'avant lors de la navigation dans l'historique (+1 demi-coup)
@@ -914,6 +915,9 @@ func _resolve_local_pos(event: InputEvent) -> Vector2:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
+		# Ignorer les événements tactiles émulés automatiquement suite à un clic souris
+		if Time.get_ticks_msec() - last_mouse_timestamp < 350:
+			return
 		last_touch_timestamp = Time.get_ticks_msec()
 		var local_pos = _resolve_local_pos(event)
 		var sq = _pos_to_square(local_pos)
@@ -934,6 +938,7 @@ func _gui_input(event: InputEvent) -> void:
 		if Time.get_ticks_msec() - last_touch_timestamp < 350:
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
+			last_mouse_timestamp = Time.get_ticks_msec()
 			var local_pos = _resolve_local_pos(event)
 			var sq = _pos_to_square(local_pos)
 			if event.pressed:
