@@ -73,6 +73,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	if start_eval.get("timed_out", false) and start_eval.get("depth", 0) <= 0:
 		return _fail_analysis("Le moteur n'a pas répondu à l'évaluation de la position de départ.")
 	var prev_score_cp = start_eval.get("score_cp", 20)
+	var prev_best_move = start_eval.get("best_move", "")
 	var white_loss_sum = 0
 	var black_loss_sum = 0
 	var white_moves_count = 0
@@ -88,6 +89,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		var move = moves[i]
 		var is_white = (i % 2 == 0)
 		var score_before = prev_score_cp
+		var expected_best_move = prev_best_move
 
 		# Exécution du coup
 		sim_game.make_move(move)
@@ -123,8 +125,12 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		if cancel_requested:
 			break
 		var score_after = eval_after_data.get("score_cp", score_before)
-		var best_move_uci = eval_after_data.get("best_move", "")
+		var reply_best_move = eval_after_data.get("best_move", "")
 		var eff_d = eval_after_data.get("depth", depth)
+
+		# Mise à jour pour le coup suivant
+		prev_score_cp = score_after
+		prev_best_move = reply_best_move
 
 		# Calcul de la perte en centipions (du point de vue du joueur actif)
 		var cp_loss = 0
@@ -137,13 +143,13 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 			black_loss_sum += cp_loss
 			black_moves_count += 1
 
-		# Classification qualitative du coup
-		var quality = _classify_move(cp_loss, move, best_move_uci, score_before, score_after, is_white)
+		# Classification qualitative du coup par rapport au meilleur coup possible dans la position de départ du coup
+		var quality = _classify_move(cp_loss, move, expected_best_move, score_before, score_after, is_white)
 		move.quality = quality
 		move.centipawn_loss = cp_loss
 		move.eval_before_cp = score_before
 		move.eval_after_cp = score_after
-		move.best_move_uci = best_move_uci
+		move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
 
 		if is_white:
 			_increment_quality_stat(white_stats, quality)
@@ -164,7 +170,8 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 			"score_cp": score_after,
 			"loss_cp": cp_loss,
 			"quality": quality,
-			"best_move": best_move_uci,
+			"best_move": reply_best_move,
+			"best_alternative": expected_best_move,
 			"fen": fen_after,
 			"depth": eff_d,
 			"ci_margin": eval_ci,
@@ -173,7 +180,6 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		}
 		move_evaluations.append(move_record)
 
-		prev_score_cp = score_after
 		call_deferred("emit_signal", "progress_updated", i + 1, total_plies)
 		call_deferred("emit_signal", "ply_analyzed", i, move_record, {
 			"white_loss_sum": white_loss_sum,
@@ -245,6 +251,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	if start_eval.get("timed_out", false) and start_eval.get("depth", 0) <= 0:
 		return _fail_analysis("Le moteur n'a pas répondu à l'évaluation de la position de départ.")
 	var prev_score_cp = start_eval.get("score_cp", 20)
+	var prev_best_move = start_eval.get("best_move", "")
 	var white_loss_sum = 0
 	var black_loss_sum = 0
 	var white_moves_count = 0
@@ -262,6 +269,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		var move = moves[i]
 		var is_white = (i % 2 == 0)
 		var score_before = prev_score_cp
+		var expected_best_move = prev_best_move
 
 		# Exécution du coup
 		sim_game.make_move(move)
@@ -295,8 +303,12 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 				return _fail_analysis("Le moteur n'a pas répondu à l'évaluation du coup %s." % move.san)
 
 		var score_after = eval_after_data.get("score_cp", score_before)
-		var best_move_eval = eval_after_data.get("best_move", "")
+		var reply_best_move = eval_after_data.get("best_move", "")
 		var depth_reached = eval_after_data.get("depth", depth)
+
+		# Mise à jour pour le coup suivant
+		prev_score_cp = score_after
+		prev_best_move = reply_best_move
 
 		var cp_loss = 0
 		if is_white:
@@ -308,9 +320,12 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 			black_loss_sum += cp_loss
 			black_moves_count += 1
 
-		var qual = _classify_move(cp_loss, move, best_move_eval, score_before, score_after, is_white)
+		var qual = _classify_move(cp_loss, move, expected_best_move, score_before, score_after, is_white)
 		move.quality = qual
 		move.centipawn_loss = cp_loss
+		move.eval_before_cp = score_before
+		move.eval_after_cp = score_after
+		move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
 
 		if is_white:
 			_increment_quality_stat(white_stats, qual)
@@ -324,7 +339,8 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 			"uci": move.uci,
 			"score_cp": score_after,
 			"depth": depth_reached,
-			"best_move": best_move_eval,
+			"best_move": reply_best_move,
+			"best_alternative": expected_best_move,
 			"quality": qual,
 			"cp_loss": cp_loss,
 			"is_white": is_white,
@@ -333,7 +349,6 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		}
 		move_evaluations.append(move_record)
 
-		prev_score_cp = score_after
 		progress_updated.emit(i + 1, total_plies)
 		ply_analyzed.emit(i, move_record, {
 			"white_loss_sum": white_loss_sum,

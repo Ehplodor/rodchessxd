@@ -1171,6 +1171,9 @@ func _check_king_status() -> void:
 	set_process(in_check_sq != -1)
 
 func _on_engine_eval(_score_cp: int, _mate_in: int, _depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
+	var main = find_parent("Main")
+	if main != null and main.analyzer != null and main.analyzer.is_analyzing:
+		return
 	if best_move.length() >= 4:
 		best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))
 		best_move_arrow_to = ChessMove.coord_to_square(best_move.substr(2, 2))
