@@ -129,15 +129,34 @@ func deselect_square() -> void:
 	legal_destinations.clear()
 	square_deselected.emit()
 
+func is_promotion_move(from_sq: int, to_sq: int) -> bool:
+	if not game:
+		return false
+	var piece = game.get_piece(from_sq)
+	if piece.type != ChessPiece.Type.PAWN:
+		return false
+	var r = to_sq / 8
+	var prom_rank = 7 if piece.color == ChessPiece.PieceColor.WHITE else 0
+	if r != prom_rank:
+		return false
+	var legal = game.get_legal_moves_for_square(from_sq)
+	for m in legal:
+		if m.to_sq == to_sq and m.promotion != ChessPiece.Type.NONE:
+			return true
+	return false
+
 func try_play_move(from_sq: int, to_sq: int, promotion_type: int = ChessPiece.Type.NONE) -> bool:
+	var target_prom = promotion_type
+	var is_prom = is_promotion_move(from_sq, to_sq)
+	if is_prom and target_prom == ChessPiece.Type.NONE:
+		target_prom = ChessPiece.Type.QUEEN
+
 	var legal = game.get_legal_moves_for_square(from_sq)
 	for m in legal:
 		if m.to_sq == to_sq:
-			if m.promotion != ChessPiece.Type.NONE:
-				if promotion_type == ChessPiece.Type.NONE:
-					m.promotion = ChessPiece.Type.QUEEN
-				else:
-					m.promotion = promotion_type
+			if is_prom:
+				if m.promotion != target_prom:
+					continue
 			
 			var move_made = game.make_move(m)
 			if move_made:

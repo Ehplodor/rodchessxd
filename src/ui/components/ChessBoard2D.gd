@@ -2,6 +2,8 @@ class_name ChessBoard2D
 extends Control
 ## ChessBoard2D.gd - Affichage et interaction tactile 2D haute définition avec animations fluides, glissement physique et thèmes modernes
 
+const _PromotionModal = preload("res://src/ui/components/PromotionModal.gd")
+
 signal square_clicked(sq: int)
 
 # Palettes de couleurs raffinées, contemporaines et contrastées
@@ -985,9 +987,20 @@ func _handle_pointer_press(sq: int, _pos: Vector2) -> void:
 			_redraw_board_and_overlays()
 		return
 	
+	# Gestion du coup manuel :
+	# Si une pièce est sélectionnée et qu'on clique sur une destination légale :
+	if gc.selected_square != -1 and sq in gc.legal_destinations:
+		var from_sq = gc.selected_square
+		if gc.is_promotion_move(from_sq, sq):
+			_show_promotion_dialog(from_sq, sq)
+		else:
+			gc.try_play_move(from_sq, sq)
+		emit_signal("square_clicked", sq)
+		_redraw_board_and_overlays()
+		return
+
 	# Appel du GameController centralisé :
 	# - Re-clic sur la même pièce -> désélectionne (gc.select_square vérifie selected_square == sq)
-	# - Clic sur une case autorisée -> exécute le coup (try_play_move)
 	# - Clic sur une autre pièce de la même couleur -> change la sélection sur cette pièce
 	# - Clic sur une case non autorisée ou vide -> désélectionne
 	gc.select_square(sq)
@@ -1007,10 +1020,30 @@ func _handle_pointer_release(to_sq: int, pos: Vector2) -> void:
 		var dist = pos.distance_to(press_pos)
 		if dist > square_size * 0.35:
 			if gc.selected_square == press_sq and to_sq in gc.legal_destinations:
-				gc.try_play_move(press_sq, to_sq)
+				if gc.is_promotion_move(press_sq, to_sq):
+					_show_promotion_dialog(press_sq, to_sq)
+				else:
+					gc.try_play_move(press_sq, to_sq)
 				_redraw_board_and_overlays()
 			# Si relâché ailleurs : ne pas désélectionner, préserve la sélection pour le clic suivant !
 	# Si release sur la même case (simple clic/tap) : ne rien faire, la pièce reste sélectionnée !
+
+func _show_promotion_dialog(from_sq: int, to_sq: int) -> void:
+	var gc = _get_game_controller()
+	if not gc or not gc.game:
+		return
+	var piece = gc.game.get_piece(from_sq)
+	var modal = _PromotionModal.new(piece.color)
+	modal.piece_selected.connect(func(chosen_type: int):
+		gc.try_play_move(from_sq, to_sq, chosen_type)
+		_redraw_board_and_overlays()
+	)
+	modal.canceled.connect(func():
+		gc.deselect_square()
+		_redraw_board_and_overlays()
+	)
+	add_child(modal)
+	modal.popup_centered(modal.size)
 
 # Alias de rétrocompatibilité pour les suites de tests
 func _handle_press(sq: int, pos: Vector2) -> void:

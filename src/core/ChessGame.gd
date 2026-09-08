@@ -675,8 +675,20 @@ func _find_matching_move(token: String) -> ChessMove:
 				return m
 
 	# 3. Parsing sémantique du coup SAN avec gestion des désambiguïsations
-	# ex: R4f2, Rad1, Nbd7, exd5, e8=Q, f8Q, etc.
-	var clean = token.replace("x", "").replace("=", "")
+	# ex: R4f2, Rad1, Nbd7, exd5, e8=Q, f8Q, e8=N, etc.
+	var clean = token.replace("x", "")
+	var expected_prom = ChessPiece.Type.NONE
+	if "=" in clean:
+		var eq_idx = clean.find("=")
+		if eq_idx < clean.length() - 1:
+			var prom_char = clean.substr(eq_idx + 1, 1).to_upper()
+			match prom_char:
+				"Q": expected_prom = ChessPiece.Type.QUEEN
+				"R": expected_prom = ChessPiece.Type.ROOK
+				"B": expected_prom = ChessPiece.Type.BISHOP
+				"N": expected_prom = ChessPiece.Type.KNIGHT
+		clean = clean.replace("=", "")
+
 	if clean.length() < 2:
 		return null
 
@@ -684,9 +696,16 @@ func _find_matching_move(token: String) -> ChessMove:
 	var dest_sq = ChessMove.coord_to_square(dest_coord)
 	if dest_sq == -1:
 		# Promotion sans égal : ex "h1Q" -> dest "h1", prom "Q"
-		if clean.length() >= 3 and clean[-1] in ["Q", "R", "B", "N"]:
+		if clean.length() >= 3 and clean[-1].to_upper() in ["Q", "R", "B", "N"]:
+			var prom_char = clean[-1].to_upper()
+			match prom_char:
+				"Q": expected_prom = ChessPiece.Type.QUEEN
+				"R": expected_prom = ChessPiece.Type.ROOK
+				"B": expected_prom = ChessPiece.Type.BISHOP
+				"N": expected_prom = ChessPiece.Type.KNIGHT
 			dest_coord = clean.substr(clean.length() - 3, 2)
 			dest_sq = ChessMove.coord_to_square(dest_coord)
+			clean = clean.substr(0, clean.length() - 1)
 
 	if dest_sq == -1:
 		return null
@@ -701,6 +720,8 @@ func _find_matching_move(token: String) -> ChessMove:
 
 	for m in legal:
 		if m.to_sq == dest_sq and m.piece == piece_type:
+			if expected_prom != ChessPiece.Type.NONE and m.promotion != expected_prom:
+				continue
 			if disambig_hint == "":
 				return m
 			var from_coord = ChessMove.square_to_coord(m.from_sq)
