@@ -7,6 +7,7 @@ const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
 const ModelHubModal = preload("res://src/ui/components/ModelHubModal.gd")
 const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
+const PromotionModal = preload("res://src/ui/components/PromotionModal.gd")
 
 func _init() -> void:
 	print("[TEST] --- Démarrage du test de conformité et flexibilité des fenêtres modales ---")
@@ -18,7 +19,8 @@ func _init() -> void:
 		{"name": "SettingsModal", "script": SettingsModal},
 		{"name": "EngineHubModal", "script": EngineHubModal},
 		{"name": "ModelHubModal", "script": ModelHubModal},
-		{"name": "LibraryModal", "script": LibraryModal}
+		{"name": "LibraryModal", "script": LibraryModal},
+		{"name": "PromotionModal", "script": PromotionModal}
 	]
 
 	for m_info in modals:

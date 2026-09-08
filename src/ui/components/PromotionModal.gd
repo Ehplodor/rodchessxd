@@ -28,6 +28,7 @@ func _on_close_requested() -> void:
 
 func _setup_ui() -> void:
 	DesignTokens.adapt_modal_size(self, 380, 160)
+	var btn_size: float = 72.0
 
 	var bg_panel = PanelContainer.new()
 	bg_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
