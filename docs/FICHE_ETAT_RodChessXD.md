@@ -73,6 +73,7 @@ Ordre recommandé dans la feuille de route (M1, M2 et M8 livrés) : **M3+M4** en
 | **M3** | Coups groupés par qualité (service partagé, mini-barres, filtres, perte cp) — base M2 livrée | M |
 | **M4** | Synthèse vocale (TTS) des commentaires du coach — selon le pattern plugin Android validé | M |
 | **M5** | Coach IA : cache + fallback + rate-limiter (anti-bannissement), architecture autour des `_request_*` de `AICoach` | L |
+| **M5+** | **Marqueurs d'annotations Coach sur le graphe & joueurs** — afficher un icône visuel interactif (pastille de point de vue `⚪/⚫/⚖️`) sur le graphe d'avantage au niveau de chaque coup ayant bénéficié d'une explication du coach, et au niveau du joueur concerné, permettant de se positionner instantanément sur le coup et d'accéder aux conseils | M |
 | **M6** | Synchronisation / sauvegarde (repose sur l'index JSON `user://`) | M |
 | **M7** | Estimation ELO plus poussée (dépend de M3 et M6) | L |
 

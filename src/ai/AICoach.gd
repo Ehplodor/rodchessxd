@@ -18,8 +18,18 @@ var last_query_context: Dictionary = {}
 
 func _ready() -> void:
 	http_client = HTTPRequest.new()
+	http_client.timeout = 30.0
 	add_child(http_client)
 	http_client.request_completed.connect(_on_request_completed)
+
+func _send_http_request(url: String, headers: Array, body: String, provider_name: String) -> void:
+	if http_client.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		http_client.cancel_request()
+
+	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
+	if err != OK:
+		var err_str = "code d'erreur client interne %d" % err
+		coach_error.emit("Impossible d'initialiser la requête vers %s (%s). Vérifiez la connexion de l'appareil." % [provider_name, err_str])
 func _get_settings() -> Node:
 	if is_inside_tree():
 		var t = get_tree()
@@ -465,9 +475,7 @@ func _request_native_slm(prompt_data: Dictionary, model_info: Dictionary) -> voi
 		"temperature": 0.5
 	})
 	var headers = ["Content-Type: application/json"]
-	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		coach_error.emit("Erreur de communication avec le serveur SLM local (%s)." % url)
+	_send_http_request(url, headers, body, "SLM Local")
 
 func _request_local_ollama(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var raw_id = model_info.get("id", "ollama/glm-5.3-flash")
@@ -481,9 +489,7 @@ func _request_local_ollama(prompt_data: Dictionary, model_info: Dictionary) -> v
 		"stream": false
 	})
 	var headers = ["Content-Type: application/json"]
-	var err = http_client.request(base_url, headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		coach_error.emit("Impossible de contacter Ollama en local (%s). Vérifiez qu'Ollama est bien démarré." % base_url)
+	_send_http_request(base_url, headers, body, "Ollama Local")
 
 func _request_groq(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_groq", "")
@@ -504,9 +510,7 @@ func _request_groq(prompt_data: Dictionary, model_info: Dictionary) -> void:
 		"Content-Type: application/json",
 		"Authorization: Bearer " + key
 	]
-	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		coach_error.emit("Erreur de connexion à Groq Cloud.")
+	_send_http_request(url, headers, body, "Groq Cloud")
 
 func _request_gemini(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_gemini", "")
@@ -527,9 +531,7 @@ func _request_gemini(prompt_data: Dictionary, model_info: Dictionary) -> void:
 		}]
 	})
 	var headers = ["Content-Type: application/json"]
-	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		coach_error.emit("Erreur de connexion à Google Gemini.")
+	_send_http_request(url, headers, body, "Google Gemini")
 
 func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_openrouter", "")
@@ -555,10 +557,7 @@ func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> voi
 		"HTTP-Referer: https://rodchessxd.app",
 		"X-Title: RodChessXD"
 	]
-		
-	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		coach_error.emit("Erreur de connexion à OpenRouter.")
+	_send_http_request(url, headers, body, "OpenRouter")
 
 func _request_deepseek(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_deepseek", "")
@@ -579,9 +578,7 @@ func _request_deepseek(prompt_data: Dictionary, model_info: Dictionary) -> void:
 		"Content-Type: application/json",
 		"Authorization: Bearer " + key
 	]
-	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		coach_error.emit("Erreur de connexion à DeepSeek.")
+	_send_http_request(url, headers, body, "DeepSeek")
 
 func _request_openai(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_openai", "")
@@ -602,9 +599,7 @@ func _request_openai(prompt_data: Dictionary, model_info: Dictionary) -> void:
 		"Content-Type: application/json",
 		"Authorization: Bearer " + key
 	]
-	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		coach_error.emit("Erreur de connexion à OpenAI.")
+	_send_http_request(url, headers, body, "OpenAI")
 
 func _request_anthropic(prompt_data: Dictionary, model_info: Dictionary) -> void:
 	var key = _get_setting("api_key_anthropic", "")
@@ -627,9 +622,7 @@ func _request_anthropic(prompt_data: Dictionary, model_info: Dictionary) -> void
 		"x-api-key: " + key,
 		"anthropic-version: 2023-06-01"
 	]
-	var err = http_client.request(url, headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		coach_error.emit("Erreur de connexion à Anthropic.")
+	_send_http_request(url, headers, body, "Anthropic")
 
 func _fallback_offline_explanation(provider_name: String) -> void:
 	var last_move = last_query_context.get("last_move_san", "")
@@ -664,11 +657,54 @@ func _fallback_offline_explanation(provider_name: String) -> void:
 		reply += "2. Renseignez votre clé API dans le champ correspondant et validez.\n\n"
 	reply += "💡 *Astuce : Vous pouvez aussi lancer un modèle local 100% hors-ligne (ex: Ollama) sans aucune clé requise !*"
 
+	# 1. Archivage dans DatabaseManager pour le mode local
+	var dm = _get_database_manager()
+	var gc = _get_game_controller()
+	if dm and gc:
+		var gid = gc.get_or_create_game_id()
+		if gid != "":
+			var extra = last_query_context.get("extra_context", {})
+			var coach_record = {
+				"ply_index": extra.get("ply_index", gc.current_ply_index),
+				"move_number": extra.get("move_number", 1),
+				"move_san": last_query_context.get("last_move_san", ""),
+				"perspective": extra.get("perspective", _get_setting("coach_perspective", "white")),
+				"model_id": "stockfish_offline",
+				"provider": provider_name,
+				"user_question": last_query_context.get("user_question", ""),
+				"response_text": reply.strip_edges(),
+				"elapsed_sec": 0.05,
+				"cost_label": "Mode Stockfish Local"
+			}
+			dm.add_coach_analysis(gid, coach_record)
+
 	coach_response_received.emit(reply)
 	coach_response_with_meta.emit(reply, "Mode Stockfish Local", 0.05)
 
-func _on_request_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	var elapsed = (Time.get_ticks_msec() / 1000.0) - current_query_start_time
+
+	if result != HTTPRequest.RESULT_SUCCESS:
+		var err_name = "Erreur réseau inconnue"
+		match result:
+			HTTPRequest.RESULT_CANT_RESOLVE:
+				err_name = "Résolution DNS impossible (vérifiez la connexion internet)"
+			HTTPRequest.RESULT_CANT_CONNECT:
+				err_name = "Impossible d'établir la connexion avec le serveur distant"
+			HTTPRequest.RESULT_CONNECTION_ERROR:
+				err_name = "Interruption ou instabilité de la connexion réseau"
+			HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR:
+				err_name = "Échec de négociation sécurisée TLS/SSL"
+			HTTPRequest.RESULT_NO_RESPONSE:
+				err_name = "Le serveur n'a renvoyé aucune réponse"
+			HTTPRequest.RESULT_BODY_SIZE_LIMIT_EXCEEDED:
+				err_name = "Taille maximale de réponse dépassée"
+			HTTPRequest.RESULT_REQUEST_FAILED:
+				err_name = "La requête HTTP a échoué"
+			HTTPRequest.RESULT_TIMEOUT:
+				err_name = "Délai d'attente dépassé (Timeout : le serveur IA met trop de temps à répondre)"
+		coach_error.emit("Échec réseau (%s, code résultat %d)." % [err_name, result])
+		return
 
 	if response_code != 200:
 		var text = body.get_string_from_utf8()
@@ -680,35 +716,50 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 				err_detail = String(err_obj["message"])
 			elif err_obj is String:
 				err_detail = err_obj
+		elif text.strip_edges() != "":
+			err_detail = text.strip_edges().substr(0, 300)
 
-		if response_code == 401:
-			var msg = "Erreur HTTP 401 (Authentification requise) :\nClé API manquante ou invalide."
-			if err_detail != "":
-				msg += "\nMessage du fournisseur : " + err_detail
-			msg += "\n\n👉 Cliquez sur le badge '⚡' du Coach (ou ⚙️ Paramètres) pour renseigner votre clé API valide."
-			coach_error.emit(msg)
-		elif response_code == 429:
-			var msg = "Erreur HTTP 429 (Limite de requêtes atteinte / Quota)."
-			if err_detail != "":
-				msg += "\nMessage du fournisseur : " + err_detail
-			msg += "\n\nPatientez quelques instants ou choisissez un autre modèle dans le sélecteur."
-			coach_error.emit(msg)
-		elif response_code == 403:
-			var msg = "Erreur HTTP 403 (Accès refusé)."
-			if err_detail != "":
-				msg += "\nMessage du fournisseur : " + err_detail
-			coach_error.emit(msg)
-		else:
-			var msg = "Le serveur a répondu avec l'erreur HTTP %d." % response_code
-			if err_detail != "":
-				msg += " (%s)" % err_detail
-			coach_error.emit(msg)
+		var msg = ""
+		match response_code:
+			401:
+				msg = "Erreur HTTP 401 (Authentification requise) :\nClé API manquante, invalide ou expirée."
+				if err_detail != "":
+					msg += "\n\nMessage renvoyé par le fournisseur :\n" + err_detail
+				msg += "\n\n👉 Cliquez sur le badge '⚡' du Coach (ou ⚙️ Paramètres) pour renseigner votre clé API valide."
+			402:
+				msg = "Erreur HTTP 402 (Crédits requis) :\nSolde insuffisant ou carte requise pour ce modèle payant."
+				if err_detail != "":
+					msg += "\n\nMessage du fournisseur :\n" + err_detail
+			403:
+				msg = "Erreur HTTP 403 (Accès refusé) :\nCe modèle ou ce point de terminaison n'est pas autorisé pour votre clé ou votre région."
+				if err_detail != "":
+					msg += "\n\nMessage du fournisseur :\n" + err_detail
+			404:
+				msg = "Erreur HTTP 404 (Modèle introuvable) :\nLe modèle '%s' n'existe pas ou a été retiré chez le fournisseur." % active_query_model_id
+				if err_detail != "":
+					msg += "\n\nDétail :\n" + err_detail
+			429:
+				msg = "Erreur HTTP 429 (Trop de requêtes / Quota temporaire atteint) :\nLe fournisseur IA limite la cadence des questions sur les modèles gratuits."
+				if err_detail != "":
+					msg += "\n\nMessage du fournisseur :\n" + err_detail
+				msg += "\n\n👉 Patientez 5 à 10 secondes avant de relancer un prompt, ou sélectionnez un autre modèle gratuit dans le sélecteur (badge ⚡ en haut)."
+			500, 502, 503, 504:
+				msg = "Erreur HTTP %d (Panne ou surcharge du serveur IA) :\nLe service distant est temporairement indisponible." % response_code
+				if err_detail != "":
+					msg += "\n\nMessage du serveur :\n" + err_detail
+				msg += "\n\n👉 Réessayez dans un court instant ou testez un autre modèle."
+			_:
+				msg = "Le serveur IA a répondu avec l'erreur HTTP %d." % response_code
+				if err_detail != "":
+					msg += "\n\nDétail :\n" + err_detail
+		coach_error.emit(msg)
 		return
 
 	var text = body.get_string_from_utf8()
 	var json = JSON.parse_string(text)
 	if not json:
-		coach_error.emit("Réponse JSON invalide reçue du modèle.")
+		var raw_prev = text.strip_edges().substr(0, 300)
+		coach_error.emit("Réponse JSON invalide reçue du modèle.\nContenu reçu :\n%s" % raw_prev)
 		return
 
 	var answer = ""
@@ -735,10 +786,8 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 		session_estimated_cost_usd += query_usd
 
 		var cost_label: String = cost_info.get("label_per_query", "Gratuit")
-		coach_response_received.emit(answer.strip_edges())
-		coach_response_with_meta.emit(answer.strip_edges(), cost_label, elapsed)
 
-		# Archivage automatique dans DatabaseManager
+		# 1. ARCHIVAGE EN PREMIER DANS DATABASEMANAGER POUR DISPONIBILITÉ IMMÉDIATE
 		var dm = _get_database_manager()
 		var gc = _get_game_controller()
 		if dm and gc:
@@ -758,5 +807,10 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 					"cost_label": cost_label
 				}
 				dm.add_coach_analysis(gid, coach_record)
+
+		# 2. PUIS ÉMISSION DES SIGNAUX
+		coach_response_received.emit(answer.strip_edges())
+		coach_response_with_meta.emit(answer.strip_edges(), cost_label, elapsed)
 	else:
-		coach_error.emit("Impossible d'extraire le texte de la réponse du modèle.")
+		var raw_preview = text.strip_edges().substr(0, 350)
+		coach_error.emit("Impossible d'extraire le texte de la réponse du modèle.\nRéponse brute reçue du serveur :\n%s" % raw_preview)

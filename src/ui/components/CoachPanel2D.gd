@@ -49,6 +49,13 @@ func _ready() -> void:
 		ac.coach_response_with_meta.connect(_on_response_with_meta)
 		ac.coach_error.connect(_on_error)
 
+	var dm = _get_database_manager()
+	if dm:
+		dm.analysis_added.connect(func(_gid, type):
+			if type == "coach":
+				_populate_conversation_buttons(not is_thinking)
+		)
+
 	var gc = _get_game_controller()
 	if gc:
 		current_ply_index = gc.current_ply_index
@@ -492,9 +499,9 @@ func refresh_for_current_ply() -> void:
 		move_badge_label.text = "♟️ " + move_title
 
 	# Récupération des conversations associées à ce coup
-	_populate_conversation_buttons()
+	_populate_conversation_buttons(true)
 
-func _populate_conversation_buttons() -> void:
+func _populate_conversation_buttons(select_latest: bool = true) -> void:
 	if conv_list_vbox == null:
 		return
 	for c in conv_list_vbox.get_children():
@@ -504,12 +511,14 @@ func _populate_conversation_buttons() -> void:
 	var gc = _get_game_controller()
 	var current_plies_notes: Array = []
 
-	if dm and gc and gc.current_game_id != "":
-		var game_record = dm.get_game(gc.current_game_id)
-		var all_notes = game_record.get("coach_analyses", [])
-		for n in all_notes:
-			if n.get("ply_index", -999) == current_ply_index:
-				current_plies_notes.append(n)
+	if dm and gc:
+		var gid = gc.get_or_create_game_id()
+		if gid != "":
+			var game_record = dm.get_game(gid)
+			var all_notes = game_record.get("coach_analyses", [])
+			for n in all_notes:
+				if n.get("ply_index", -999) == current_ply_index:
+					current_plies_notes.append(n)
 
 	# Si une réflexion est en cours pour ce coup, afficher un bouton de chargement
 	if is_thinking and active_query_ply == current_ply_index:
@@ -533,7 +542,8 @@ func _populate_conversation_buttons() -> void:
 		empty_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		empty_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		conv_list_vbox.add_child(empty_lbl)
-		response_label.text = "[color=%s]Touchez une tuile ci-dessus pour obtenir un conseil pour ce coup.[/color]" % DesignTokens.TEXT_MUTED.to_html()
+		if select_latest:
+			response_label.text = "[color=%s]Touchez une tuile ci-dessus pour obtenir un conseil pour ce coup.[/color]" % DesignTokens.TEXT_MUTED.to_html()
 		return
 
 	# Créer un bouton pour chaque conversation de ce coup
@@ -587,8 +597,8 @@ func _populate_conversation_buttons() -> void:
 		)
 		conv_list_vbox.add_child(btn)
 
-	# Afficher par défaut la dernière conversation
-	if not current_plies_notes.is_empty() and not is_thinking:
+	# Afficher par défaut la dernière conversation seulement si demandé
+	if select_latest and not current_plies_notes.is_empty() and not is_thinking:
 		_show_note_detail(current_plies_notes.back())
 
 func _show_note_detail(note: Dictionary) -> void:
@@ -627,6 +637,8 @@ func _execute_prompt(label_text: String, query_text: String, prompt_type: String
 	var game = gc.game if gc else null
 	if game == null:
 		return
+	if gc:
+		gc.get_or_create_game_id()
 
 	var fen = game.get_fen()
 	var last_move_san = ""
@@ -671,7 +683,7 @@ func _begin_thinking() -> void:
 		active_query_title,
 		_perspective_label(active_perspective)
 	]
-	_populate_conversation_buttons()
+	_populate_conversation_buttons(false)
 
 func _on_thinking_started() -> void:
 	_begin_thinking()
@@ -680,20 +692,28 @@ func _on_response_received(response: String) -> void:
 	is_thinking = false
 	status_label.text = "Prêt"
 	status_label.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	_populate_conversation_buttons()
+	_populate_conversation_buttons(true)
 
 func _on_response_with_meta(_response: String, cost_label: String, elapsed_sec: float) -> void:
 	is_thinking = false
 	status_label.text = "Prêt (%.1fs • %s)" % [elapsed_sec, cost_label]
 	status_label.add_theme_color_override("font_color", DesignTokens.SUCCESS)
-	_populate_conversation_buttons()
+	_populate_conversation_buttons(true)
 
 func _on_error(error_msg: String) -> void:
 	is_thinking = false
-	status_label.text = "Erreur"
+	status_label.text = "Erreur (détails ci-dessous)"
 	status_label.add_theme_color_override("font_color", DesignTokens.DANGER)
-	response_label.text = "[color=%s]⚠️ Erreur : %s[/color]" % [DesignTokens.DANGER.to_html(), error_msg]
-	_populate_conversation_buttons()
+	var err_bbcode = "[color=%s][b]⚠️ Diagnostic de l'erreur du Coach IA :[/b][/color]\n\n[color=%s]%s[/color]\n\n[color=%s][i]💡 Conseils pratiques :\n• Si le fournisseur indique une cadence trop rapide (quota / 429), patientez quelques secondes avant de relancer.\n• Vous pouvez changer de modèle à tout moment en cliquant sur le badge du modèle en haut (⚡).\n• Vous pouvez vérifier ou changer votre clé API dans les Paramètres (⚙️).[/i][/color]" % [
+		DesignTokens.DANGER.to_html(),
+		Color("#fca5a5").to_html(),
+		_bbcode_escape(error_msg),
+		DesignTokens.TEXT_MUTED.to_html()
+	]
+	response_label.text = err_bbcode
+	if response_scroll:
+		response_scroll.scroll_vertical = 0
+	_populate_conversation_buttons(false)
 
 func _bbcode_escape(s: String) -> String:
 	return s.replace("[", "[lb]").replace("]", "[rb]")
