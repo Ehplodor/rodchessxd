@@ -1,6 +1,7 @@
 class_name ChessComImportModal
 extends Window
 ## ChessComImportModal.gd - Modale de récupération et sélection des parties d'un joueur Chess.com
+## Affiche une liste ergonomique, responsive et détaillée des parties importées.
 
 signal game_selected(pgn: String)
 
@@ -12,12 +13,14 @@ var status_lbl: Label
 var games_container: VBoxContainer
 var all_games: Array[Dictionary] = []
 var active_filter: String = "all"
+var filter_buttons: Dictionary = {}
 
 func _ready() -> void:
 	title = "Importer depuis Chess.com"
-	size = Vector2i(410, 640)
 	exclusive = true
 	close_requested.connect(queue_free)
+
+	_configure_window_size()
 
 	chess_com_service = ChessComService.new()
 	add_child(chess_com_service)
@@ -26,32 +29,62 @@ func _ready() -> void:
 
 	_setup_ui()
 
+func _configure_window_size() -> void:
+	var screen_w = 450.0
+	var screen_h = 800.0
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root:
+		var root_rect = tree.root.get_visible_rect()
+		if root_rect.size.x > 0:
+			screen_w = root_rect.size.x
+			screen_h = root_rect.size.y
+	elif DisplayServer.window_get_size().x > 0:
+		var win_s = DisplayServer.window_get_size()
+		screen_w = win_s.x
+		screen_h = win_s.y
+
+	var target_w = int(clampf(screen_w * 0.94, 340.0, 425.0))
+	var target_h = int(clampf(screen_h * 0.90, 440.0, 720.0))
+	size = Vector2i(target_w, target_h)
+
 func _setup_ui() -> void:
+	var bg_panel = PanelContainer.new()
+	bg_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var bg_style = DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(10, 10))
+	bg_panel.add_theme_stylebox_override("panel", bg_style)
+	add_child(bg_panel)
+
 	var vbox = VBoxContainer.new()
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
 	vbox.offset_left = 8
 	vbox.offset_top = 8
 	vbox.offset_right = -8
 	vbox.offset_bottom = -8
+	vbox.clip_contents = true
 	vbox.add_theme_constant_override("separation", 8)
-	add_child(vbox)
+	bg_panel.add_child(vbox)
 
 	# 1. En-tête & Saisie du pseudo
 	var input_row = HBoxContainer.new()
+	input_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	input_row.add_theme_constant_override("separation", 6)
 	vbox.add_child(input_row)
 
 	username_input = LineEdit.new()
-	username_input.placeholder_text = "Pseudo Chess.com (ex: hikaru, magnuscarlsen)..."
+	username_input.placeholder_text = "Pseudo (ex: magnuscarlsen, hikaru)..."
 	username_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	username_input.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	username_input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	username_input.text = SettingsManager.get_setting("last_chesscom_user", "")
+	var sm = _get_settings()
+	if sm:
+		username_input.text = sm.get_setting("last_chesscom_user", "")
 	username_input.text_submitted.connect(func(_t): _start_fetch())
 	input_row.add_child(username_input)
 
 	var btn_fetch = Button.new()
-	btn_fetch.text = "🔍 Récupérer"
+	btn_fetch.text = "🔍 Chercher"
+	btn_fetch.custom_minimum_size = Vector2(100, DesignTokens.TOUCH_MIN)
 	DesignTokens.style_button(btn_fetch)
 	btn_fetch.pressed.connect(_start_fetch)
 	input_row.add_child(btn_fetch)
@@ -60,6 +93,7 @@ func _setup_ui() -> void:
 	status_lbl = Label.new()
 	status_lbl.text = "Entrez un pseudo pour charger les dernières parties officielles."
 	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	status_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	vbox.add_child(status_lbl)
@@ -75,38 +109,68 @@ func _setup_ui() -> void:
 	_add_filter_btn(filters_row, "⏱️ Rapide", "rapid")
 	_add_filter_btn(filters_row, "🚅 Bullet", "bullet")
 	_add_filter_btn(filters_row, "♟️ Différé", "daily")
+	_update_filter_buttons_style()
 
 	# 4. Liste déroulante des parties
 	var scroll = ScrollContainer.new()
-	DesignTokens.touch_scroll(scroll)
+	scroll.clip_contents = true
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	DesignTokens.touch_scroll(scroll)
 	vbox.add_child(scroll)
 
 	games_container = VBoxContainer.new()
 	games_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	games_container.add_theme_constant_override("separation", 8)
+	games_container.clip_contents = true
+	games_container.add_theme_constant_override("separation", 6)
 	scroll.add_child(games_container)
 
-	# Bouton Fermer
+	# 5. Bouton Fermer
 	var btn_close = Button.new()
 	btn_close.text = "Fermer"
 	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_close.pressed.connect(queue_free)
 	vbox.add_child(btn_close)
 
+func _get_settings() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("SettingsManager"):
+		return tree.root.get_node("SettingsManager")
+	return null
+
 func _add_filter_btn(parent: Node, label_text: String, filter_key: String) -> void:
 	var btn = Button.new()
 	btn.text = label_text
+	btn.clip_text = true
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
-	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	btn.pressed.connect(func():
 		active_filter = filter_key
+		_update_filter_buttons_style()
 		_render_games_list()
 	)
+	filter_buttons[filter_key] = btn
 	parent.add_child(btn)
+
+func _update_filter_buttons_style() -> void:
+	for key in filter_buttons.keys():
+		var btn: Button = filter_buttons[key]
+		if not is_instance_valid(btn):
+			continue
+		if key == active_filter:
+			var active_s = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+					DesignTokens.ACCENT, 1, Vector2(4, 2))
+			btn.add_theme_stylebox_override("normal", active_s)
+			btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
+		else:
+			var normal_s = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+					Color.TRANSPARENT, 0, Vector2(4, 2))
+			btn.add_theme_stylebox_override("normal", normal_s)
+			btn.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 
 func _start_fetch() -> void:
 	var user = username_input.text.strip_edges()
@@ -115,32 +179,70 @@ func _start_fetch() -> void:
 		status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
 		return
 
-	SettingsManager.set_setting("last_chesscom_user", user)
-	status_lbl.text = "⏳ Connexion à Chess.com et récupération des parties de %s..." % user
+	var sm = _get_settings()
+	if sm:
+		sm.set_setting("last_chesscom_user", user)
+
+	status_lbl.text = "⏳ Récupération des parties récentes pour %s..." % user
 	status_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
-	
+
 	for child in games_container.get_children():
 		child.queue_free()
+
+	var loading_card = PanelContainer.new()
+	loading_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var l_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL, DesignTokens.BORDER, 1, Vector2(10, 16))
+	loading_card.add_theme_stylebox_override("panel", l_style)
+	var l_lbl = Label.new()
+	l_lbl.text = "⏳ Connexion à Chess.com en cours..."
+	l_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	l_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	loading_card.add_child(l_lbl)
+	games_container.add_child(loading_card)
 
 	chess_com_service.fetch_player_games(user, 40)
 
 func _on_games_fetched(games: Array[Dictionary]) -> void:
 	all_games = games
-	status_lbl.text = "✅ %d parties récupérées pour %s." % [games.size(), username_input.text]
+	status_lbl.text = "✅ %d parties chargées pour %s." % [games.size(), username_input.text]
 	status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 
-	# Sauvegarde automatique dans la bibliothèque locale DatabaseManager
+	# Sauvegarde automatique dans la bibliothèque locale DatabaseManager et association des IDs
 	var tree = Engine.get_main_loop() as SceneTree
 	var dm = tree.root.get_node_or_null("DatabaseManager") if (tree and tree.root) else null
 	if dm:
 		for g in games:
-			dm.record_chesscom_game(g)
+			var gid = dm.record_chesscom_game(g)
+			g["game_id"] = gid
 
+	_update_filter_counts()
 	_render_games_list()
+
+func _update_filter_counts() -> void:
+	var counts := {"all": all_games.size(), "blitz": 0, "rapid": 0, "bullet": 0, "daily": 0}
+	for g in all_games:
+		var tc = g.get("time_class", "")
+		if counts.has(tc):
+			counts[tc] += 1
+
+	if filter_buttons.has("all"):
+		filter_buttons["all"].text = "Tout (%d)" % counts["all"]
+	if filter_buttons.has("blitz"):
+		filter_buttons["blitz"].text = "⚡ %d" % counts["blitz"]
+	if filter_buttons.has("rapid"):
+		filter_buttons["rapid"].text = "⏱️ %d" % counts["rapid"]
+	if filter_buttons.has("bullet"):
+		filter_buttons["bullet"].text = "🚅 %d" % counts["bullet"]
+	if filter_buttons.has("daily"):
+		filter_buttons["daily"].text = "♟️ %d" % counts["daily"]
 
 func _on_fetch_error(msg: String, diag: Dictionary = {}) -> void:
 	status_lbl.text = "❌ " + msg
 	status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+	for child in games_container.get_children():
+		child.queue_free()
 	if not diag.is_empty():
 		_show_diagnostic_popup(diag)
 
@@ -157,19 +259,17 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 	overlay.z_index = 50
 	add_child(overlay)
 
-	# Voile sombre semi-transparent
 	var backdrop = ColorRect.new()
 	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
 	backdrop.color = Color(0.04, 0.06, 0.09, 0.88)
 	overlay.add_child(backdrop)
 
-	# Conteneur centré
 	var center = CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(center)
 
 	var card = PanelContainer.new()
-	card.custom_minimum_size = Vector2(380, 0)
+	card.custom_minimum_size = Vector2(360, 0)
 	var card_style = DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM, DesignTokens.BORDER, 2, Vector2(16, 16))
 	card.add_theme_stylebox_override("panel", card_style)
 	center.add_child(card)
@@ -178,7 +278,6 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 	content_vbox.add_theme_constant_override("separation", 10)
 	card.add_child(content_vbox)
 
-	# 1. En-tête : Titre
 	var header_box = VBoxContainer.new()
 	header_box.add_theme_constant_override("separation", 4)
 	content_vbox.add_child(header_box)
@@ -190,7 +289,6 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 	title_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
 	header_box.add_child(title_lbl)
 
-	# 2. Badges techniques (Pills)
 	var badge_row = HBoxContainer.new()
 	badge_row.add_theme_constant_override("separation", 6)
 	content_vbox.add_child(badge_row)
@@ -199,9 +297,9 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 	var pill_http = Label.new()
 	pill_http.text = " HTTP %d " % code_val
 	pill_http.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	var pill_style1 = DesignTokens.flat(DesignTokens.ERROR_BG if code_val == 0 or code_val >= 400 else DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL)
+	var pill_style1 = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL)
 	pill_http.add_theme_stylebox_override("normal", pill_style1)
-	pill_http.add_theme_color_override("font_color", DesignTokens.ERROR_TEXT if code_val == 0 or code_val >= 400 else DesignTokens.TEXT_PRIMARY)
+	pill_http.add_theme_color_override("font_color", DesignTokens.DANGER if code_val >= 400 or code_val == 0 else DesignTokens.TEXT_PRIMARY)
 	badge_row.add_child(pill_http)
 
 	var pill_res = Label.new()
@@ -212,17 +310,8 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 	pill_res.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	badge_row.add_child(pill_res)
 
-	var pill_os = Label.new()
-	pill_os.text = " %s " % ("Android" if diag.get("is_android", false) else str(diag.get("os_name", "OS")))
-	pill_os.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	var pill_style3 = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL)
-	pill_os.add_theme_stylebox_override("normal", pill_style3)
-	pill_os.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	badge_row.add_child(pill_os)
-
-	# 3. Zone déroulante pour le détail
 	var scroll = ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, 240)
+	scroll.custom_minimum_size = Vector2(0, 220)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	DesignTokens.touch_scroll(scroll)
 	content_vbox.add_child(scroll)
@@ -245,9 +334,6 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 	cause_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 	text_vbox.add_child(cause_lbl)
 
-	var sep = HSeparator.new()
-	text_vbox.add_child(sep)
-
 	var rec_title = Label.new()
 	rec_title.text = "💡 Vérifications conseillées :"
 	rec_title.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -263,7 +349,6 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 		rec_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		text_vbox.add_child(rec_lbl)
 
-	# 4. Boutons d'action : Copier le rapport et Fermer (SANS minuterie)
 	var btn_row = HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 10)
 	content_vbox.add_child(btn_row)
@@ -292,9 +377,10 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 
 func _render_games_list() -> void:
 	for child in games_container.get_children():
+		games_container.remove_child(child)
 		child.queue_free()
 
-	var filtered = []
+	var filtered: Array[Dictionary] = []
 	for g in all_games:
 		if active_filter == "all" or g.get("time_class", "") == active_filter:
 			filtered.append(g)
@@ -314,72 +400,164 @@ func _render_games_list() -> void:
 func _add_game_card(game_data: Dictionary) -> void:
 	var panel = PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var style = DesignTokens.card()
-	panel.add_theme_stylebox_override("panel", style)
+	panel.clip_contents = true
+
+	var card_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			DesignTokens.BORDER, 1, Vector2(8, 6))
+	panel.add_theme_stylebox_override("panel", card_style)
 
 	var row = HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_theme_constant_override("separation", 8)
 	panel.add_child(row)
 
-	# Info joueurs & détails (colonne gauche fluide)
+	# --- 1. Badge Résultat à gauche ---
+	var res_col = VBoxContainer.new()
+	res_col.custom_minimum_size = Vector2(56, 0)
+	res_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	res_col.add_theme_constant_override("separation", 2)
+	row.add_child(res_col)
+
+	var user_res = game_data.get("user_result", "draw")
+	var res_icon_lbl = Label.new()
+	res_icon_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	res_icon_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+
+	match user_res:
+		"win":
+			res_icon_lbl.text = "🏆 Gagné"
+			res_icon_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+		"loss":
+			res_icon_lbl.text = "💀 Perdu"
+			res_icon_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+		_:
+			res_icon_lbl.text = "🤝 Nulle"
+			res_icon_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	res_col.add_child(res_icon_lbl)
+
+	var score_lbl = Label.new()
+	score_lbl.text = game_data.get("score", "½-½")
+	score_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	score_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
+	score_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	res_col.add_child(score_lbl)
+
+	# --- 2. Infos Joueurs & Détails au centre ---
 	var text_col = VBoxContainer.new()
 	text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text_col.add_theme_constant_override("separation", 2)
 	row.add_child(text_col)
 
-	var players_lbl = Label.new()
-	players_lbl.text = "⚪ %s (%d)  vs  ⚫ %s (%d)" % [
-		game_data["white_user"], game_data["white_rating"],
-		game_data["black_user"], game_data["black_rating"]
-	]
-	players_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	players_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	players_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	players_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	players_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	text_col.add_child(players_lbl)
+	var is_user_white = game_data.get("is_user_white", false)
+	var is_user_black = game_data.get("is_user_black", false)
 
-	var details_row = HBoxContainer.new()
-	details_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	details_row.add_theme_constant_override("separation", 8)
-	text_col.add_child(details_row)
+	# Ligne 1 : Blancs
+	var w_lbl = Label.new()
+	w_lbl.text = "⚪ %s (%d)" % [game_data.get("white_user", "Inconnu"), game_data.get("white_rating", 0)]
+	w_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	w_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	w_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	if is_user_white:
+		w_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	else:
+		w_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	text_col.add_child(w_lbl)
 
-	var details_lbl = Label.new()
-	var cadence = game_data.get("time_class", "").capitalize()
-	var tc = game_data.get("time_control", "")
-	details_lbl.text = "%s (%s)" % [cadence, tc]
-	details_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	details_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	details_row.add_child(details_lbl)
+	# Ligne 2 : Noirs
+	var b_lbl = Label.new()
+	b_lbl.text = "⚫ %s (%d)" % [game_data.get("black_user", "Inconnu"), game_data.get("black_rating", 0)]
+	b_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	b_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	if is_user_black:
+		b_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	else:
+		b_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	text_col.add_child(b_lbl)
 
-	# Badge Résultat
-	var badge_res = Label.new()
-	var res = game_data.get("user_result", "draw")
-	match res:
-		"win":
-			badge_res.text = "• Victoire"
-			badge_res.add_theme_color_override("font_color", DesignTokens.SUCCESS)
-		"loss":
-			badge_res.text = "• Défaite"
-			badge_res.add_theme_color_override("font_color", DesignTokens.DANGER)
-		_:
-			badge_res.text = "• Nulle"
-			badge_res.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	badge_res.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	details_row.add_child(badge_res)
+	# Ligne 3 : Cadence, Terminaison & Date
+	var meta_row = HBoxContainer.new()
+	meta_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	meta_row.add_theme_constant_override("separation", 6)
+	text_col.add_child(meta_row)
 
-	# Bouton Analyser (colonne droite fixe, toujours visible)
+	var meta_lbl = Label.new()
+	var cadence_str = _format_cadence(game_data.get("time_class", ""), game_data.get("time_control", ""))
+	var term_str = game_data.get("termination_reason", "")
+	var date_str = _format_timestamp(game_data.get("end_time", 0))
+
+	var parts_meta: Array[String] = [cadence_str]
+	if term_str != "":
+		parts_meta.append(term_str)
+	if date_str != "":
+		parts_meta.append(date_str)
+
+	meta_lbl.text = " • ".join(parts_meta)
+	meta_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	meta_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	meta_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
+	meta_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	meta_row.add_child(meta_lbl)
+
+	# --- 3. Bouton Analyser à droite ---
 	var btn_analyze = Button.new()
-	btn_analyze.text = "Analyser"
-	btn_analyze.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
-	btn_analyze.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	var pgn = game_data.get("pgn", "")
+	btn_analyze.text = "▶ Analyser"
+	btn_analyze.tooltip_text = "Charger cette partie sur l'échiquier et ouvrir l'analyse"
+	btn_analyze.custom_minimum_size = Vector2(84, DesignTokens.TOUCH_DENSE)
+	btn_analyze.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	btn_analyze.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+	var captured_game = game_data
 	btn_analyze.pressed.connect(func():
-		GameController.load_pgn(pgn)
-		game_selected.emit(pgn)
-		queue_free()
+		_select_game(captured_game)
 	)
 	row.add_child(btn_analyze)
 
+	# Taper n'importe où sur la carte permet aussi de sélectionner la partie
+	panel.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			_select_game(captured_game)
+	)
+
 	games_container.add_child(panel)
+
+func _select_game(game_data: Dictionary) -> void:
+	var pgn = game_data.get("pgn", "")
+	if pgn == "":
+		return
+	var gid = game_data.get("game_id", "")
+	var tree = Engine.get_main_loop() as SceneTree
+	var gc = tree.root.get_node_or_null("GameController") if (tree and tree.root) else null
+	if gc:
+		gc.load_pgn(pgn, gid)
+	game_selected.emit(pgn)
+	queue_free()
+
+func _format_timestamp(unix_sec: int) -> String:
+	if unix_sec <= 0:
+		return ""
+	var dt = Time.get_datetime_dict_from_unix_time(unix_sec)
+	return "%02d/%02d/%02d" % [dt.day, dt.month, dt.year % 100]
+
+func _format_cadence(time_class: String, time_control: String) -> String:
+	var prefix = "♟️"
+	match time_class:
+		"blitz": prefix = "⚡"
+		"rapid": prefix = "⏱️"
+		"bullet": prefix = "🚅"
+		"daily": prefix = "📅"
+	
+	if time_control != "":
+		var parts = time_control.split("+")
+		if parts.size() > 0 and parts[0].is_valid_int():
+			var secs = int(parts[0])
+			var mins = secs / 60
+			var inc = parts[1] if parts.size() > 1 else ""
+			if inc != "" and inc != "0":
+				return "%s %d+%s" % [prefix, mins, inc]
+			elif mins > 0:
+				return "%s %d min" % [prefix, mins]
+			elif secs > 0:
+				return "%s %ds" % [prefix, secs]
+		return "%s %s" % [prefix, time_control]
+	return "%s %s" % [prefix, time_class.capitalize()]

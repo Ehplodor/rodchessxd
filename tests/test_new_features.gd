@@ -175,6 +175,64 @@ func _init() -> void:
 	modal_error.queue_free()
 	print("  -> CoachReadingModal modes normal & erreur : OK ✓")
 
+	# 8. Test ChessComImportModal : Affichage ergonomique, filtres et cartes
+	print("\n[TEST 8] ChessComImportModal (affichage des parties & filtres)...")
+	const ChessComImportModalScript = preload("res://src/ui/components/ChessComImportModal.gd")
+	var chesscom_modal = ChessComImportModalScript.new()
+	root.add_child(chesscom_modal)
+
+	var mock_games: Array[Dictionary] = [
+		{
+			"url": "https://chess.com/game/1",
+			"pgn": "[Event \"Live Chess\"]\n[White \"player1\"]\n[Black \"opponent1\"]\n1. e4 e5 *",
+			"white_user": "player1",
+			"black_user": "opponent1",
+			"white_rating": 1500,
+			"black_rating": 1520,
+			"time_class": "blitz",
+			"time_control": "180+2",
+			"end_time": 1725798000,
+			"user_result": "win",
+			"score": "1-0",
+			"termination_reason": "Abandon",
+			"is_user_white": true,
+			"is_user_black": false
+		},
+		{
+			"url": "https://chess.com/game/2",
+			"pgn": "[Event \"Live Chess\"]\n[White \"opponent2\"]\n[Black \"player1\"]\n1. d4 d5 *",
+			"white_user": "opponent2",
+			"black_user": "player1",
+			"white_rating": 1600,
+			"black_rating": 1505,
+			"time_class": "rapid",
+			"time_control": "600",
+			"end_time": 1725790000,
+			"user_result": "loss",
+			"score": "1-0",
+			"termination_reason": "Mat",
+			"is_user_white": false,
+			"is_user_black": true
+		}
+	]
+
+	chesscom_modal._on_games_fetched(mock_games)
+	assert(chesscom_modal.games_container.get_child_count() == 2, "La liste devrait afficher 2 parties")
+	assert(chesscom_modal.filter_buttons["blitz"].text.contains("1"), "Le filtre Blitz doit compter 1 partie")
+	assert(chesscom_modal.filter_buttons["rapid"].text.contains("1"), "Le filtre Rapide doit compter 1 partie")
+
+	# Test du filtrage
+	chesscom_modal.active_filter = "blitz"
+	chesscom_modal._render_games_list()
+	assert(chesscom_modal.games_container.get_child_count() == 1, "Seule la partie Blitz doit être affichée")
+
+	chesscom_modal.active_filter = "all"
+	chesscom_modal._render_games_list()
+	assert(chesscom_modal.games_container.get_child_count() == 2, "Toutes les parties doivent être ré-affichées")
+
+	chesscom_modal.queue_free()
+	print("  -> ChessComImportModal affichage & filtres : OK ✓")
+
 	print("\n[TEST] ================================================================")
 	print("[TEST] TOUS LES TESTS DES NOUVELLES FONCTIONNALITÉS ONT RÉUSSI (100% OK) !")
 	print("[TEST] ================================================================\n")

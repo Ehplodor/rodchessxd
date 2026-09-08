@@ -5,6 +5,8 @@ extends PanelContainer
 ## Tuiles de prompts directes au-dessus, liste classique et flexible de conversations
 ## avec icône de lecture "📖 Lire" ouvrant une fenêtre de lecture superposée dédiée (CoachReadingModal).
 
+const CoachReadingModalScript = preload("res://src/ui/components/CoachReadingModal.gd")
+
 const PROMPTS := [
 	["💡 Pourquoi ce coup ?", "Explique pourquoi le coup joué est bon ou mauvais et comment mon camp doit réagir.", "why"],
 	["🎯 Quel est mon plan ?", "Quel est le plan stratégique principal pour mon camp dans cette position ?", "plan"],
@@ -358,7 +360,7 @@ func _open_model_hub() -> void:
 		modal.popup_centered()
 
 func _open_reading_modal(note: Dictionary) -> void:
-	var modal = CoachReadingModal.new(note)
+	var modal = CoachReadingModalScript.new(note)
 	var main = find_parent("Main")
 	if main and main.has_method("_open_modal"):
 		main._open_modal(modal)
@@ -367,7 +369,7 @@ func _open_reading_modal(note: Dictionary) -> void:
 		modal.popup_centered()
 
 func _open_error_modal(error_msg: String) -> void:
-	var modal = CoachReadingModal.new({}, true, error_msg)
+	var modal = CoachReadingModalScript.new({}, true, error_msg)
 	var main = find_parent("Main")
 	if main and main.has_method("_open_modal"):
 		main._open_modal(modal)

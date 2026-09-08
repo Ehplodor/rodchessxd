@@ -243,19 +243,48 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 			
 			var white_user = white_info.get("username", "Inconnu")
 			var black_user = black_info.get("username", "Inconnu")
-			var white_rating = white_info.get("rating", 0)
-			var black_rating = black_info.get("rating", 0)
-			var white_result = white_info.get("result", "")
-			var black_result = black_info.get("result", "")
+			var white_rating = int(white_info.get("rating", 0))
+			var black_rating = int(black_info.get("rating", 0))
+			var white_result = str(white_info.get("result", ""))
+			var black_result = str(black_info.get("result", ""))
 
-			var time_class = g.get("time_class", "inconnu")
-			var time_control = g.get("time_control", "")
-			var end_time = g.get("end_time", 0)
+			var time_class = str(g.get("time_class", "inconnu"))
+			var time_control = str(g.get("time_control", ""))
+			var end_time = int(g.get("end_time", 0))
 			
 			var is_current_white = (white_user.to_lower() == current_username)
-			var user_result = "win" if (is_current_white and white_result == "win") or (not is_current_white and black_result == "win") else "loss"
-			if white_result in ["agreed", "repetition", "stalemate", "timevsinsufficient", "insufficient"] or black_result in ["agreed", "repetition", "stalemate", "timevsinsufficient", "insufficient"]:
+			var is_current_black = (black_user.to_lower() == current_username)
+
+			var user_result = "draw"
+			if white_result in ["agreed", "repetition", "stalemate", "timevsinsufficient", "insufficient", "50move"] or black_result in ["agreed", "repetition", "stalemate", "timevsinsufficient", "insufficient", "50move"]:
 				user_result = "draw"
+			elif is_current_white:
+				user_result = "win" if white_result == "win" else "loss"
+			elif is_current_black:
+				user_result = "win" if black_result == "win" else "loss"
+			else:
+				user_result = "win" if white_result == "win" else ("loss" if black_result == "win" else "draw")
+
+			var score = "½-½"
+			if white_result == "win":
+				score = "1-0"
+			elif black_result == "win":
+				score = "0-1"
+
+			var termination_reason = ""
+			var losing_result = black_result if white_result == "win" else white_result
+			match losing_result:
+				"checkmated": termination_reason = "Mat"
+				"resigned": termination_reason = "Abandon"
+				"timeout": termination_reason = "Au temps"
+				"stalemate": termination_reason = "Pat"
+				"repetition": termination_reason = "Répétition"
+				"agreed": termination_reason = "Accord"
+				"insufficient": termination_reason = "Matériel"
+				"timevsinsufficient": termination_reason = "Temps vs Matériel"
+				"50move": termination_reason = "50 coups"
+				"abandoned": termination_reason = "Abandonné"
+				_: termination_reason = losing_result.capitalize() if losing_result != "" else ""
 
 			parsed_games.append({
 				"url": g.get("url", ""),
@@ -268,6 +297,12 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 				"time_control": time_control,
 				"end_time": end_time,
 				"user_result": user_result,
+				"score": score,
+				"termination_reason": termination_reason,
+				"is_user_white": is_current_white,
+				"is_user_black": is_current_black,
+				"white_result": white_result,
+				"black_result": black_result,
 				"rules": g.get("rules", "chess")
 			})
 
