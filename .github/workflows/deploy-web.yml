@@ -38,6 +38,7 @@ jobs:
           export PATH="/tmp/godot:$PATH"
           cd "$GITHUB_WORKSPACE"
           Godot_v4.7.1-stable_linux.x86_64 --headless --path . --import
+          mkdir -p dist
           Godot_v4.7.1-stable_linux.x86_64 --headless --path . --export-release "Web" dist/index.html
 
       - name: Ajouter le pont UCI + Stockfish WASM au build
