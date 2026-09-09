@@ -252,9 +252,17 @@ func _apply_modern_theme() -> void:
 	_apply_analyze_button_style(false)
 	_update_live_button_style()
 
-	# Titre & badge d'évaluation
-	$VBox/TopBar/MarginContainer/AppTitle.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	$VBox/TopBar/MarginContainer/AppTitle.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	# Titre & pastille de version
+	var title_lbl = get_node_or_null("VBox/TopBar/MarginContainer/TitleBox/AppTitle")
+	if title_lbl:
+		title_lbl.add_theme_font_size_override("font_size", 14)
+		title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	var ver_lbl = get_node_or_null("VBox/TopBar/MarginContainer/TitleBox/VersionLabel")
+	if ver_lbl:
+		var app_version: String = str(ProjectSettings.get_setting("application/config/version", "1.1.0"))
+		ver_lbl.text = "v" + app_version
+		ver_lbl.add_theme_font_size_override("font_size", 10)
+		ver_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	var badge = $VBox/TopBar/EvalBadge
 	badge.custom_minimum_size = Vector2(50, 36)
 	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER

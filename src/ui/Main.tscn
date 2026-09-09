@@ -63,9 +63,18 @@ layout_mode = 2
 theme_override_constants/margin_left = 6
 theme_override_constants/margin_right = 2
 
-[node name="AppTitle" type="Label" parent="VBox/TopBar/MarginContainer"]
+[node name="TitleBox" type="VBoxContainer" parent="VBox/TopBar/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 0
+alignment = 1
+
+[node name="AppTitle" type="Label" parent="VBox/TopBar/MarginContainer/TitleBox"]
 layout_mode = 2
 text = "♟️ RodChess"
+
+[node name="VersionLabel" type="Label" parent="VBox/TopBar/MarginContainer/TitleBox"]
+layout_mode = 2
+text = "v1.1.0"
 
 [node name="EvalBadge" type="PanelContainer" parent="VBox/TopBar"]
 layout_mode = 2
