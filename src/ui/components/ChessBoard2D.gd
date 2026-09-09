@@ -244,6 +244,8 @@ func _ready() -> void:
 			if key == "show_move_hints":
 				show_move_hints = bool(val)
 				_redraw_board_and_overlays()
+			elif key == "board_theme":
+				_redraw_board_and_overlays()
 		)
 	
 	reset_board_visuals()
@@ -735,6 +737,11 @@ func _get_active_theme() -> Dictionary:
 	var sm = _get_settings_manager()
 	if sm:
 		theme_name = sm.get_setting("board_theme", "emerald")
+	# Tolérer les anciennes valeurs renommées (bug historique : clés inconnues → repli emerald)
+	if theme_name == "dark_modern":
+		theme_name = "slate_modern"
+	elif theme_name == "wood":
+		theme_name = "wood_luxury"
 	return THEMES.get(theme_name, THEMES["emerald"])
 
 func _draw() -> void:

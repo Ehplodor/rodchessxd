@@ -29,6 +29,12 @@ func _ready() -> void:
 	var em = get_node_or_null("/root/EngineManager")
 	if em:
 		em.evaluation_updated.connect(_on_engine_eval)
+	var sm = get_node_or_null("/root/SettingsManager")
+	if sm:
+		sm.settings_changed.connect(func(key, _val):
+			if key == "app_theme_mode":
+				queue_redraw()
+		)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:

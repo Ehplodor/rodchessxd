@@ -36,6 +36,13 @@ func _ready() -> void:
 		em.engine_error.connect(_on_engine_error)
 		em.engine_profile_changed.connect(_on_engine_profile_changed)
 
+	var sm = get_node_or_null("/root/SettingsManager")
+	if sm:
+		sm.settings_changed.connect(func(key, _val):
+			if key == "app_theme_mode":
+				queue_redraw()
+		)
+
 	_setup_hud()
 
 func _setup_hud() -> void:
@@ -409,7 +416,7 @@ func _draw() -> void:
 	# 10. Libellé du coup courant dans la bande basse avec IC (hors de la courbe).
 	if active_ply == -1 and not evaluations.is_empty():
 		var caption = "Position initiale   (+0.2)"
-		draw_rect(Rect2(left_margin, h - 24, graph_w, 20), Color("#0f172acc"), true)
+		draw_rect(Rect2(left_margin, h - 24, graph_w, 20), DesignTokens.SURFACE_ELEVATED, true)
 		var cap_w = graph_w - 8.0
 		draw_string(default_font, Vector2(left_margin + 4, h - 7), caption,
 				HORIZONTAL_ALIGNMENT_LEFT, int(cap_w), 13, DesignTokens.TEXT_PRIMARY)
@@ -430,7 +437,7 @@ func _draw() -> void:
 			if badge_sym != "":
 				ply_label += " " + badge_sym
 			var caption = "%s   (%s%s)" % [ply_label, eval_str, ci_str]
-			draw_rect(Rect2(left_margin, h - 24, graph_w, 20), Color("#0f172acc"), true)
+			draw_rect(Rect2(left_margin, h - 24, graph_w, 20), DesignTokens.SURFACE_ELEVATED, true)
 			var cap_w = graph_w - 8.0
 			draw_string(default_font, Vector2(left_margin + 4, h - 7), caption,
 					HORIZONTAL_ALIGNMENT_LEFT, int(cap_w), 13, DesignTokens.TEXT_PRIMARY)

@@ -427,21 +427,19 @@ func _setup_ui() -> void:
 	theme_opt.fit_to_longest_item = false
 	theme_opt.clip_text = true
 	theme_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	theme_opt.add_item("Dark Modern", 0)
-	theme_opt.add_item("Émeraude", 1)
-	theme_opt.add_item("Bois Naturel", 2)
+	theme_opt.add_item("Ardoise Studio (Dark)", 0)
+	theme_opt.add_item("Émeraude Tournoi", 1)
+	theme_opt.add_item("Bois Précieux", 2)
 
-	var cur_theme = SettingsManager.get_setting("board_theme", "dark_modern")
+	var cur_theme = SettingsManager.get_setting("board_theme", "emerald")
 	match cur_theme:
-		"dark_modern": theme_opt.selected = 0
+		"dark_modern", "slate_modern": theme_opt.selected = 0
 		"emerald": theme_opt.selected = 1
-		"wood": theme_opt.selected = 2
+		"wood", "wood_luxury": theme_opt.selected = 2
 
 	theme_opt.item_selected.connect(func(idx):
-		match idx:
-			0: SettingsManager.set_setting("board_theme", "dark_modern")
-			1: SettingsManager.set_setting("board_theme", "emerald")
-			2: SettingsManager.set_setting("board_theme", "wood")
+		var theme_key = "slate_modern" if idx == 0 else ("emerald" if idx == 1 else "wood_luxury")
+		SettingsManager.set_setting("board_theme", theme_key)
 	)
 	vbox.add_child(theme_opt)
 
