@@ -1153,9 +1153,16 @@ func _on_analysis_position_ready(ply_idx: int) -> void:
 	if not is_instance_valid(self) or analyzer == null or not analyzer.is_analyzing:
 		return
 	if GameController == null or GameController.game == null:
+		# Accusé de réception même sans GameController : évite de bloquer la
+		# boucle d'attente `wait_for_display` de l'analyseur.
+		if analyzer:
+			analyzer.confirm_analysis_position_displayed(ply_idx)
 		return
 	var total_moves = GameController.game.move_history.size()
 	if ply_idx < 0 or ply_idx >= total_moves:
+		# Idem : ply hors-limites mais la boucle attend notre signal.
+		if analyzer:
+			analyzer.confirm_analysis_position_displayed(ply_idx)
 		return
 
 	GameController.current_ply_index = ply_idx

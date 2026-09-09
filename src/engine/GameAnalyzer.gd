@@ -301,7 +301,14 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 			analysis_position_ready.emit(i)
 			# Une frame ne suffit pas : la pièce reste visuellement en transit
 			# pendant `move_anim_duration`. Main.gd accuse la fin du tween.
+			# Timeout de sécurité (3 s) : si le SceneTree disparaît ou que le
+			# signal d'accusé ne revient jamais, on continue plutôt que de
+			# bloquer l'analyse indéfiniment.
+			var _wait_start := Time.get_ticks_msec()
 			while _awaited_display_ply == i and not cancel_requested:
+				if Time.get_ticks_msec() - _wait_start >= 3000:
+					_awaited_display_ply = -1
+					break
 				if tree:
 					await tree.process_frame
 				else:
@@ -370,18 +377,22 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		else:
 			_increment_quality_stat(black_stats, qual)
 
-		var eval_ci = int(clampf(80.0 / sqrt(float(maxi(1, depth_reached))), 8.0, 45.0))
+		var is_tactical = (qual == ChessMove.Quality.BRILLIANT or qual == ChessMove.Quality.BLUNDER or abs(score_after - score_before) > 75)
+		var eval_ci = _calculate_eval_ci_margin(depth_reached, cp_loss, is_tactical)
 		var move_record = {
 			"ply": i,
+			"move_number": (i / 2) + 1,
+			"is_white": is_white,
 			"san": move.san,
 			"uci": move.uci,
 			"score_cp": score_after,
-			"depth": depth_reached,
+			"loss_cp": cp_loss,
+			"quality": qual,
 			"best_move": reply_best_move,
 			"best_alternative": expected_best_move,
-			"quality": qual,
-			"cp_loss": cp_loss,
-			"is_white": is_white,
+			"fen": fen_after,
+			"depth": depth_reached,
+			"ci_margin": eval_ci,
 			"ci_lower": score_after - eval_ci,
 			"ci_upper": score_after + eval_ci
 		}
@@ -423,6 +434,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 
 func cancel_analysis() -> void:
 	cancel_requested = true
+	_awaited_display_ply = -1
 
 ## Accusé de réception de Main.gd : le plateau a fini d'afficher ce demi-coup.
 func confirm_analysis_position_displayed(ply_idx: int) -> void:
