@@ -51,3 +51,22 @@ bin/maia-1100.pb.gz
 .gitignore
 bin/maia-1500.pb.gz
 bin/maia-1900.pb.gz
+
+# ---------- Artefacts locaux jamais publiés sur GitHub ----------
+# Livrables Windows (exe/zip, local uniquement)
+/RodChessXD2_Windows*.exe
+/RodChessXD2_Windows*.zip
+# Binaires de moteurs / réseaux (locaux uniquement, purgés du dépôt public)
+/bin/*.exe
+/bin/*.dll
+/bin/*.pb.gz
+# Secrets Android (signature) + binaires de template/plugin
+*.keystore
+/addons/RodChessUci/bin/*.aar
+/android/build/libs/**
+/android/build/src/main/jniLibs/**
+# Doublons racine des fichiers web (source canonique : assets/web/)
+/stockfish.js
+/uci_worker_bridge.js
+# Export PWA local (workflow GitHub Actions)
+/dist/
