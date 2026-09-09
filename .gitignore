@@ -62,7 +62,7 @@ bin/maia-1900.pb.gz
 /bin/*.pb.gz
 # Secrets Android (signature) + binaires de template/plugin
 *.keystore
-/addons/RodChessUci/bin/*.aar
+/addons/RodChessUci/bin/
 /android/build/libs/**
 /android/build/src/main/jniLibs/**
 # Doublons racine des fichiers web (source canonique : assets/web/)
