@@ -67,7 +67,22 @@ Le composant [GameAnalyzer.gd](file:///c:/Dev/RodChessXD/src/engine/GameAnalyzer
 
 ---
 
-## 4. Patrons d'Ergonomie et Mobile UI (RodChess Mobile Patterns)
+## 4. Graphe d'Avantage & Représentation Visuelle (AdvantageGraph2D)
+
+1. **Échelle logarithmique symétrique (symlog) :**
+   - La formule `sign(cp) * log(1 + |cp| / C) / log(1 + max_cp / C)` est utilisée avec `symlog_c = 150 cp` et `max_display_cp = 1200 cp`.
+   - Elle assure une sensibilité élevée sur les petits avantages (0 à ±2 pions) tout en conservant une lisibilité claire sur les bourdes et coups exceptionnels au-delà de ±5 et jusqu'à ±12 pions sans plafonnement abrupt.
+   - Les repères horizontaux affichent `+5.0`, `+2.0`, `0.0`, `-2.0`, `-5.0`.
+
+2. **Aires sous la courbe & Contraste Blanc / Noir :**
+   - Le fond du graphe est neutre sombre (`#090e1a`).
+   - L'aire supérieure (avantage Blancs) est remplie en blanc nacré translucide (`Color(0.95, 0.96, 0.98, 0.35)`).
+   - L'aire inférieure (avantage Noirs) est remplie en noir profond (`Color(0.02, 0.03, 0.06, 0.70)`).
+   - Des liserés doux délimitent la frontière avec la médiane paritaire `0.0`.
+
+---
+
+## 5. Patrons d'Ergonomie et Mobile UI (RodChess Mobile Patterns)
 
 Conformément à `.agents/skills/rodchess-mobile-ui-patterns/SKILL.md` :
 

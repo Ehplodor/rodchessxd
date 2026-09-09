@@ -279,26 +279,38 @@ func _draw() -> void:
 	draw_rect(Rect2(0, 0, w, h), Color("#090e1a"), true)
 	draw_rect(Rect2(0, 0, w, h), Color("#1e293b"), false, 1.0)
 
-	# 2. Échelle Y et lignes repères (+3.0, 0.0, -3.0)
-	var scale_y = (graph_h * 0.44) / max_eval_cp
-	var plus3_y = mid_y - (300.0 * scale_y)
-	var minus3_y = mid_y + (300.0 * scale_y)
+	# 2. Échelle Y logarithmique symétrique (symlog) et lignes repères
+	# Permet de distinguer finement les petits avantages (0..2 pions) tout en visualisant
+	# les grosses variations (+5, +10, mats) sans saturation abrupte.
+	# Formule : sign(cp) * log(1 + |cp| / C) / log(1 + max_cp / C)
+	var max_display_cp: float = 1200.0 # Échelle jusqu'à ±12 pions (ou mat)
+	var symlog_c: float = 150.0 # Constante de transition linéaire -> log (1.5 pion)
+	var max_log_val: float = log(1.0 + max_display_cp / symlog_c)
+	var half_h: float = float(graph_h) * 0.44
+
+	var eval_to_y = func(cp: float) -> float:
+		var sign_cp: float = 1.0 if cp >= 0.0 else -1.0
+		var abs_cp: float = minf(absf(cp), max_display_cp)
+		var norm: float = (log(1.0 + abs_cp / symlog_c) / max_log_val) * sign_cp
+		return mid_y - (norm * half_h)
 
 	var default_font = ThemeDB.fallback_font
-	# M1 : légendes d'axe compactes dans un graphe de 90-180 px (12 px max)
-	var font_size = 12
+	var font_size = 11
 
-	# Ligne +3 pions (Avantage Blancs)
-	draw_line(Vector2(left_margin, plus3_y), Vector2(w - right_margin, plus3_y), Color("#33415555"), 1.0)
-	draw_string(default_font, Vector2(4, plus3_y + 3), "+3.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.TEXT_MUTED)
+	# Lignes repères clés : +5.0, +2.0, 0.0, -2.0, -5.0
+	var guide_evals := [500.0, 200.0, -200.0, -500.0]
+	var guide_labels := ["+5.0", "+2.0", "-2.0", "-5.0"]
+	for k in range(guide_evals.size()):
+		var g_cp = guide_evals[k]
+		var gy = eval_to_y.call(g_cp)
+		var is_major = absf(g_cp) == 500.0
+		var col = Color("#47556944") if is_major else Color("#33415533")
+		draw_line(Vector2(left_margin, gy), Vector2(w - right_margin, gy), col, 1.0)
+		draw_string(default_font, Vector2(3, gy + 3), guide_labels[k], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.TEXT_MUTED)
 
-	# Ligne 0.0 (Parité / Égalité)
-	draw_line(Vector2(left_margin, mid_y), Vector2(w - right_margin, mid_y), Color("#38bdf866"), 1.5)
+	# Ligne médiane 0.0 (Parité / Égalité)
+	draw_line(Vector2(left_margin, mid_y), Vector2(w - right_margin, mid_y), Color("#38bdf888"), 1.5)
 	draw_string(default_font, Vector2(6, mid_y + 3), " 0.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.ACCENT)
-
-	# Ligne -3 pions (Avantage Noirs)
-	draw_line(Vector2(left_margin, minus3_y), Vector2(w - right_margin, minus3_y), Color("#33415555"), 1.0)
-	draw_string(default_font, Vector2(4, minus3_y + 3), "-3.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.TEXT_MUTED)
 
 	# 3. État sans données : Affichage explicite du mode d'emploi
 	var total_points = evaluations.size()
@@ -321,16 +333,16 @@ func _draw() -> void:
 
 	for i in range(total_points):
 		var record = evaluations[i]
-		var score_cp = clampf(record.get("score_cp", 0), -max_eval_cp, max_eval_cp)
+		var score_cp = float(record.get("score_cp", 0))
 		var px = left_margin + i * step_x
-		var py = mid_y - (score_cp * scale_y)
+		var py = eval_to_y.call(score_cp)
 		points.append(Vector2(px, py))
 
 		var margin = float(record.get("ci_margin", 35.0))
-		var ci_u = clampf(score_cp + margin, -max_eval_cp, max_eval_cp)
-		var ci_l = clampf(score_cp - margin, -max_eval_cp, max_eval_cp)
-		ci_upper_points.append(Vector2(px, mid_y - (ci_u * scale_y)))
-		ci_lower_points.append(Vector2(px, mid_y - (ci_l * scale_y)))
+		var ci_u = score_cp + margin
+		var ci_l = score_cp - margin
+		ci_upper_points.append(Vector2(px, eval_to_y.call(ci_u)))
+		ci_lower_points.append(Vector2(px, eval_to_y.call(ci_l)))
 
 	# 5. Bande d'intervalle de confiance (IC 95% ombré doux)
 	var ci_poly = PackedVector2Array()
@@ -338,22 +350,28 @@ func _draw() -> void:
 		ci_poly.append(p_u)
 	for j in range(ci_lower_points.size() - 1, -1, -1):
 		ci_poly.append(ci_lower_points[j])
-	draw_colored_polygon(ci_poly, Color(0.22, 0.74, 0.97, 0.14))
-	draw_polyline(ci_upper_points, Color(0.22, 0.74, 0.97, 0.30), 1.0, true)
-	draw_polyline(ci_lower_points, Color(0.22, 0.74, 0.97, 0.30), 1.0, true)
+	draw_colored_polygon(ci_poly, Color(0.22, 0.74, 0.97, 0.12))
+	draw_polyline(ci_upper_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
+	draw_polyline(ci_lower_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
 
-	# 6. Polygones de remplissage (gradient Blanc au-dessus, Noir en-dessous)
+	# 6. Polygones de remplissage distinctifs :
+	# Aire blanche pure et soignée du côté blanc (au-dessus de mid_y),
+	# Aire noire profonde du côté noir (en-dessous de mid_y).
 	var fill_white = PackedVector2Array([Vector2(left_margin, mid_y)])
 	for p in points:
 		fill_white.append(Vector2(p.x, min(p.y, mid_y)))
 	fill_white.append(Vector2(left_margin + graph_w, mid_y))
-	draw_colored_polygon(fill_white, Color("#f8fafc18"))
+	draw_colored_polygon(fill_white, Color(0.95, 0.96, 0.98, 0.35))
 
 	var fill_black = PackedVector2Array([Vector2(left_margin, mid_y)])
 	for p in points:
 		fill_black.append(Vector2(p.x, max(p.y, mid_y)))
 	fill_black.append(Vector2(left_margin + graph_w, mid_y))
-	draw_colored_polygon(fill_black, Color("#00000044"))
+	draw_colored_polygon(fill_black, Color(0.02, 0.03, 0.06, 0.70))
+
+	# Liseré doux séparateur sur les contours des aires
+	draw_polyline(fill_white, Color(1.0, 1.0, 1.0, 0.25), 1.0, true)
+	draw_polyline(fill_black, Color(0.0, 0.0, 0.0, 0.50), 1.0, true)
 
 	# 7. Tracé de la courbe principale
 	draw_polyline(points, Color("#38bdf8"), 2.2, true)
@@ -383,9 +401,10 @@ func _draw() -> void:
 		draw_arc(cursor_pt, 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
 	elif active_ply == -1 and not points.is_empty():
 		# Curseur positionné sur le bord gauche de départ
+		var init_y = eval_to_y.call(20.0)
 		draw_line(Vector2(left_margin, top_margin), Vector2(left_margin, h - bottom_margin), Color("#facc15aa"), 1.8)
-		draw_circle(Vector2(left_margin, mid_y - (20.0 * scale_y)), 5.0, Color("#facc15"))
-		draw_arc(Vector2(left_margin, mid_y - (20.0 * scale_y)), 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
+		draw_circle(Vector2(left_margin, init_y), 5.0, Color("#facc15"))
+		draw_arc(Vector2(left_margin, init_y), 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
 
 	# 10. Libellé du coup courant dans la bande basse avec IC (hors de la courbe).
 	if active_ply == -1 and not evaluations.is_empty():
