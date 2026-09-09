@@ -13,16 +13,19 @@ var _active_btn: Button = null
 var _last_moves_count: int = -1
 var _analysis_report: Dictionary = {}
 
-# Filtre actif : 0 = tout, 1 = ?! , 2 = ? , 3 = ?? , 4 = ★+!!+! (Best/Brilliant/Great) , 5 = ✓ (Good/Excellent)
+# Filtre actif : 0 = TOUS, sinon un filtre par qualité (?? ? ?! ✓ ✓+ ★ ! !!)
 var _filter := 0
 
 const _FILTERS := [
-	{"label": "Tout", "mode": 0},
-	{"label": "??", "mode": 3},
-	{"label": "?", "mode": 2},
-	{"label": "?!", "mode": 1},
-	{"label": "★+!!+!", "mode": 4},
-	{"label": "✓", "mode": 5},
+	{"label": "TOUS", "mode": 0},
+	{"label": "??", "mode": 1},   # BLUNDER / MISS
+	{"label": "?", "mode": 2},    # MISTAKE
+	{"label": "?!", "mode": 3},   # INACCURACY
+	{"label": "✓", "mode": 4},    # GOOD
+	{"label": "✓+", "mode": 5},   # EXCELLENT
+	{"label": "★", "mode": 6},    # BEST
+	{"label": "!", "mode": 7},    # GREAT
+	{"label": "!!", "mode": 8},   # BRILLIANT
 ]
 
 func _ready() -> void:
@@ -378,9 +381,10 @@ func _build_moves_header() -> void:
 
 # --- 4. LIGNE DE FILTRES ---
 func _build_filter_row() -> void:
-	var row := HBoxContainer.new()
+	var row := HFlowContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	row.add_theme_constant_override("h_separation", DesignTokens.SPACE_XS)
+	row.add_theme_constant_override("v_separation", DesignTokens.SPACE_XS)
 	container.add_child(row)
 
 	for f in _FILTERS:
@@ -389,9 +393,10 @@ func _build_filter_row() -> void:
 		btn.text = f["label"]
 		btn.toggle_mode = true
 		btn.button_pressed = (mode == _filter)
-		btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_DENSE)
 		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		btn.clip_text = true
+		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		if mode == _filter:
 			btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
 		btn.pressed.connect(func():
@@ -533,18 +538,21 @@ func _passes_filter(q: int) -> bool:
 		0:
 			return true
 		1:
-			return q == ChessMove.Quality.INACCURACY
+			return q == ChessMove.Quality.BLUNDER or q == ChessMove.Quality.MISS
 		2:
 			return q == ChessMove.Quality.MISTAKE
 		3:
-			return q == ChessMove.Quality.BLUNDER or q == ChessMove.Quality.MISS
+			return q == ChessMove.Quality.INACCURACY
 		4:
-			return q in [
-				ChessMove.Quality.GREAT, ChessMove.Quality.BEST,
-				ChessMove.Quality.BRILLIANT]
+			return q == ChessMove.Quality.GOOD
 		5:
-			return q in [
-				ChessMove.Quality.EXCELLENT, ChessMove.Quality.GOOD]
+			return q == ChessMove.Quality.EXCELLENT
+		6:
+			return q == ChessMove.Quality.BEST
+		7:
+			return q == ChessMove.Quality.GREAT
+		8:
+			return q == ChessMove.Quality.BRILLIANT
 		_:
 			return true
 

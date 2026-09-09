@@ -69,7 +69,7 @@ static func quality_to_symbol(q: Quality) -> String:
 		Quality.BRILLIANT: return "!!"
 		Quality.GREAT: return "!"
 		Quality.BEST: return "★"
-		Quality.EXCELLENT: return "✓"
+		Quality.EXCELLENT: return "✓+"
 		Quality.GOOD: return "✓"
 		Quality.INACCURACY: return "?!"
 		Quality.MISTAKE: return "?"
