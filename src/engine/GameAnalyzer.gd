@@ -3,7 +3,7 @@ extends RefCounted
 ## GameAnalyzer.gd - Analyse complète de partie coup par coup, métriques ACPL, précision et estimation ELO
 
 signal progress_updated(current_ply: int, total_plies: int)
-## Émis avant le calcul de chaque position Web : l'UI doit afficher le coup avant
+## Émis avant le calcul de chaque position : l'UI doit afficher le coup avant
 ## que les retours `info` du moteur puissent dessiner la moindre flèche.
 signal analysis_position_ready(ply_idx: int)
 signal ply_analyzed(ply_idx: int, move_record: Dictionary, partial_stats: Dictionary)
@@ -41,6 +41,7 @@ func _init() -> void:
 func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary = {}) -> Dictionary:
 	is_analyzing = true
 	cancel_requested = false
+	_awaited_display_ply = -1
 	move_evaluations.clear()
 	
 	if not engine_manager:
@@ -53,6 +54,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	var time_per_move: float = float(options.get("time_per_move", sm.get_setting("analysis_time_per_move", 0.3) if sm else 0.3))
 	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15))
 	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8))
+	var wait_for_display: bool = bool(options.get("wait_for_display", false))
 	
 	var moves = game.move_history
 	var total_plies = moves.size()
@@ -98,6 +100,21 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		# Exécution du coup
 		sim_game.make_move(move)
 		var fen_after = sim_game.get_fen()
+
+		# Synchronisation de l'affichage avant évaluation pour que les flèches SF se tracent sur la bonne position
+		if wait_for_display:
+			_awaited_display_ply = i
+			call_deferred("emit_signal", "analysis_position_ready", i)
+			var _wait_start := Time.get_ticks_msec()
+			while _awaited_display_ply == i and not cancel_requested:
+				if Time.get_ticks_msec() - _wait_start >= 3000:
+					_awaited_display_ply = -1
+					break
+				OS.delay_msec(10)
+		else:
+			call_deferred("emit_signal", "analysis_position_ready", i)
+		if cancel_requested:
+			break
 
 		# Détection immédiate de fin de partie (échec et mat ou pat) : évite le blocage du moteur
 		var is_mate = move.is_checkmate or move.san.ends_with("#") or (sim_game.is_in_check(sim_game.active_color) and sim_game.get_legal_moves(sim_game.active_color).is_empty())

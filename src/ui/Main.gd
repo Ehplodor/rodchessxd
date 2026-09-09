@@ -1328,7 +1328,7 @@ func _on_btn_analyze_game_pressed() -> void:
 		"time_per_move": time_per_move,
 		"dynamic_base": dynamic_base,
 		"dynamic_max": dynamic_max,
-		"wait_for_display": OS.has_feature("web")
+		"wait_for_display": true
 	}
 
 	if OS.has_feature("web"):
