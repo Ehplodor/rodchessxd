@@ -4,6 +4,10 @@ extends Control
 
 const _PromotionModal = preload("res://src/ui/components/PromotionModal.gd")
 
+# Garde-fou minimal (simple sécurité) : le plateau est borné par ses bandeaux et
+# doit pouvoir rétrécir pour tenir dans l'espace disponible (aucun minimum 240px).
+const MIN_BOARD_SIDE := 48.0
+
 signal square_clicked(sq: int)
 signal navigation_forward_completed(ply_idx: int)
 
@@ -214,7 +218,7 @@ func _get_engine_manager() -> Node:
 	return null
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(240, 240)
+	custom_minimum_size = Vector2(MIN_BOARD_SIDE, MIN_BOARD_SIDE)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_process(false)
 	
@@ -247,7 +251,11 @@ func _ready() -> void:
 			elif key == "board_theme":
 				_redraw_board_and_overlays()
 		)
-	
+
+	var host := get_parent()
+	if host is Control and not (host as Control).resized.is_connected(_on_host_resized):
+		(host as Control).resized.connect(_on_host_resized)
+
 	reset_board_visuals()
 
 func _process(delta: float) -> void:
@@ -265,18 +273,38 @@ func _notification(what: int) -> void:
 		_redraw_board_and_overlays()
 
 func _update_dimensions() -> void:
-	var side = min(size.x, size.y)
-	if side < 100:
-		side = 240
+	# Zone = BoardContainer, la région strictement entre les bandeaux joueurs.
+	# Le plateau est un carré = min(largeur, hauteur) de cette zone, centré dedans.
+	var p := get_parent() as Control
+	var avail := Vector2(size.x, size.y)
+	if p != null and p.size.x > 0.0 and p.size.y > 0.0:
+		avail = p.size
+	var side = minf(avail.x, avail.y)
+	if side < MIN_BOARD_SIDE:
+		side = MIN_BOARD_SIDE
 	board_size = side
 	square_size = board_size / 8.0
-	custom_minimum_size = Vector2(240, 240)
 	if arrow_overlay:
 		arrow_overlay.size = Vector2(board_size, board_size)
 		arrow_overlay.position = Vector2.ZERO
 	if fx_layer:
 		fx_layer.size = Vector2(board_size, board_size)
 		fx_layer.position = Vector2.ZERO
+	# Recentre le plateau dans sa zone (le contrôle est ancré pleine largeur du parent).
+	if p != null and p.size.x > 0.0 and p.size.y > 0.0:
+		var half := (p.size - Vector2(board_size, board_size)) * 0.5
+		offset_left = half.x
+		offset_top = half.y
+		offset_right = -half.x
+		offset_bottom = -half.y
+
+## Recalcule la taille du plateau quand son conteneur (BoardContainer) change de
+## dimensions : c'est là qu'est fixée la vraie place entre les bandeaux joueurs.
+func _on_host_resized() -> void:
+	if not is_inside_tree():
+		return
+	_update_dimensions()
+	reset_board_visuals()
 
 func _preload_piece_textures() -> void:
 	var colors = [ChessPiece.PieceColor.WHITE, ChessPiece.PieceColor.BLACK]

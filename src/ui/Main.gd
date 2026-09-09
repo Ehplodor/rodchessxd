@@ -18,7 +18,7 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 @onready var top_bar: HBoxContainer = $VBox/TopBar
 @onready var center_area: HBoxContainer = $VBox/CenterArea
 @onready var board_column: VBoxContainer = $VBox/CenterArea/BoardColumn
-@onready var board_container: AspectRatioContainer = $VBox/CenterArea/BoardColumn/BoardContainer
+@onready var board_container: Control = $VBox/CenterArea/BoardColumn/BoardContainer
 @onready var nav_row: HBoxContainer = $VBox/NavRow
 @onready var dashboard: VBoxContainer = $VBox/Dashboard
 
@@ -219,15 +219,6 @@ func _apply_modern_theme() -> void:
 	btn_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
 	btn_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
 
-	var tile_normal := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
-			DesignTokens.BTN_BORDER, 1, Vector2(12, 4))
-	var tile_hover := tile_normal.duplicate() as StyleBoxFlat
-	tile_hover.bg_color = DesignTokens.BTN_BG_HOVER
-	tile_hover.border_color = DesignTokens.BTN_BORDER_ACTIVE
-	var tile_pressed := tile_normal.duplicate() as StyleBoxFlat
-	tile_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
-	tile_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
-
 	var font_color_normal := DesignTokens.TEXT_PRIMARY
 	var font_color_hover := Color.WHITE if DesignTokens.current_theme_mode == "dark" else DesignTokens.TEXT_PRIMARY
 
@@ -279,17 +270,6 @@ func _apply_modern_theme() -> void:
 		top_eval_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		top_eval_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		top_eval_label.add_theme_color_override("font_color", DesignTokens.ACCENT)
-
-	# Tuiles Analyse / Coach
-	for child in $VBox/Dashboard/Tiles.get_children():
-		if child is Button:
-			child.add_theme_stylebox_override("normal", tile_normal)
-			child.add_theme_stylebox_override("hover", tile_hover)
-			child.add_theme_stylebox_override("pressed", tile_pressed)
-			child.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-			child.add_theme_color_override("font_hover_color", font_color_hover)
-			child.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_PRIMARY)
-			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 	# Vues superposées : fonds, titres + boutons de fermeture
 	for overlay in [analyse_overlay, coach_overlay]:
@@ -884,6 +864,7 @@ func show_board_tab() -> void:
 # --- MENU « PLUS / ACTIONS » (PNG / PGN / Reset / Export / Chess.com / Aides) ---
 
 var import_menu: PopupMenu = null
+var settings_menu: PopupMenu = null
 
 func _build_import_menu() -> void:
 	import_menu = PopupMenu.new()
@@ -898,6 +879,8 @@ func _build_import_menu() -> void:
 	import_menu.add_theme_stylebox_override("panel", panel_style)
 	import_menu.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	import_menu.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
+	import_menu.add_item("📚  Bibliothèque & analyses archivées", 6)
+	import_menu.add_separator("Importer")
 	import_menu.add_item("🖼️  Photo du plateau (PNG)", 0)
 	import_menu.add_item("📄  Fichier / texte PGN", 1)
 	import_menu.add_item("🌐  Synchroniser Chess.com", 2)
@@ -917,6 +900,7 @@ func _on_import_menu_id_pressed(id: int) -> void:
 		3: _export_pgn()
 		4: _on_btn_new_game_pressed()
 		5: _toggle_move_hints()
+		6: _open_modal(LibraryModal.new())
 
 func _export_pgn() -> void:
 	if GameController == null or GameController.game == null:
@@ -980,13 +964,14 @@ func _toggle_move_hints() -> void:
 	var state_str = "activées" if new_val else "désactivées"
 	_show_toast("Aides visuelles %s" % state_str)
 
-func _on_btn_more_pressed() -> void:
-	if import_menu == null:
-		_build_import_menu()
-	var btn: Button = $VBox/TopBar/BtnMore
-	var popup_pos: Vector2i = btn.get_screen_position()
-	popup_pos.y += btn.size.y - 4
-	import_menu.popup(Rect2i(popup_pos, Vector2i(0, 0)))
+## Affiche un PopupMenu sous un bouton du bandeau haut.
+func _popup_from_button(menu: PopupMenu, btn_node: Node) -> void:
+	if not is_instance_valid(btn_node):
+		return
+	var ctrl := btn_node as Control
+	var pos: Vector2i = ctrl.get_screen_position()
+	pos.y += int(ctrl.size.y) - 4
+	menu.popup(Rect2i(pos, Vector2i(0, 0)))
 
 # --- SAFE AREAS (encoche, barre de gestes) ---
 
@@ -1060,14 +1045,38 @@ func _on_btn_import_pgn_pressed() -> void:
 func _on_btn_chess_com_pressed() -> void:
 	_open_modal(ChessComImportModal.new())
 
-func _on_btn_engine_hub_pressed() -> void:
-	_open_modal(EngineHubModal.new())
-
 func _on_btn_library_pressed() -> void:
-	_open_modal(LibraryModal.new())
+	if import_menu == null:
+		_build_import_menu()
+	_popup_from_button(import_menu, $VBox/TopBar/BtnLibrary)
+
+func _build_settings_menu() -> void:
+	settings_menu = PopupMenu.new()
+	settings_menu.name = "SettingsMenu"
+	settings_menu.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	var item_style := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			Color.TRANSPARENT, 0, Vector2(14, 16))
+	settings_menu.add_theme_stylebox_override("hover", item_style)
+	settings_menu.add_theme_stylebox_override("selected", item_style)
+	var panel_style := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(4, 4))
+	settings_menu.add_theme_stylebox_override("panel", panel_style)
+	settings_menu.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	settings_menu.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
+	settings_menu.add_item("⚙️  Réglages de l'application", 0)
+	settings_menu.add_item("⚡  Moteurs d'échecs", 1)
+	settings_menu.id_pressed.connect(_on_settings_menu_id_pressed)
+	add_child(settings_menu)
+
+func _on_settings_menu_id_pressed(id: int) -> void:
+	match id:
+		0: _open_modal(SettingsModal.new())
+		1: _open_modal(EngineHubModal.new())
 
 func _on_btn_settings_pressed() -> void:
-	_open_modal(SettingsModal.new())
+	if settings_menu == null:
+		_build_settings_menu()
+	_popup_from_button(settings_menu, $VBox/TopBar/BtnSettings)
 
 # --- ANALYSE DE PARTIE ---
 
