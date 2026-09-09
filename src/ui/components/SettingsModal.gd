@@ -389,6 +389,32 @@ func _setup_ui() -> void:
 	# --- SECTION APPARENCE & AUDIO ---
 	_add_section_header(vbox, "🎨 Thème & Sons")
 
+	# Mode d'interface Clair / Obscur
+	var app_theme_lbl = Label.new()
+	app_theme_lbl.text = "Thème de l'application :"
+	app_theme_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	app_theme_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	vbox.add_child(app_theme_lbl)
+
+	var app_theme_opt = OptionButton.new()
+	app_theme_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	app_theme_opt.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	app_theme_opt.fit_to_longest_item = false
+	app_theme_opt.clip_text = true
+	app_theme_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	app_theme_opt.add_item("🌙 Sombre (Dark)", 0)
+	app_theme_opt.add_item("☀️ Clair (Light)", 1)
+
+	var cur_app_theme = SettingsManager.get_setting("app_theme_mode", "dark")
+	app_theme_opt.selected = 1 if cur_app_theme == "light" else 0
+
+	app_theme_opt.item_selected.connect(func(idx):
+		var chosen_mode = "light" if idx == 1 else "dark"
+		SettingsManager.set_setting("app_theme_mode", chosen_mode)
+		DesignTokens.apply_theme_mode(chosen_mode)
+	)
+	vbox.add_child(app_theme_opt)
+
 	var theme_lbl = Label.new()
 	theme_lbl.text = "Thème de l'échiquier :"
 	theme_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

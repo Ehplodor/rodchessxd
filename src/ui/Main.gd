@@ -110,6 +110,13 @@ func _ready() -> void:
 	if slm:
 		slm.server_error.connect(_show_error_banner)
 	
+	if SettingsManager != null:
+		SettingsManager.settings_changed.connect(func(key, val):
+			if key == "app_theme_mode":
+				DesignTokens.apply_theme_mode(str(val))
+				_apply_modern_theme()
+		)
+
 	_build_error_banner()
 	_apply_modern_theme()
 	_build_import_menu()
@@ -205,6 +212,13 @@ func _apply_adaptive_layout(target_landscape: bool) -> void:
 		_dock_overlay(coach_overlay)
 
 func _apply_modern_theme() -> void:
+	# Fond principal de l'application
+	var bg_panel = get_node_or_null("Background")
+	if bg_panel:
+		var bg_style := StyleBoxFlat.new()
+		bg_style.bg_color = DesignTokens.BG_BASE
+		bg_panel.add_theme_stylebox_override("panel", bg_style)
+
 	var btn_normal := DesignTokens.flat(DesignTokens.BTN_BG, DesignTokens.RADIUS_SMALL,
 			DesignTokens.BTN_BORDER, 1, Vector2(8, 2))
 	var btn_hover := btn_normal.duplicate() as StyleBoxFlat
@@ -224,7 +238,7 @@ func _apply_modern_theme() -> void:
 	tile_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
 
 	var font_color_normal := DesignTokens.TEXT_PRIMARY
-	var font_color_hover := Color.WHITE
+	var font_color_hover := Color.WHITE if DesignTokens.current_theme_mode == "dark" else DesignTokens.TEXT_PRIMARY
 
 	# Boutons de la barre du haut
 	for child in $VBox/TopBar.get_children():
@@ -315,9 +329,16 @@ func _apply_modern_theme() -> void:
 			child.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_PRIMARY)
 			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
-	# Vues superposées : titres + boutons de fermeture
+	# Vues superposées : fonds, titres + boutons de fermeture
 	for overlay in [analyse_overlay, coach_overlay]:
-		if overlay == null or not overlay.has_node("Layout/Header"):
+		if overlay == null:
+			continue
+		var overlay_bg = overlay.get_node_or_null("Bg")
+		if overlay_bg:
+			var obg_style := StyleBoxFlat.new()
+			obg_style.bg_color = DesignTokens.BG_BASE
+			overlay_bg.add_theme_stylebox_override("panel", obg_style)
+		if not overlay.has_node("Layout/Header"):
 			continue
 		var header: Node = overlay.get_node("Layout/Header")
 		header.get_node("Title").add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -329,6 +350,11 @@ func _apply_modern_theme() -> void:
 				c.add_theme_stylebox_override("pressed", btn_pressed)
 				c.add_theme_color_override("font_color", font_color_normal)
 				c.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+
+	if is_instance_valid(advantage_graph):
+		advantage_graph.queue_redraw()
+	if is_instance_valid(eval_bar):
+		eval_bar.queue_redraw()
 
 func _on_game_position_changed() -> void:
 	_update_player_labels()

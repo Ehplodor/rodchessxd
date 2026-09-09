@@ -28,38 +28,121 @@ const CARD_PAD_V := 8
 const RADIUS_SMALL := 6
 const RADIUS_MEDIUM := 8
 
-# --- Surfaces (du plus sombre au plus clair) ---
-const BG_DEEP := Color("#090d16")          ## Fond des fenêtres / zones denses
-const BG_BASE := Color("#0b0f17")          ## Fond racine de l'application
-const SURFACE := Color("#0f172a")          ## Panneaux, cartes de base
-const SURFACE_ELEVATED := Color("#1e293b") ## Badges, cartes actives, chips
-const BORDER := Color("#334155")
+# --- Définitions de thèmes d'interface (Mode Obscur / Mode Clair) ---
+const THEME_DARK := {
+	"BG_DEEP": Color("#090d16"),
+	"BG_BASE": Color("#0b0f17"),
+	"SURFACE": Color("#0f172a"),
+	"SURFACE_ELEVATED": Color("#1e293b"),
+	"BORDER": Color("#334155"),
+	"BTN_BG": Color("#1f2937"),
+	"BTN_BG_HOVER": Color("#293852"),
+	"BTN_BG_PRESSED": Color("#141f2e"),
+	"BTN_BORDER": Color("#334155"),
+	"BTN_BORDER_ACTIVE": Color("#38bdf8"),
+	"PRIMARY_BG": Color("#047857"),
+	"PRIMARY_BG_PRESSED": Color("#065f46"),
+	"PRIMARY_BORDER": Color("#34d399"),
+	"ON_PRIMARY": Color("#ffffff"),
+	"TEXT_PRIMARY": Color("#f1f5f9"),
+	"TEXT_SECONDARY": Color("#cbd5e1"),
+	"TEXT_MUTED": Color("#94a3b8"),
+	"ACCENT": Color("#38bdf8"),
+	"SUCCESS": Color("#22c55e"),
+	"WARNING": Color("#fbbf24"),
+	"DANGER": Color("#f87171"),
+	"ERROR_BG": Color("#801c21"),
+	"ERROR_TEXT": Color("#ffe3e3")
+}
 
-# --- Boutons chrome (barres, navigation) ---
-const BTN_BG := Color("#1f2937")
-const BTN_BG_HOVER := Color("#293852")
-const BTN_BG_PRESSED := Color("#141f2e")
-const BTN_BORDER := Color("#334155")
-const BTN_BORDER_ACTIVE := Color("#38bdf8")
+const THEME_LIGHT := {
+	"BG_DEEP": Color("#e2e8f0"),
+	"BG_BASE": Color("#f1f5f9"),
+	"SURFACE": Color("#ffffff"),
+	"SURFACE_ELEVATED": Color("#e2e8f0"),
+	"BORDER": Color("#cbd5e1"),
+	"BTN_BG": Color("#ffffff"),
+	"BTN_BG_HOVER": Color("#f1f5f9"),
+	"BTN_BG_PRESSED": Color("#e2e8f0"),
+	"BTN_BORDER": Color("#cbd5e1"),
+	"BTN_BORDER_ACTIVE": Color("#0284c7"),
+	"PRIMARY_BG": Color("#059669"),
+	"PRIMARY_BG_PRESSED": Color("#047857"),
+	"PRIMARY_BORDER": Color("#10b981"),
+	"ON_PRIMARY": Color("#ffffff"),
+	"TEXT_PRIMARY": Color("#0f172a"),
+	"TEXT_SECONDARY": Color("#334155"),
+	"TEXT_MUTED": Color("#64748b"),
+	"ACCENT": Color("#0284c7"),
+	"SUCCESS": Color("#16a34a"),
+	"WARNING": Color("#d97706"),
+	"DANGER": Color("#dc2626"),
+	"ERROR_BG": Color("#fee2e2"),
+	"ERROR_TEXT": Color("#991b1b")
+}
 
-# --- Action primaire (AA : blanc ≥ 4,5:1 sur normal & pressé) ---
-const PRIMARY_BG := Color("#047857")
-const PRIMARY_BG_PRESSED := Color("#065f46")
-const PRIMARY_BORDER := Color("#34d399")
-const ON_PRIMARY := Color("#ffffff")
+# --- Surfaces et Couleurs dynamiques (initialisées en Dark par défaut) ---
+static var current_theme_mode: String = "dark"
 
-# --- Textes (AA ≥ 4,5:1 sur BG_DEEP…SURFACE_ELEVATED) ---
-const TEXT_PRIMARY := Color("#f1f5f9")
-const TEXT_SECONDARY := Color("#cbd5e1")
-const TEXT_MUTED := Color("#94a3b8")
+static var BG_DEEP: Color = THEME_DARK["BG_DEEP"]
+static var BG_BASE: Color = THEME_DARK["BG_BASE"]
+static var SURFACE: Color = THEME_DARK["SURFACE"]
+static var SURFACE_ELEVATED: Color = THEME_DARK["SURFACE_ELEVATED"]
+static var BORDER: Color = THEME_DARK["BORDER"]
 
-# --- Couleurs sémantiques (texte sur fond sombre) ---
-const ACCENT := Color("#38bdf8")
-const SUCCESS := Color("#22c55e")
-const WARNING := Color("#fbbf24")
-const DANGER := Color("#f87171") ## Texte d'erreur lisible sur les surfaces (AA ≥ 5,2:1)
-const ERROR_BG := Color("#801c21")
-const ERROR_TEXT := Color("#ffe3e3")
+# --- Boutons chrome ---
+static var BTN_BG: Color = THEME_DARK["BTN_BG"]
+static var BTN_BG_HOVER: Color = THEME_DARK["BTN_BG_HOVER"]
+static var BTN_BG_PRESSED: Color = THEME_DARK["BTN_BG_PRESSED"]
+static var BTN_BORDER: Color = THEME_DARK["BTN_BORDER"]
+static var BTN_BORDER_ACTIVE: Color = THEME_DARK["BTN_BORDER_ACTIVE"]
+
+# --- Action primaire ---
+static var PRIMARY_BG: Color = THEME_DARK["PRIMARY_BG"]
+static var PRIMARY_BG_PRESSED: Color = THEME_DARK["PRIMARY_BG_PRESSED"]
+static var PRIMARY_BORDER: Color = THEME_DARK["PRIMARY_BORDER"]
+static var ON_PRIMARY: Color = THEME_DARK["ON_PRIMARY"]
+
+# --- Textes ---
+static var TEXT_PRIMARY: Color = THEME_DARK["TEXT_PRIMARY"]
+static var TEXT_SECONDARY: Color = THEME_DARK["TEXT_SECONDARY"]
+static var TEXT_MUTED: Color = THEME_DARK["TEXT_MUTED"]
+
+# --- Couleurs sémantiques ---
+static var ACCENT: Color = THEME_DARK["ACCENT"]
+static var SUCCESS: Color = THEME_DARK["SUCCESS"]
+static var WARNING: Color = THEME_DARK["WARNING"]
+static var DANGER: Color = THEME_DARK["DANGER"]
+static var ERROR_BG: Color = THEME_DARK["ERROR_BG"]
+static var ERROR_TEXT: Color = THEME_DARK["ERROR_TEXT"]
+
+## Applique la palette de couleurs sélectionnée ("dark" ou "light").
+static func apply_theme_mode(mode: String) -> void:
+	current_theme_mode = "light" if mode == "light" else "dark"
+	var p: Dictionary = THEME_LIGHT if current_theme_mode == "light" else THEME_DARK
+	BG_DEEP = p["BG_DEEP"]
+	BG_BASE = p["BG_BASE"]
+	SURFACE = p["SURFACE"]
+	SURFACE_ELEVATED = p["SURFACE_ELEVATED"]
+	BORDER = p["BORDER"]
+	BTN_BG = p["BTN_BG"]
+	BTN_BG_HOVER = p["BTN_BG_HOVER"]
+	BTN_BG_PRESSED = p["BTN_BG_PRESSED"]
+	BTN_BORDER = p["BTN_BORDER"]
+	BTN_BORDER_ACTIVE = p["BTN_BORDER_ACTIVE"]
+	PRIMARY_BG = p["PRIMARY_BG"]
+	PRIMARY_BG_PRESSED = p["PRIMARY_BG_PRESSED"]
+	PRIMARY_BORDER = p["PRIMARY_BORDER"]
+	ON_PRIMARY = p["ON_PRIMARY"]
+	TEXT_PRIMARY = p["TEXT_PRIMARY"]
+	TEXT_SECONDARY = p["TEXT_SECONDARY"]
+	TEXT_MUTED = p["TEXT_MUTED"]
+	ACCENT = p["ACCENT"]
+	SUCCESS = p["SUCCESS"]
+	WARNING = p["WARNING"]
+	DANGER = p["DANGER"]
+	ERROR_BG = p["ERROR_BG"]
+	ERROR_TEXT = p["ERROR_TEXT"]
 
 ## StyleBox plat unique, depuis les tokens (bordures/rayons/marges explicites).
 static func flat(bg: Color, radius: int = RADIUS_SMALL, border: Color = Color.TRANSPARENT,

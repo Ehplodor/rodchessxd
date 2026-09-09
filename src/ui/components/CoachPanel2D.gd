@@ -77,6 +77,8 @@ func _ready() -> void:
 		sm.settings_changed.connect(func(k, _v):
 			if k == "active_model_id" or k == "ai_provider":
 				_update_model_badge()
+			elif k == "app_theme_mode":
+				_refresh_theme_styles()
 		)
 	_update_model_badge()
 	refresh_for_current_ply()
@@ -322,6 +324,37 @@ func _setup_ui() -> void:
 	conv_list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	conv_list_vbox.add_theme_constant_override("separation", 6)
 	conv_scroll.add_child(conv_list_vbox)
+
+func _refresh_theme_styles() -> void:
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color = DesignTokens.SURFACE
+	bg_style.border_width_left = 1
+	bg_style.border_width_top = 1
+	bg_style.border_width_right = 1
+	bg_style.border_width_bottom = 1
+	bg_style.border_color = DesignTokens.SURFACE_ELEVATED
+	bg_style.corner_radius_top_left = 12
+	bg_style.corner_radius_top_right = 12
+	bg_style.corner_radius_bottom_left = 12
+	bg_style.corner_radius_bottom_right = 12
+	bg_style.content_margin_left = 8
+	bg_style.content_margin_top = 8
+	bg_style.content_margin_right = 8
+	bg_style.content_margin_bottom = 8
+	add_theme_stylebox_override("panel", bg_style)
+
+	if move_badge_label:
+		move_badge_label.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	if status_label:
+		status_label.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	if model_badge_btn:
+		var model_btn_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+				DesignTokens.BORDER, 1, Vector2(10, 4))
+		model_badge_btn.add_theme_stylebox_override("normal", model_btn_style)
+		model_badge_btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+
+	_update_perspective_buttons_style()
+	_populate_conversation_buttons()
 
 func _update_perspective_buttons_style() -> void:
 	for p in persp_buttons.keys():

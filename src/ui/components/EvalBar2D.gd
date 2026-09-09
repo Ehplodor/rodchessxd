@@ -81,16 +81,21 @@ func _draw() -> void:
 	var mid_y = h * 0.5
 	draw_line(Vector2(2, mid_y), Vector2(w - 2, mid_y), PARITY_COLOR, 1.5)
 	
-	# 4. Contour élégant semi-transparent
+	# 4. Contour élégant semi-transparent adapté au thème
 	var border_style = StyleBoxFlat.new()
 	border_style.draw_center = false
-	border_style.border_color = BORDER_COLOR
+	border_style.border_color = DesignTokens.BORDER
 	border_style.set_border_width_all(1)
 	border_style.corner_radius_top_left = int(radius)
 	border_style.corner_radius_top_right = int(radius)
 	border_style.corner_radius_bottom_left = int(radius)
 	border_style.corner_radius_bottom_right = int(radius)
 	draw_style_box(border_style, full_rect)
+
+	if score_label:
+		# Texte lisible : sombre si ratio blanc élevé, sinon clair
+		var is_on_white = (1.0 - current_ratio) > 0.5
+		score_label.add_theme_color_override("font_color", Color("#0f172a") if is_on_white else Color("#f1f5f9"))
 
 func set_score(score_cp: int, mate_in: int = 0) -> void:
 	_on_engine_eval(score_cp, mate_in, 0, "", [], [])

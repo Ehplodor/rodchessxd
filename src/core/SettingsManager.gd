@@ -37,7 +37,8 @@ var settings := {
 	"local_slm_url": "http://127.0.0.1:11434/api/generate", # Ollama / llama.cpp standard
 	"coach_personality": "mentor", # "mentor", "blunder_hunter", "kids_simple"
 	"flip_board": false,
-	"show_move_hints": true
+	"show_move_hints": true,
+	"app_theme_mode": "dark" # "dark", "light"
 }
 
 func _ready() -> void:
@@ -45,6 +46,7 @@ func _ready() -> void:
 		settings["engine_depth"] = 12
 		settings["analysis_depth"] = 14
 	load_settings()
+	DesignTokens.apply_theme_mode(settings.get("app_theme_mode", "dark"))
 
 func load_settings() -> void:
 	var err = config.load(CONFIG_PATH)
@@ -54,6 +56,7 @@ func load_settings() -> void:
 				settings[key] = config.get_value("settings", key, settings[key])
 	else:
 		save_settings()
+	DesignTokens.apply_theme_mode(settings.get("app_theme_mode", "dark"))
 
 func save_settings() -> void:
 	for key in settings.keys():

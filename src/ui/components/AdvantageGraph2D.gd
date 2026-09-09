@@ -275,9 +275,9 @@ func _draw() -> void:
 	var graph_h = maxf(10.0, h - top_margin - bottom_margin)
 	var mid_y = top_margin + graph_h * 0.5
 
-	# 1. Fond sombre élégant
-	draw_rect(Rect2(0, 0, w, h), Color("#090e1a"), true)
-	draw_rect(Rect2(0, 0, w, h), Color("#1e293b"), false, 1.0)
+	# 1. Fond élégant adapté au thème (Sombre / Clair)
+	draw_rect(Rect2(0, 0, w, h), DesignTokens.BG_DEEP, true)
+	draw_rect(Rect2(0, 0, w, h), DesignTokens.BORDER, false, 1.0)
 
 	# 2. Échelle Y logarithmique symétrique (symlog) et lignes repères
 	# Permet de distinguer finement les petits avantages (0..2 pions) tout en visualisant
