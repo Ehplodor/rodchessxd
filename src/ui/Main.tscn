@@ -167,7 +167,8 @@ layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 ratio = 1.0
-stretch_mode = 1
+stretch_mode = 0
+clip_contents = true
 
 [node name="ChessBoard" type="Control" parent="VBox/CenterArea/BoardColumn/BoardContainer"]
 custom_minimum_size = Vector2(240, 240)

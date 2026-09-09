@@ -21,7 +21,7 @@
 
         <meta-data tools:node="replace" android:name="org.godotengine.rendering.method" android:value="gl_compatibility" />
         <meta-data tools:node="replace" android:name="org.godotengine.editor.version" android:value="4.7.1.stable" />
-        <activity android:name=".GodotApp" tools:replace="android:screenOrientation,android:excludeFromRecents,android:resizeableActivity" tools:node="mergeOnlyAttributes" android:excludeFromRecents="false" android:screenOrientation="portrait" android:resizeableActivity="true">
+        <activity android:name=".GodotApp" tools:replace="android:screenOrientation,android:excludeFromRecents,android:resizeableActivity" tools:node="mergeOnlyAttributes" android:excludeFromRecents="false" android:screenOrientation="fullUser" android:resizeableActivity="true">
         </activity>
         <activity-alias
             tools:node="mergeOnlyAttributes"
