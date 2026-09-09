@@ -355,6 +355,8 @@ func _apply_modern_theme() -> void:
 		advantage_graph.queue_redraw()
 	if is_instance_valid(eval_bar):
 		eval_bar.queue_redraw()
+	if is_instance_valid(move_list):
+		move_list.refresh()
 
 func _on_game_position_changed() -> void:
 	_update_player_labels()

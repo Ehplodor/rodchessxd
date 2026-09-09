@@ -17,15 +17,15 @@ var _analysis_report: Dictionary = {}
 var _filter := 0
 
 const _FILTERS := [
-	{"label": "TOUS", "mode": 0},
-	{"label": "??", "mode": 1},   # BLUNDER / MISS
-	{"label": "?", "mode": 2},    # MISTAKE
-	{"label": "?!", "mode": 3},   # INACCURACY
-	{"label": "✓", "mode": 4},    # GOOD
-	{"label": "✓+", "mode": 5},   # EXCELLENT
-	{"label": "★", "mode": 6},    # BEST
-	{"label": "!", "mode": 7},    # GREAT
-	{"label": "!!", "mode": 8},   # BRILLIANT
+	{"label": "∅", "mode": 0, "tip": "Aucun filtre (tous les coups)"},  # TOUS
+	{"label": "??", "mode": 1, "tip": "Gaffes"},   # BLUNDER / MISS
+	{"label": "?", "mode": 2, "tip": "Erreurs"},   # MISTAKE
+	{"label": "?!", "mode": 3, "tip": "Imprécisions"},  # INACCURACY
+	{"label": "✓", "mode": 4, "tip": "Bons coups"},  # GOOD
+	{"label": "✓+", "mode": 5, "tip": "Excellents coups"},  # EXCELLENT
+	{"label": "★", "mode": 6, "tip": "Meilleurs coups"},  # BEST
+	{"label": "!", "mode": 7, "tip": "Très bons coups"},  # GREAT
+	{"label": "!!", "mode": 8, "tip": "Coups brillants"},  # BRILLIANT
 ]
 
 func _ready() -> void:
@@ -390,15 +390,37 @@ func _build_filter_row() -> void:
 	for f in _FILTERS:
 		var btn := Button.new()
 		var mode: int = f["mode"]
+		var is_active := mode == _filter
 		btn.text = f["label"]
+		btn.tooltip_text = f.get("tip", "")
 		btn.toggle_mode = true
-		btn.button_pressed = (mode == _filter)
+		btn.button_pressed = is_active
 		btn.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_DENSE)
 		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		btn.clip_text = true
 		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		if mode == _filter:
-			btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
+
+		var sb_norm := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+				DesignTokens.BORDER, 1, Vector2(8, 3))
+		var sb_hover := sb_norm.duplicate() as StyleBoxFlat
+		sb_hover.bg_color = DesignTokens.BTN_BG_HOVER
+		var sb_pressed := DesignTokens.flat(DesignTokens.BTN_BG_PRESSED, DesignTokens.RADIUS_SMALL,
+				DesignTokens.BORDER, 1, Vector2(8, 3))
+		if is_active:
+			sb_norm.bg_color = DesignTokens.BTN_BG_PRESSED
+			sb_pressed.bg_color = DesignTokens.BTN_BG
+			sb_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
+			sb_pressed.set_border_width_all(2)
+
+		var font_col := DesignTokens.ACCENT if is_active else DesignTokens.TEXT_PRIMARY
+		btn.add_theme_stylebox_override("normal", sb_norm)
+		btn.add_theme_stylebox_override("hover", sb_hover)
+		btn.add_theme_stylebox_override("pressed", sb_pressed)
+		btn.add_theme_stylebox_override("focus", sb_hover)
+		btn.add_theme_color_override("font_color", font_col)
+		btn.add_theme_color_override("font_hover_color", font_col)
+		btn.add_theme_color_override("font_pressed_color", font_col)
+		btn.add_theme_color_override("font_focus_color", font_col)
 		btn.pressed.connect(func():
 			if _filter != mode:
 				_filter = mode
