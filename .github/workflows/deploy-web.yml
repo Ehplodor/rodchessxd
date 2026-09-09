@@ -1,0 +1,68 @@
+name: Deploy RodChessXD PWA to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Installer Godot 4.7.1 stable + export templates
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/godot
+          curl -sSL -o /tmp/godot/godot.zip \
+            https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip
+          curl -sSL -o /tmp/godot/templates.tpz \
+            https://github.com/godotengine/godot/releases/download/4.7.1-stable/Godot_v4.7.1-stable_export_templates.tpz
+          cd /tmp/godot
+          unzip -q godot.zip
+          chmod +x Godot_v4.7.1-stable_linux.x86_64
+          dest="$HOME/.local/share/godot/export_templates/4.7.1.stable"
+          mkdir -p "$dest"
+          unzip -q templates.tpz -d "$dest.tmp"
+          if [ -d "$dest.tmp/templates" ]; then cp -R "$dest.tmp/templates/." "$dest/"; else cp -R "$dest.tmp/." "$dest/"; fi
+          rm -rf "$dest.tmp"
+
+      - name: Exporter le build Web (PWA)
+        run: |
+          set -euxo pipefail
+          export PATH="/tmp/godot:$PATH"
+          cd "$GITHUB_WORKSPACE"
+          Godot_v4.7.1-stable_linux.x86_64 --headless --path . --import
+          Godot_v4.7.1-stable_linux.x86_64 --headless --path . --export-release "Web" dist/index.html
+
+      - name: Ajouter le pont UCI + Stockfish WASM au build
+        run: |
+          set -euxo pipefail
+          cd "$GITHUB_WORKSPACE"
+          cp assets/web/uci_worker_bridge.js dist/uci_worker_bridge.js
+          cp assets/web/stockfish.js dist/stockfish.js
+          python3 tools/patch_pwa_sw.py dist/index.service.worker.js
+
+      - name: Uploader l'artefact Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deployer sur GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
