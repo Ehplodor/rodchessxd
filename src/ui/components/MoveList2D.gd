@@ -13,7 +13,7 @@ var _active_btn: Button = null
 var _last_moves_count: int = -1
 var _analysis_report: Dictionary = {}
 
-# Filtre actif : 0 = tout, 1 = ?! , 2 = ? , 3 = ?? , 4 = positifs (✓ ! ★ !!)
+# Filtre actif : 0 = tout, 1 = ?! , 2 = ? , 3 = ?? , 4 = ★+!!+! (Best/Brilliant/Great) , 5 = ✓ (Good/Excellent)
 var _filter := 0
 
 const _FILTERS := [
@@ -21,7 +21,8 @@ const _FILTERS := [
 	{"label": "??", "mode": 3},
 	{"label": "?", "mode": 2},
 	{"label": "?!", "mode": 1},
-	{"label": "✓+", "mode": 4},
+	{"label": "★+!!+!", "mode": 4},
+	{"label": "✓", "mode": 5},
 ]
 
 func _ready() -> void:
@@ -539,9 +540,11 @@ func _passes_filter(q: int) -> bool:
 			return q == ChessMove.Quality.BLUNDER or q == ChessMove.Quality.MISS
 		4:
 			return q in [
-				ChessMove.Quality.EXCELLENT, ChessMove.Quality.GOOD,
 				ChessMove.Quality.GREAT, ChessMove.Quality.BEST,
 				ChessMove.Quality.BRILLIANT]
+		5:
+			return q in [
+				ChessMove.Quality.EXCELLENT, ChessMove.Quality.GOOD]
 		_:
 			return true
 
