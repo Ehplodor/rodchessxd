@@ -249,57 +249,6 @@ text = "⚡ Live"
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="StatsPanel" type="PanelContainer" parent="VBox/Dashboard"]
-layout_mode = 2
-
-[node name="StatsVBox" type="VBoxContainer" parent="VBox/Dashboard/StatsPanel"]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="StatsGrid" type="HBoxContainer" parent="VBox/Dashboard/StatsPanel/StatsVBox"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="ColPlayers" type="VBoxContainer" parent="VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid"]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_stretch_ratio = 2.0
-theme_override_constants/separation = 2
-
-[node name="LabelWhiteStats" type="Label" parent="VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColPlayers"]
-layout_mode = 2
-text = "⚪ Blancs : —"
-
-[node name="LabelBlackStats" type="Label" parent="VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColPlayers"]
-layout_mode = 2
-text = "⚫ Noirs : —"
-
-[node name="ColDelta" type="CenterContainer" parent="VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid"]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_stretch_ratio = 1.0
-
-[node name="DeltaBox" type="VBoxContainer" parent="VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColDelta"]
-layout_mode = 2
-alignment = 1
-theme_override_constants/separation = 1
-
-[node name="LabelDelta" type="Label" parent="VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColDelta/DeltaBox"]
-layout_mode = 2
-text = "Δ —"
-horizontal_alignment = 1
-
-[node name="LabelPValue" type="Label" parent="VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColDelta/DeltaBox"]
-layout_mode = 2
-text = ""
-horizontal_alignment = 1
-
-[node name="StatsLabel" type="Label" parent="VBox/Dashboard/StatsPanel/StatsVBox"]
-layout_mode = 2
-text = "Position de départ prête pour l'analyse."
-horizontal_alignment = 1
-autowrap_mode = 3
-
 [node name="GraphPanel" type="PanelContainer" parent="VBox/Dashboard"]
 custom_minimum_size = Vector2(0, 150)
 layout_mode = 2

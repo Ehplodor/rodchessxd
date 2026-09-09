@@ -203,32 +203,6 @@ func _cycle_analysis() -> void:
 	set_evaluations(cur.get("evaluations", []))
 	_show_switch_analysis_button()
 	analysis_selected.emit(cur)
-	var main = find_parent("Main")
-	if main:
-		if main.has_method("_display_analysis_stats"):
-			main._display_analysis_stats(cur)
-		elif main.stats_label:
-			var w_acc = cur.get("white_accuracy", 0.0)
-			var b_acc = cur.get("black_accuracy", 0.0)
-			var w_elo = cur.get("white_estimated_elo", 1500)
-			var b_elo = cur.get("black_estimated_elo", 1500)
-			var w_ci = cur.get("white_elo_ci", 0)
-			var b_ci = cur.get("black_elo_ci", 0)
-			var comp = cur.get("elo_comparison", {})
-			var stars: String = comp.get("stars", "")
-			var p_val: float = float(comp.get("p_value", 1.0))
-			var diff_elo: int = int(comp.get("diff_elo", w_elo - b_elo))
-			var stat_summary := ""
-			if not comp.is_empty():
-				var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
-				stat_summary = " • Δ %+d ELO [%s %s]" % [diff_elo, p_str, stars]
-			var w_ci_str = " ±%d" % w_ci if w_ci > 0 else ""
-			var b_ci_str = " ±%d" % b_ci if b_ci > 0 else ""
-			main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d%s ELO)  |  ⚫ Noirs: %.1f%% (Est. %d%s ELO)%s" % [
-				w_acc, w_elo, w_ci_str,
-				b_acc, b_elo, b_ci_str,
-				stat_summary
-			]
 
 func prepare_live_analysis(total_plies: int) -> void:
 	evaluations.clear()

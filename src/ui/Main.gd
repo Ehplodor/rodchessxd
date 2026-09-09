@@ -30,14 +30,6 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 @onready var analyse_overlay: Control = $AnalyseOverlay
 @onready var coach_overlay: Control = $CoachOverlay
 
-@onready var stats_panel: PanelContainer = $VBox/Dashboard/StatsPanel
-@onready var stats_grid: HBoxContainer = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid
-@onready var label_white_stats: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColPlayers/LabelWhiteStats
-@onready var label_black_stats: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColPlayers/LabelBlackStats
-@onready var label_delta: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColDelta/DeltaBox/LabelDelta
-@onready var label_pvalue: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsGrid/ColDelta/DeltaBox/LabelPValue
-@onready var stats_label: Label = $VBox/Dashboard/StatsPanel/StatsVBox/StatsLabel
-
 @onready var btn_analyze_game: Button = $VBox/NavRow/BtnAnalyzeGame
 @onready var btn_toggle_live: Button = $VBox/NavRow/BtnToggleLive
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
@@ -66,15 +58,10 @@ var live_eval_enabled: bool = true
 var error_label: Label = null
 var _error_token := 0
 
-# Bandeau d'infos / analyse en direct : budget vertical plafonné à 3 lignes.
-const STATS_BANNER_MAX_LINES := 3
-var _stats_banner_raw := ""
-
 func _ready() -> void:
 	DesignTokens.setup_global_fonts()
 	analyzer = GameAnalyzer.new()
 	analyzer.analysis_finished.connect(_on_analysis_finished)
-	analyzer.progress_updated.connect(_on_analysis_progress)
 	analyzer.analysis_position_ready.connect(_on_analysis_position_ready)
 	analyzer.ply_analyzed.connect(_on_ply_analyzed)
 	if chess_board and not chess_board.navigation_forward_completed.is_connected(_on_analysis_navigation_completed):
@@ -129,8 +116,6 @@ func _ready() -> void:
 		_apply_safe_insets()
 	_update_player_labels()
 	_update_live_button_style()
-	if stats_label != null and not stats_label.resized.is_connected(_refresh_stats_banner):
-		stats_label.resized.connect(_refresh_stats_banner)
 	_check_and_update_layout()
 	call_deferred("_start_initial_eval")
 
@@ -295,35 +280,6 @@ func _apply_modern_theme() -> void:
 		top_eval_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		top_eval_label.add_theme_color_override("font_color", DesignTokens.ACCENT)
 
-	# Panneau des statistiques (grille 2x2 et libellé d'état)
-	if stats_panel:
-		var panel_style := DesignTokens.flat(
-			DesignTokens.SURFACE_ELEVATED,
-			DesignTokens.RADIUS_SMALL,
-			DesignTokens.BORDER,
-			1,
-			Vector2(10, 6)
-		)
-		stats_panel.add_theme_stylebox_override("panel", panel_style)
-
-	if label_white_stats:
-		label_white_stats.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		label_white_stats.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	if label_black_stats:
-		label_black_stats.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		label_black_stats.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	if label_delta:
-		label_delta.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
-		label_delta.add_theme_color_override("font_color", Color("#38bdf8"))
-	if label_pvalue:
-		label_pvalue.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
-		label_pvalue.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-
-	if stats_label:
-		stats_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		stats_label.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
-		stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-
 	# Tuiles Analyse / Coach
 	for child in $VBox/Dashboard/Tiles.get_children():
 		if child is Button:
@@ -369,10 +325,6 @@ func _on_game_position_changed() -> void:
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
 		advantage_graph.update_stored_analyses([])
-		if stats_grid:
-			stats_grid.visible = false
-		if stats_label:
-			_set_stats_line("Position de départ prête. Touchez « Analyser » sous le plateau.")
 	else:
 		var dm = get_node_or_null("/root/DatabaseManager")
 		if dm and GameController.current_game_id != "":
@@ -485,30 +437,19 @@ func _update_player_labels() -> void:
 		var top_is_winner = (top_side_white == checkmate_winner_is_white)
 		_style_status_badge(turn_badge_top, turn_badge_label_top, "🏆 Gagné • Échec et mat" if top_is_winner else "💀 Perdu • Maté", "winner" if top_is_winner else "loser")
 		_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🏆 Gagné • Échec et mat" if not top_is_winner else "💀 Perdu • Maté", "winner" if not top_is_winner else "loser")
-		if stats_label and not (analyzer and analyzer.is_analyzing):
-			var winner_label = white_name if checkmate_winner_is_white else black_name
-			_set_stats_line("🏁 Fin de partie : Échec et mat ! %s l'emporte." % winner_label)
 	elif is_stalemate:
 		_style_status_badge(turn_badge_top, turn_badge_label_top, "🤝 Nulle • Pat", "draw")
 		_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🤝 Nulle • Pat", "draw")
-		if stats_label and not (analyzer and analyzer.is_analyzing):
-			_set_stats_line("🏁 Fin de partie : Nulle par pat.")
 	elif at_last_ply and pgn_result in ["1-0", "0-1", "1/2-1/2", "0.5-0.5"]:
 		if pgn_result == "1-0":
 			_style_status_badge(turn_badge_top, turn_badge_label_top, "🏆 1-0 • Gagné" if top_side_white else "💀 0-1 • Perdu", "winner" if top_side_white else "loser")
 			_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🏆 1-0 • Gagné" if bottom_side_white else "💀 0-1 • Perdu", "winner" if bottom_side_white else "loser")
-			if stats_label and not (analyzer and analyzer.is_analyzing):
-				_set_stats_line("🏁 Fin de partie : Victoire de %s (1-0)." % white_name)
 		elif pgn_result == "0-1":
 			_style_status_badge(turn_badge_top, turn_badge_label_top, "🏆 0-1 • Gagné" if not top_side_white else "💀 1-0 • Perdu", "winner" if not top_side_white else "loser")
 			_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🏆 0-1 • Gagné" if not bottom_side_white else "💀 1-0 • Perdu", "winner" if not bottom_side_white else "loser")
-			if stats_label and not (analyzer and analyzer.is_analyzing):
-				_set_stats_line("🏁 Fin de partie : Victoire de %s (0-1)." % black_name)
 		else:
 			_style_status_badge(turn_badge_top, turn_badge_label_top, "🤝 ½ - ½ • Nulle", "draw")
 			_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "🤝 ½ - ½ • Nulle", "draw")
-			if stats_label and not (analyzer and analyzer.is_analyzing):
-				_set_stats_line("🏁 Fin de partie : Nulle convenue (½ - ½).")
 	elif side_in_check != -1:
 		var top_is_in_check = (top_side_white == (side_in_check == 0))
 		if top_is_in_check:
@@ -568,60 +509,6 @@ func _clip_player_name(name: String, max_chars := 24) -> String:
 	if name.length() <= max_chars:
 		return name
 	return name.substr(0, max_chars - 1) + "…"
-
-# --- Bandeau d'infos / analyse : texte plafonné à ~3 lignes, adapté à la largeur ---
-
-## Point d'entrée unique : mémorise le texte brut puis le met en forme pour tenir
-## dans le budget de STATS_BANNER_MAX_LINES lignes (voir _refresh_stats_banner).
-func _set_stats_line(text: String) -> void:
-	_stats_banner_raw = text
-	_refresh_stats_banner()
-
-func _refresh_stats_banner() -> void:
-	var lbl := stats_label
-	if lbl == null:
-		return
-	var text := _stats_banner_raw
-	if text.is_empty():
-		lbl.text = ""
-		return
-	var font: Font = lbl.get_theme_font("font")
-	if font == null:
-		font = ThemeDB.fallback_font
-	var fs: int = lbl.get_theme_font_size("font_size")
-	if fs <= 0:
-		fs = ThemeDB.fallback_font_size
-	var avail_w := maxf(40.0, lbl.size.x)
-	var lines := _banner_wrap(text, font, fs, avail_w)
-	if lines.size() <= STATS_BANNER_MAX_LINES:
-		lbl.text = text
-		return
-	var kept: Array[String] = lines.slice(0, STATS_BANNER_MAX_LINES)
-	kept[kept.size() - 1] = _banner_trim_to_width(kept[kept.size() - 1], font, fs, avail_w)
-	lbl.text = "\n".join(kept)
-
-func _banner_wrap(text: String, font: Font, fs: int, width: float) -> Array[String]:
-	var out: Array[String] = []
-	var cur := ""
-	for word in text.split(" ", false):
-		var cand: String = (cur + " " if cur != "" else "") + word
-		if cur != "" and font.get_string_size(cand, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
-			out.append(cur)
-			cur = word
-		else:
-			cur = cand
-	if cur != "":
-		out.append(cur)
-	return out
-
-func _banner_trim_to_width(s: String, font: Font, fs: int, width: float) -> String:
-	var ell := "…"
-	if s.is_empty() or font.get_string_size(s + ell, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x <= width:
-		return s
-	var cut := s
-	while cut.length() > 1 and font.get_string_size(cut + ell, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
-		cut = cut.substr(0, cut.length() - 1)
-	return cut.rstrip(" ") + ell
 
 func _start_initial_eval() -> void:
 	_trigger_live_eval()
@@ -720,50 +607,7 @@ func _on_btn_toggle_live_pressed() -> void:
 		if top_eval_label:
 			top_eval_label.text = "Live off"
 
-func _display_analysis_stats(report_or_entry: Dictionary, is_partial: bool = false) -> void:
-	if stats_grid == null:
-		return
-
-	var w_acc: float = float(report_or_entry.get("white_accuracy", 0.0))
-	var b_acc: float = float(report_or_entry.get("black_accuracy", 0.0))
-	var w_elo: int = int(report_or_entry.get("white_estimated_elo", 1500))
-	var b_elo: int = int(report_or_entry.get("black_estimated_elo", 1500))
-	var w_ci: int = int(report_or_entry.get("white_elo_ci", 0))
-	var b_ci: int = int(report_or_entry.get("black_elo_ci", 0))
-	var comp: Dictionary = report_or_entry.get("elo_comparison", {})
-	var stars: String = comp.get("stars", "ns")
-	var p_val: float = float(comp.get("p_value", 1.0))
-	var diff_elo: int = int(comp.get("diff_elo", w_elo - b_elo))
-
-	var w_ci_str = " ±%d" % w_ci if w_ci > 0 else ""
-	var b_ci_str = " ±%d" % b_ci if b_ci > 0 else ""
-
-	# L1C1 : Blancs
-	if label_white_stats:
-		label_white_stats.text = "⚪ Blancs : %.1f%%  •  %d%s ELO" % [w_acc, w_elo, w_ci_str]
-	# L2C1 : Noirs
-	if label_black_stats:
-		label_black_stats.text = "⚫ Noirs  : %.1f%%  •  %d%s ELO" % [b_acc, b_elo, b_ci_str]
-
-	# Colonne 2 (1/3 droite, centrée) : Δ ELO en haut, p-value + significativité en bas
-	if label_delta:
-		label_delta.text = "Δ %+d ELO" % diff_elo
-	if label_pvalue:
-		var p_str = "p < 0.001" if p_val < 0.001 else "p=%.3f" % p_val
-		label_pvalue.text = "%s %s" % [p_str, stars]
-
-	stats_grid.visible = true
-
-	var total_moves = GameController.game.move_history.size() / 2 if GameController.game else 0
-	var short_sample = " • [Échantillon court]" if total_moves < 12 else ""
-	if is_partial:
-		var count = report_or_entry.get("evaluations", []).size()
-		_set_stats_line("⏹ Analyse arrêtée (%d demi-coups) • Données partielles conservées." % count)
-	else:
-		_set_stats_line("Analyse complète SF19 terminée.%s" % short_sample)
-
 func _on_stored_analysis_selected(analysis_entry: Dictionary) -> void:
-	_display_analysis_stats(analysis_entry, false)
 	if move_list:
 		move_list.set_analysis_report(analysis_entry)
 		move_list.refresh()
@@ -859,13 +703,6 @@ func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String,
 			if chess_board.arrow_overlay:
 				chess_board.arrow_overlay.queue_redraw()
 			chess_board.queue_redraw()
-
-	if live_eval_enabled and stats_label and stats_grid and (not stats_grid.visible):
-		var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
-		var pawns_val = score_cp / 100.0
-		var eval_str = ("Mat %d" % mate_in) if mate_in != 0 else (("%+0.1f" if pawns_val >= 0 else "%.1f") % pawns_val)
-		var best_str = best_move if best_move != "" else "—"
-		_set_stats_line("⚡ %s live (prof. %d) : Eval %s • Coup : %s" % [eng_name, depth, eval_str, best_str])
 
 # --- BANDEAU D'ERREURS À L'ÉCRAN ---
 
@@ -1111,10 +948,6 @@ func _do_reset_game() -> void:
 	GameController.reset_to_initial()
 	advantage_graph.set_evaluations([])
 	advantage_graph.update_stored_analyses([])
-	if stats_grid:
-		stats_grid.visible = false
-	if stats_label:
-		_set_stats_line("Nouvelle partie commencée. Échiquier réinitialisé.")
 	if eval_bar:
 		eval_bar.set_score(20, 0)
 	if top_eval_label:
@@ -1238,11 +1071,6 @@ func _on_btn_settings_pressed() -> void:
 
 # --- ANALYSE DE PARTIE ---
 
-func _on_analysis_progress(cur: int, tot: int) -> void:
-	if analyzer.is_analyzing and cur < tot:
-		var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
-		_set_stats_line("⏳ Analyse par %s (%d/%d)..." % [eng_name, cur, tot])
-
 ## Affiche le demi-coup avant que Stockfish ne commence à analyser sa position.
 ## Ne pas émettre `position_changed` ici : celui-ci déclencherait inutilement le Live.
 func _on_analysis_position_ready(ply_idx: int) -> void:
@@ -1329,25 +1157,6 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 		var pawns: float = score_cp / 100.0
 		top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
 
-	# 4. Bandeau de statistiques et retour en direct
-	var san: String = move_record.get("san", "")
-	var move_num: int = move_record.get("move_number", (ply_idx / 2) + 1)
-	var is_w: bool = move_record.get("is_white", true)
-	var ply_str: String = ("%d. %s" if is_w else "%d... %s") % [move_num, san]
-	var margin_pawns: float = float(move_record.get("ci_margin", 0.0)) / 100.0
-	var pawns_val: float = score_cp / 100.0
-	var eval_display: String = ("%+0.1f [±%.1f]" if margin_pawns > 0 else "%+0.1f") % [pawns_val, margin_pawns]
-	var eff_d: int = move_record.get("depth", 0)
-	var d_str: String = " (p.%d)" % eff_d if eff_d > 0 else ""
-
-	_set_stats_line("⏳ Analyse en direct (%d/%d) : %s%s • Eval: %s" % [
-		ply_idx + 1,
-		total_moves,
-		ply_str,
-		d_str,
-		eval_display
-	])
-
 func _on_btn_analyze_game_pressed() -> void:
 	if analyzer.is_analyzing:
 		analyzer.cancel_analysis()
@@ -1356,21 +1165,17 @@ func _on_btn_analyze_game_pressed() -> void:
 		btn_analyze_game.text = "🔍 Analyser"
 		_apply_analyze_button_style(false)
 		btn_toggle_live.disabled = false
-		_set_stats_line("Arrêt de l'analyse en cours...")
 		if live_eval_enabled:
 			_trigger_live_eval()
 		return
 
 	var moves_count = GameController.game.move_history.size()
 	if moves_count == 0:
-		_set_stats_line("Jouez ou importez des coups avant de lancer l'analyse globale.")
 		return
 
 	btn_analyze_game.text = "⏹ STOP"
 	_apply_analyze_button_style(true)
 	btn_toggle_live.disabled = true
-	if stats_grid:
-		stats_grid.visible = false
 
 	var sm = get_node_or_null("/root/SettingsManager")
 	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
@@ -1379,20 +1184,6 @@ func _on_btn_analyze_game_pressed() -> void:
 	var dynamic_base: float = sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15
 	var dynamic_max: float = sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8
 	var a_depth: int = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
-
-	var mode_label := ""
-	match mode:
-		"dynamic":
-			mode_label = "dynamique (%.2fs-%.2fs)" % [dynamic_base, dynamic_max]
-		"time":
-			mode_label = "temps fixe (%.2fs/coup)" % time_per_move
-		"depth":
-			mode_label = "profondeur %d" % a_depth
-		_:
-			mode_label = "dynamique"
-
-	var eng_name = EngineManager.get_engine_display_name() if EngineManager else "Stockfish"
-	_set_stats_line("⏳ Démarrage de l'analyse %s (%s, 0/%d)..." % [eng_name, mode_label, moves_count])
 
 	# Verrouillage immédiat du mode analyse et arrêt du Live avant toute manipulation de l'échiquier
 	analyzer.engine_manager = EngineManager
@@ -1449,7 +1240,6 @@ func _on_analysis_finished(report: Dictionary) -> void:
 
 	if report.has("error"):
 		var err: String = report["error"]
-		_set_stats_line("❌ %s" % err)
 		_show_error_banner(err)
 		if live_eval_enabled:
 			_trigger_live_eval()
@@ -1459,10 +1249,6 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	advantage_graph.set_evaluations(evals)
 	var cur_ply = GameController.current_ply_index if GameController else -1
 	_sync_eval_to_ply(cur_ply)
-
-	var total_moves = GameController.game.move_history.size() if GameController.game else 0
-	var is_partial = (evals.size() < total_moves)
-	_display_analysis_stats(report, is_partial)
 
 	# Rétablir l'évaluation en direct si activée, une fois le graphe et l'UI synchronisés
 	if live_eval_enabled:

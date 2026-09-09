@@ -266,12 +266,6 @@ func _load_game(game_id: String) -> void:
 		if main.advantage_graph:
 			main.advantage_graph.set_evaluations(evals)
 			main.advantage_graph.update_stored_analyses(engine_analyses)
-		if main.stats_label:
-			var w_acc = last_ea.get("white_accuracy", 0.0)
-			var b_acc = last_ea.get("black_accuracy", 0.0)
-			var w_elo = last_ea.get("white_estimated_elo", 1500)
-			var b_elo = last_ea.get("black_estimated_elo", 1500)
-			main.stats_label.text = "⚪ Blancs: %.1f%% (Est. %d ELO)  |  ⚫ Noirs: %.1f%% (Est. %d ELO) [Archivée]" % [w_acc, w_elo, b_acc, b_elo]
 		if main and main.has_method("close_overlays"):
 			main.close_overlays()
 
