@@ -565,6 +565,14 @@ func _add_section_header(parent: Node, title_text: String) -> void:
 	lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	parent.add_child(lbl)
 
+## Sauvegarde d'une clé API sans écraser une valeur existante par un champ vide
+## (important sur mobile : une perte de focus ne doit jamais effacer la clé).
+func _persist_api_key(key: String, raw: String) -> void:
+	var v := raw.strip_edges()
+	if v == "" and str(SettingsManager.get_setting(key, "")) != "":
+		return
+	SettingsManager.set_setting(key, v)
+
 func _add_api_key_field(parent: Node, label_text: String, setting_key: String) -> void:
 	var row = VBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -589,7 +597,10 @@ func _add_api_key_field(parent: Node, label_text: String, setting_key: String) -
 	input.text = SettingsManager.get_setting(setting_key, "")
 	input.placeholder_text = "sk-..."
 	input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	input.text_changed.connect(func(new_text): SettingsManager.set_setting(setting_key, new_text.strip_edges()))
+	# Sauvegarde robuste (web/mobile) : sur chaque frappe, à la validation et à la perte de focus.
+	input.text_changed.connect(func(new_text): _persist_api_key(setting_key, new_text))
+	input.text_submitted.connect(func(_entered): _persist_api_key(setting_key, input.text))
+	input.focus_exited.connect(func(): _persist_api_key(setting_key, input.text))
 	edit_box.add_child(input)
 
 	var show_btn = Button.new()
