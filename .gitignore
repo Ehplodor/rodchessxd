@@ -45,3 +45,9 @@ android/plugins/uci_process/.gradle/
 android/plugins/uci_process/build/
 android/plugins/uci_process/local.properties
 android/plugins/uci_process/libs/godot-lib.aar
+RodChessXD2_Windows_v1.1.0.zip
+RodChessXD2_Windows.exe
+bin/maia-1100.pb.gz
+.gitignore
+bin/maia-1500.pb.gz
+bin/maia-1900.pb.gz

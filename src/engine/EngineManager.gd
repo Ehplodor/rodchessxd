@@ -96,6 +96,7 @@ func _ready() -> void:
 	command_mutex = Mutex.new()
 	state_mutex = Mutex.new()
 	_ensure_engine_directories()
+	_provision_bundled_engine_files()
 	install_http = HTTPRequest.new()
 	install_http.use_threads = true
 	add_child(install_http)
@@ -118,6 +119,35 @@ func _ensure_engine_directories() -> void:
 	var dir = DirAccess.open("user://")
 	if dir and not dir.dir_exists("engines"):
 		dir.make_dir("engines")
+
+## Copie au premier lancement les fichiers embarqués de res://bin/ (DLL lc0 et réseaux Maia)
+## vers user://engines/. Les DLL sont chargées depuis le dossier de l'exe lc0 et ne sont
+## jamais extraites par _find_binary_path (seul le binaire l'était) ; les réseaux Maia doivent
+## exister sous leur nom attendu pour que is_maia_net_installed() les détecte. Synchronous et
+## idempotent : ne recopie que les fichiers absents. Windows hors-éditeur uniquement.
+func _provision_bundled_engine_files() -> void:
+	if OS.get_name() != "Windows" or OS.has_feature("editor"):
+		return
+	var bundled_files := PackedStringArray([
+		"lc0.exe",
+		"dnnl.dll",
+		"mimalloc-override.dll",
+		"mimalloc-redirect.dll",
+		"maia-1100.pb.gz",
+		"maia-1500.pb.gz",
+		"maia-1900.pb.gz",
+	])
+	var engines_dir := OS.get_user_data_dir() + "/engines/"
+	for f in bundled_files:
+		if not FileAccess.file_exists("res://bin/" + f):
+			continue
+		var dst := engines_dir + f
+		if FileAccess.file_exists(dst):
+			continue
+		if _copy_file_bytes("res://bin/" + f, dst):
+			print("EngineManager: Fichier embarqué provisionné : ", f)
+		else:
+			print("EngineManager: Échec du provisionnement de ", f)
 
 func get_engine_profile() -> String:
 	var p: String = SettingsManager.get_setting("engine_profile", "stockfish")
