@@ -316,24 +316,45 @@ func _update_index_entry(game_data: Dictionary) -> void:
 
 ## Sauvegarde l'état complet du Carnet (atomes par partie, drills, apprentissage).
 ## Écriture atomique : fichier temporaire puis renommage, en conservant l'ancienne
-## version en `.bak`, afin qu'une interruption n'efface jamais tout le carnet.
+## version en `.bak`. Le renommage n'est pas fiable sur tous les systèmes de fichiers
+## (WASM/IDBFS) : en cas d'échec, on retombe sur une écriture directe pour ne jamais
+## laisser le carnet uniquement dans un `.tmp` orphelin.
 func save_carnet(carnet_data: Dictionary) -> void:
 	_ensure_directories()
+	var text := JSON.stringify(carnet_data, "  ")
 	var tmp_path = CARNET_FILE + ".tmp"
 	var f = FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
+		_direct_write_carnet(text)
 		return
-	f.store_string(JSON.stringify(carnet_data, "  "))
+	f.store_string(text)
 	f.flush()
 	f = null
+
 	var da = DirAccess.open(CARNET_DIR)
 	if da == null:
+		_direct_write_carnet(text)
 		return
+
+	# Rotation de l'ancienne version (au mieux : un échec ne doit pas bloquer la sauvegarde).
 	if da.file_exists("carnet.json.bak"):
 		da.remove("carnet.json.bak")
 	if da.file_exists("carnet.json"):
 		da.rename("carnet.json", "carnet.json.bak")
-	da.rename("carnet.json.tmp", "carnet.json")
+
+	var err: int = da.rename("carnet.json.tmp", "carnet.json")
+	if err != OK or not da.file_exists("carnet.json"):
+		# Repli : certains FS (Web/IDBFS) ne supportent pas le rename écrasant.
+		if da.file_exists("carnet.json.tmp"):
+			da.remove("carnet.json.tmp")
+		_direct_write_carnet(text)
+
+## Écriture directe de secours (sans renommage), utilisée si le FS ne coopère pas.
+func _direct_write_carnet(text: String) -> void:
+	var f = FileAccess.open(CARNET_FILE, FileAccess.WRITE)
+	if f != null:
+		f.store_string(text)
+		f.flush()
 
 ## Charge l'état du Carnet. Retourne un carnet vide et valide s'il n'existe pas.
 ## Si le fichier est illisible/corrompu, il est préservé (`carnet.json.corrupt_*`)
@@ -358,13 +379,31 @@ func get_carnet() -> Dictionary:
 	return empty
 
 ## Renomme le carnet corrompu pour permettre une récupération manuelle ultérieure.
+## Si le renommage échoue (Web/IDBFS), on copie le contenu dans un fichier `.corrupt_*`
+## puis on supprime l'original, afin de toujours préserver les données brutes.
 func _preserve_corrupt_carnet() -> void:
 	var da = DirAccess.open(CARNET_DIR)
 	if da == null or not da.file_exists("carnet.json"):
 		return
 	var stamp = Time.get_datetime_string_from_system(false, true) \
 			.replace(":", "-").replace(" ", "_")
-	da.rename("carnet.json", "carnet.json.corrupt_%s" % stamp)
+	var target = "carnet.json.corrupt_%s" % stamp
+	var err: int = da.rename("carnet.json", target)
+	if err == OK and da.file_exists(target):
+		return
+	var src = FileAccess.open(CARNET_FILE, FileAccess.READ)
+	if src == null:
+		return
+	var content = src.get_as_text()
+	src = null
+	var dst = FileAccess.open(CARNET_DIR + "/" + target, FileAccess.WRITE)
+	if dst == null:
+		return
+	dst.store_string(content)
+	dst.flush()
+	dst = null
+	if da.file_exists(target):
+		da.remove("carnet.json")
 
 func delete_carnet() -> void:
 	if FileAccess.file_exists(CARNET_FILE):

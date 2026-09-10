@@ -30,10 +30,11 @@ func _process(_delta: float) -> bool:
 	_test_compile()
 	_test_record_review()
 	_test_unknown_drill_does_not_advance_streak()
+	_test_atomic_write_artifacts()
 	_test_corruption_preserved()
 
 	_db.delete_carnet()
-	_cleanup_corrupt_files()
+	_cleanup_carnet_artifacts()
 	if _failures == 0:
 		print("ALL CARNET STORE TESTS PASSED SUCCESSFULLY!")
 	else:
@@ -137,6 +138,16 @@ func _test_unknown_drill_does_not_advance_streak() -> void:
 	_check(result.is_empty(), "drill inconnu → aucun résultat")
 	_check(after == before, "drill inconnu → série inchangée")
 
+func _test_atomic_write_artifacts() -> void:
+	# Deux sauvegardes successives doivent produire un .bak et ne laisser aucun .tmp.
+	_db.save_carnet(_db.get_carnet())
+	_db.save_carnet(_db.get_carnet())
+	_check(FileAccess.file_exists("user://library/carnet/carnet.json"), "carnet.json écrit")
+	_check(not FileAccess.file_exists("user://library/carnet/carnet.json.tmp"),
+			"aucun .tmp orphelin après sauvegarde")
+	_check(FileAccess.file_exists("user://library/carnet/carnet.json.bak"),
+			"version précédente conservée en .bak")
+
 func _test_corruption_preserved() -> void:
 	var path := "user://library/carnet/carnet.json"
 	var f := FileAccess.open(path, FileAccess.WRITE)
@@ -156,14 +167,14 @@ func _test_corruption_preserved() -> void:
 		da.list_dir_end()
 	_check(preserved, "fichier corrompu préservé (carnet.json.corrupt_*)")
 
-func _cleanup_corrupt_files() -> void:
+func _cleanup_carnet_artifacts() -> void:
 	var da := DirAccess.open("user://library/carnet")
 	if da == null:
 		return
 	da.list_dir_begin()
 	var name := da.get_next()
 	while name != "":
-		if name.begins_with("carnet.json.corrupt_"):
+		if name.begins_with("carnet.json.corrupt_") or name == "carnet.json.bak" or name == "carnet.json.tmp":
 			da.remove(name)
 		name = da.get_next()
 	da.list_dir_end()
