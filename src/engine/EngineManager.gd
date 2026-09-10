@@ -86,6 +86,10 @@ var _evaluation_generation := 0
 var _readyok_serial := 0
 var _async_analysis_session_active := false
 
+# Correctif démarrage Live : n'émettre `engine_ready` qu'après la poignée de main UCI.
+var _handshake_ready := false
+var _pending_live_fen := ""
+
 # Transport Android via plugin natif "RodChessUci" (ProcessBuilder) quand il est présent.
 var _use_plugin := false
 var _plugin_handle: Object = null
@@ -853,6 +857,8 @@ func start_engine() -> bool:
 
 	state_mutex.lock()
 	is_engine_running = true
+	_handshake_ready = false
+	_pending_live_fen = ""
 	state_mutex.unlock()
 	_received_any_output = false
 	_log_first_raw_line = true
@@ -877,7 +883,6 @@ func start_engine() -> bool:
 	send_command("isready")
 	send_command("ucinewgame")
 
-	engine_ready.emit()
 	return true
 
 func set_engine_profile(profile_id: String, maia_filename: String = "") -> bool:
@@ -966,6 +971,14 @@ func send_command(cmd: String) -> void:
 
 func evaluate_position(fen: String, depth: int = -1) -> void:
 	if not is_engine_running:
+		return
+	# Correctif démarrage Live : différer tant que la poignée de main UCI n'est pas finie.
+	state_mutex.lock()
+	var handshake_ok := _handshake_ready
+	if not handshake_ok:
+		_pending_live_fen = fen
+	state_mutex.unlock()
+	if not handshake_ok:
 		return
 	# Une analyse complète Web possède le worker UCI de façon exclusive. Les
 	# requêtes Live différées (navigation, réglages, modales) sont ignorées jusqu'à
@@ -1452,7 +1465,12 @@ func _parse_engine_line(line: String) -> void:
 	elif line == "readyok":
 		state_mutex.lock()
 		_readyok_serial += 1
+		var first_ready := not _handshake_ready
+		if first_ready:
+			_handshake_ready = true
 		state_mutex.unlock()
+		if first_ready:
+			_emit_engine_ready_deferred.call_deferred()
 
 func _emit_evaluation_finished_deferred(b_move: String, s_cp: int, d: int) -> void:
 	evaluation_finished.emit(b_move, s_cp, d)
@@ -1464,6 +1482,17 @@ func _emit_evaluation_deferred(emit_args: Array) -> void:
 	if not is_current:
 		return
 	evaluation_updated.emit(emit_args[0], emit_args[1], emit_args[2], emit_args[3], emit_args[4], emit_args[5])
+
+## Émet `engine_ready` une fois la poignée de main UCI terminée, puis rejoue la
+## demande Live mise en attente (correctif démarrage Live).
+func _emit_engine_ready_deferred() -> void:
+	state_mutex.lock()
+	var pending := _pending_live_fen
+	_pending_live_fen = ""
+	state_mutex.unlock()
+	engine_ready.emit()
+	if pending != "":
+		evaluate_position(pending)
 
 func _exit_tree() -> void:
 	stop_engine()
@@ -1480,6 +1509,7 @@ func stop_engine() -> void:
 			_plugin_handle.stopEngine()
 		state_mutex.lock()
 		is_engine_running = false
+		_pending_live_fen = ""
 		state_mutex.unlock()
 		if not _use_wasm and not _use_plugin and engine_thread and engine_thread.is_started():
 			engine_thread.wait_to_finish()
@@ -1504,6 +1534,8 @@ func _start_wasm_engine() -> bool:
 	_use_wasm = true
 	state_mutex.lock()
 	is_engine_running = true
+	_handshake_ready = false
+	_pending_live_fen = ""
 	state_mutex.unlock()
 
 	_received_any_output = false
@@ -1514,7 +1546,6 @@ func _start_wasm_engine() -> bool:
 	send_command("isready")
 	send_command("ucinewgame")
 
-	engine_ready.emit()
 	print("EngineManager: moteur Web Stockfish Wasm démarré et prêt.")
 	return true
 
