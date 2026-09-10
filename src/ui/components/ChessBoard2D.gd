@@ -100,6 +100,9 @@ var check_pulse_timer: float = 0.0
 var best_move_arrow_from: int = -1
 var best_move_arrow_to: int = -1
 var best_move_arrow_depth: int = 0
+## FEN associé à la flèche courante : un rafraîchissement graphique ne doit pas
+## effacer une flèche encore valable pour la position affichée.
+var best_move_arrow_fen: String = ""
 var show_move_hints: bool = true
 
 # T2.1 — Annotations utilisateur (flèches clic droit / Maj+glisser, cercles par clic simple).
@@ -406,8 +409,12 @@ func reset_board_visuals(preserve_best_move: bool = false) -> void:
 		flying_piece.visible = false
 	
 	if not preserve_best_move:
-		best_move_arrow_from = -1
-		best_move_arrow_to = -1
+		var gc_for_fen = _get_game_controller()
+		var current_fen: String = gc_for_fen.game.get_fen() if gc_for_fen and gc_for_fen.game else ""
+		if best_move_arrow_fen != current_fen:
+			best_move_arrow_from = -1
+			best_move_arrow_to = -1
+			best_move_arrow_fen = ""
 	
 	var gc = _get_game_controller()
 	if gc and gc.current_ply_index >= 0 and gc.current_ply_index < gc.game.move_history.size():
@@ -1292,6 +1299,7 @@ func _on_move_made(move: ChessMove) -> void:
 	last_move_to = move.to_sq
 	best_move_arrow_from = -1
 	best_move_arrow_to = -1
+	best_move_arrow_fen = ""
 	_check_king_status()
 	_animate_move(move)
 	queue_redraw()
@@ -1308,13 +1316,22 @@ func _check_king_status() -> void:
 	set_process(in_check_sq != -1)
 
 func _on_engine_eval(_score_cp: int, _mate_in: int, depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
+	set_best_move_arrow(best_move, depth)
+
+## Définit la flèche du meilleur coup en mémorisant le FEN associé, afin qu'un simple
+## rafraîchissement du plateau ne l'efface pas (correctif flèches Live).
+func set_best_move_arrow(uci: String, depth: int = 0) -> void:
 	best_move_arrow_depth = depth
-	if best_move.length() >= 4:
-		best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))
-		best_move_arrow_to = ChessMove.coord_to_square(best_move.substr(2, 2))
+	var gc = _get_game_controller()
+	var fen: String = gc.game.get_fen() if gc and gc.game else ""
+	if uci.length() >= 4:
+		best_move_arrow_from = ChessMove.coord_to_square(uci.substr(0, 2))
+		best_move_arrow_to = ChessMove.coord_to_square(uci.substr(2, 2))
+		best_move_arrow_fen = fen
 	else:
 		best_move_arrow_from = -1
 		best_move_arrow_to = -1
+		best_move_arrow_fen = ""
 	if arrow_overlay:
 		arrow_overlay.queue_redraw()
 	queue_redraw()

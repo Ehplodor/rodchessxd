@@ -594,11 +594,7 @@ func _on_btn_toggle_live_pressed() -> void:
 		if EngineManager != null and not analyzer.is_analyzing:
 			EngineManager.stop_evaluation()
 		if chess_board:
-			chess_board.best_move_arrow_from = -1
-			chess_board.best_move_arrow_to = -1
-			if chess_board.arrow_overlay:
-				chess_board.arrow_overlay.queue_redraw()
-			chess_board.queue_redraw()
+			chess_board.set_best_move_arrow("")
 		if top_eval_label:
 			top_eval_label.text = "Live off"
 
@@ -625,28 +621,14 @@ func _sync_eval_to_ply(ply_idx: int) -> void:
 			
 			var best_uci: String = rec.get("best_move", "")
 			if chess_board:
-				chess_board.best_move_arrow_depth = int(rec.get("depth", 0))
-				if best_uci.length() >= 4:
-					chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_uci.substr(0, 2))
-					chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_uci.substr(2, 2))
-				else:
-					chess_board.best_move_arrow_from = -1
-					chess_board.best_move_arrow_to = -1
-				if chess_board.arrow_overlay:
-					chess_board.arrow_overlay.queue_redraw()
-				chess_board.queue_redraw()
+				chess_board.set_best_move_arrow(best_uci, int(rec.get("depth", 0)))
 		elif ply_idx == -1:
 			if eval_bar:
 				eval_bar.set_score(20, 0)
 			if top_eval_label:
 				top_eval_label.text = "+0.2"
 			if chess_board:
-				chess_board.best_move_arrow_depth = 0
-				chess_board.best_move_arrow_from = -1
-				chess_board.best_move_arrow_to = -1
-				if chess_board.arrow_overlay:
-					chess_board.arrow_overlay.queue_redraw()
-				chess_board.queue_redraw()
+				chess_board.set_best_move_arrow("")
 
 func _on_play_sound(sound_type: String) -> void:
 	if not SettingsManager.get_setting("sound_enabled", true):
@@ -681,15 +663,7 @@ func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String,
 			eval_bar.set_score(score_cp, mate_in)
 
 		if chess_board:
-			if best_move.length() >= 4:
-				chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_move.substr(0, 2))
-				chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_move.substr(2, 2))
-			else:
-				chess_board.best_move_arrow_from = -1
-				chess_board.best_move_arrow_to = -1
-			if chess_board.arrow_overlay:
-				chess_board.arrow_overlay.queue_redraw()
-			chess_board.queue_redraw()
+			chess_board.set_best_move_arrow(best_move)
 
 ## Dernier état publié du panneau MultiPV (throttle par profondeur + nb de lignes).
 var _engine_lines_last_depth: int = -1
@@ -825,11 +799,7 @@ func _on_engine_line_selected(_rank: int, pv: Array, best_move: String) -> void:
 		move_uci = str(pv[0])
 	if chess_board == null or move_uci.length() < 4:
 		return
-	chess_board.best_move_arrow_from = ChessMove.coord_to_square(move_uci.substr(0, 2))
-	chess_board.best_move_arrow_to = ChessMove.coord_to_square(move_uci.substr(2, 2))
-	if chess_board.arrow_overlay:
-		chess_board.arrow_overlay.queue_redraw()
-	chess_board.queue_redraw()
+	chess_board.set_best_move_arrow(move_uci)
 
 # --- BANDEAU D'ERREURS À L'ÉCRAN ---
 
@@ -1141,8 +1111,7 @@ func _do_reset_game() -> void:
 	if chess_board:
 		chess_board.last_move_from = -1
 		chess_board.last_move_to = -1
-		chess_board.best_move_arrow_from = -1
-		chess_board.best_move_arrow_to = -1
+		chess_board.set_best_move_arrow("")
 		chess_board.reset_board_visuals()
 	_update_player_labels()
 	if move_list:
@@ -1345,16 +1314,7 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 	if chess_board:
 		# Flèche tactique moderne cyan de la recommandation Stockfish
 		var best_uci: String = move_record.get("best_move", "")
-		chess_board.best_move_arrow_depth = int(move_record.get("depth", 0))
-		if best_uci.length() >= 4:
-			chess_board.best_move_arrow_from = ChessMove.coord_to_square(best_uci.substr(0, 2))
-			chess_board.best_move_arrow_to = ChessMove.coord_to_square(best_uci.substr(2, 2))
-		else:
-			chess_board.best_move_arrow_from = -1
-			chess_board.best_move_arrow_to = -1
-		if chess_board.arrow_overlay:
-			chess_board.arrow_overlay.queue_redraw()
-		chess_board.queue_redraw()
+		chess_board.set_best_move_arrow(best_uci, int(move_record.get("depth", 0)))
 
 	# 2. Tracé progressif de la courbe d'avantage et de son halo de confiance
 	if advantage_graph:

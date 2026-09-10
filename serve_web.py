@@ -26,9 +26,12 @@ class GodotHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             return "application/octet-stream"
         return super().guess_type(path)
 
+class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
 def run():
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), GodotHTTPRequestHandler) as httpd:
+    with ThreadingTCPServer(("", PORT), GodotHTTPRequestHandler) as httpd:
         url = f"http://localhost:{PORT}/RodChessXD2.html"
         print("=" * 60)
         print(f" Serveur Web RodChessXD prêt sur {url}")
