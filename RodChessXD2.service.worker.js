@@ -14,7 +14,7 @@ const OFFLINE_URL = 'RodChessXD2.offline.html';
 const ENSURE_CROSSORIGIN_ISOLATION_HEADERS = false;
 // Files that will be cached on load.
 /** @type {string[]} */
-const CACHED_FILES = ["RodChessXD2.html","RodChessXD2.js","RodChessXD2.offline.html","RodChessXD2.icon.png","RodChessXD2.apple-touch-icon.png","RodChessXD2.audio.worklet.js","RodChessXD2.audio.position.worklet.js"];
+const CACHED_FILES = ["RodChessXD2.html","RodChessXD2.js","RodChessXD2.offline.html","RodChessXD2.icon.png","RodChessXD2.apple-touch-icon.png","RodChessXD2.audio.worklet.js","RodChessXD2.audio.position.worklet.js","stockfish.js","uci_worker_bridge.js"];
 // Files that we might not want the user to preload, and will only be cached on first load.
 /** @type {string[]} */
 const CACHEABLE_FILES = ["RodChessXD2.wasm","RodChessXD2.pck"];
