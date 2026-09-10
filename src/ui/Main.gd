@@ -131,6 +131,8 @@ func _ready() -> void:
 		)
 
 	_build_error_banner()
+	# Le bouton du Carnet doit exister AVANT le thème pour recevoir le même style.
+	_setup_carnet_overlay()
 	_apply_modern_theme()
 	_build_import_menu()
 	if OS.has_feature("android") or OS.has_feature("ios"):
@@ -139,7 +141,6 @@ func _ready() -> void:
 	_update_player_labels()
 	_update_live_button_style()
 	_check_and_update_layout()
-	_setup_carnet_overlay()
 	call_deferred("_start_initial_eval")
 
 func _exit_tree() -> void:
@@ -322,6 +323,45 @@ func _apply_modern_theme() -> void:
 		eval_bar.queue_redraw()
 	if is_instance_valid(move_list):
 		move_list.refresh()
+	_apply_overflow_guards()
+
+## Empêche tout débordement horizontal sur écran étroit (smartphones 360-420 px) :
+## encapsulation des conteneurs, troncature des titres/boutons dynamiques et débrayage
+## de la largeur forcée des OptionButton (cf. cause identifiée sur SettingsModal).
+func _apply_overflow_guards() -> void:
+	clip_contents = true
+	for path in ["VBox", "VBox/TopBar", "VBox/CenterArea", "VBox/CenterArea/BoardColumn",
+			"VBox/NavRow", "VBox/Dashboard", "AnalyseOverlay", "AnalyseOverlay/Layout",
+			"CoachOverlay", "CoachOverlay/Layout"]:
+		var node := get_node_or_null(path)
+		if node is Control:
+			(node as Control).clip_contents = true
+	for path in ["VBox/TopBar/MarginContainer/TitleBox/AppTitle",
+			"VBox/TopBar/MarginContainer/TitleBox/VersionLabel",
+			"AnalyseOverlay/Layout/Header/Title", "CoachOverlay/Layout/Header/Title"]:
+		var label := get_node_or_null(path)
+		if label is Label:
+			(label as Label).clip_text = true
+			(label as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			(label as Label).custom_minimum_size.x = 0
+	for bar_path in ["VBox/TopBar", "VBox/NavRow", "AnalyseOverlay/Layout/Header",
+			"CoachOverlay/Layout/Header"]:
+		var bar := get_node_or_null(bar_path)
+		if bar == null:
+			continue
+		for child in bar.get_children():
+			if child is Button:
+				child.clip_text = true
+				child.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+				child.custom_minimum_size.x = minf(child.custom_minimum_size.x, float(DesignTokens.TOUCH_MIN))
+	_harden_dropdowns(self)
+
+func _harden_dropdowns(node: Node) -> void:
+	for child in node.get_children():
+		if child is OptionButton:
+			child.fit_to_longest_item = false
+			child.clip_text = true
+		_harden_dropdowns(child)
 
 func _on_game_position_changed() -> void:
 	_update_player_labels()
@@ -1008,7 +1048,10 @@ func _open_carnet_overlay() -> void:
 	if coach_overlay:
 		coach_overlay.visible = false
 	carnet_overlay.open(carnet_presenter)
-	_show_overlay(carnet_overlay)
+	# Plein écran + au-dessus de toutes les pièces (cf. fix overlays Analyse/Coach).
+	carnet_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	carnet_overlay.visible = true
+	move_child(carnet_overlay, get_child_count() - 1)
 
 func _close_carnet_overlay() -> void:
 	if carnet_overlay != null:

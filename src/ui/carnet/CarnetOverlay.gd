@@ -29,6 +29,11 @@ var _current_tab := _TAB_CARNET
 
 func _init() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Au-dessus de l'échiquier principal (les pièces ont un z_index élevé) et
+	# encapsulé pour ne jamais déborder de l'écran.
+	z_index = 200
+	z_as_relative = false
+	clip_contents = true
 	_build_shell()
 	visible = false
 
