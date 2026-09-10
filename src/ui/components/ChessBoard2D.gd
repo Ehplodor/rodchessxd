@@ -102,6 +102,12 @@ var best_move_arrow_to: int = -1
 var best_move_arrow_depth: int = 0
 var show_move_hints: bool = true
 
+# T2.1 — Annotations utilisateur (flèches clic droit / Maj+glisser, cercles par clic simple).
+signal user_annotations_changed
+var user_arrows: Array = []
+var user_circles: Array = []
+var _ann_from: int = -1
+
 ## Calcule une couleur vive et lumineuse sur un dégradé arc-en-ciel selon la profondeur (1 à 20+)
 ## Profondeur faible (~1-6) : Rouge / Orange / Jaune
 ## Profondeur moyenne (~7-13) : Vert lime / Émeraude / Cyan
@@ -897,6 +903,69 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 	if show_move_hints and best_move_arrow_from != -1 and best_move_arrow_to != -1:
 		_draw_modern_move_arrow(best_move_arrow_from, best_move_arrow_to, theme, ci)
 
+	# 4. T2.1 — Annotations utilisateur (persistées avec la partie).
+	for a in user_arrows:
+		_draw_user_arrow(int(a.get("from", -1)), int(a.get("to", -1)), ci)
+	for sq in user_circles:
+		var center = _get_square_screen_pos(int(sq)) + Vector2(square_size * 0.5, square_size * 0.5)
+		ci.draw_arc(center, square_size * 0.42, 0, TAU, 40, Color("#f59e0be0"), 3.0)
+
+## T2.1 — Ajoute/retire une annotation (flèche, ou cercle si départ == arrivée).
+func _annotate(from_sq: int, to_sq: int) -> void:
+	if from_sq == -1:
+		return
+	if to_sq == from_sq or to_sq == -1:
+		if user_circles.has(from_sq):
+			user_circles.erase(from_sq)
+		else:
+			user_circles.append(from_sq)
+	else:
+		var idx := -1
+		for i in range(user_arrows.size()):
+			var a: Dictionary = user_arrows[i]
+			if int(a.get("from", -1)) == from_sq and int(a.get("to", -1)) == to_sq:
+				idx = i
+				break
+		if idx >= 0:
+			user_arrows.remove_at(idx)
+		else:
+			user_arrows.append({"from": from_sq, "to": to_sq})
+	_redraw_board_and_overlays()
+	user_annotations_changed.emit()
+
+func _draw_user_arrow(from_sq: int, to_sq: int, ci: CanvasItem) -> void:
+	if from_sq == -1 or to_sq == -1:
+		return
+	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
+	var end_pos = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
+	var dir = (end_pos - start_pos).normalized()
+	if start_pos.distance_to(end_pos) < 1.0:
+		return
+	var color := Color("#f59e0bef")
+	var shaft_width: float = clampf(square_size * 0.10, 4.0, 11.0)
+	var head_length: float = clampf(square_size * 0.30, 12.0, 30.0)
+	var head_width: float = clampf(square_size * 0.32, 14.0, 34.0)
+	var shaft_end = end_pos - dir * (head_length * 0.85)
+	var perp = Vector2(-dir.y, dir.x)
+	ci.draw_line(start_pos, shaft_end, color, shaft_width, true)
+	ci.draw_circle(start_pos, shaft_width * 0.6, color)
+	ci.draw_colored_polygon(PackedVector2Array([end_pos, shaft_end + perp * (head_width * 0.5), shaft_end - perp * (head_width * 0.5)]), color)
+
+## T2.1 — Sérialise / restaure les annotations (persistance dans le JSON de partie).
+func get_user_annotations() -> Dictionary:
+	return {"arrows": user_arrows.duplicate(true), "circles": user_circles.duplicate()}
+
+func set_user_annotations(data: Dictionary) -> void:
+	user_arrows = (data.get("arrows", []) as Array).duplicate(true)
+	user_circles = (data.get("circles", []) as Array).duplicate()
+	_redraw_board_and_overlays()
+
+func clear_user_annotations() -> void:
+	user_arrows.clear()
+	user_circles.clear()
+	_redraw_board_and_overlays()
+	user_annotations_changed.emit()
+
 func _draw_last_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: CanvasItem = null) -> void:
 	var canvas: CanvasItem = ci if ci != null else self
 	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
@@ -1017,6 +1086,15 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton:
 		# Ignorer les événements souris émulés automatiquement suite à un événement tactile
 		if Time.get_ticks_msec() - last_touch_timestamp < 350:
+			return
+		# T2.1 — Annotations : clic droit ou Maj+clic gauche.
+		if event.button_index == MOUSE_BUTTON_RIGHT or (event.button_index == MOUSE_BUTTON_LEFT and event.shift_pressed):
+			var ann_sq := _pos_to_square(_resolve_local_pos(event))
+			if event.pressed:
+				_ann_from = ann_sq
+			else:
+				_annotate(_ann_from, ann_sq)
+				_ann_from = -1
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			last_mouse_timestamp = Time.get_ticks_msec()

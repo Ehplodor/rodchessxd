@@ -25,6 +25,8 @@ const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
 @onready var eval_bar: EvalBar2D = $VBox/CenterArea/EvalBar
 @onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
 @onready var advantage_graph: AdvantageGraph2D = $VBox/Dashboard/GraphPanel/AdvantageGraph
+@onready var engine_lines_panel: EngineLinesPanel2D = $VBox/Dashboard/EngineLinesPanel
+@onready var game_review_panel: GameReviewPanel2D = $AnalyseOverlay/Layout/GameReviewPanel
 @onready var move_list: MoveList2D = $AnalyseOverlay/Layout/MoveList
 @onready var coach_panel: CoachPanel2D = $CoachOverlay/Layout/CoachPanel
 @onready var analyse_overlay: Control = $AnalyseOverlay
@@ -91,6 +93,19 @@ func _ready() -> void:
 		advantage_graph.move_scrubbed.connect(func(ply_idx):
 			_sync_eval_to_ply(ply_idx)
 		)
+	if engine_lines_panel != null:
+		engine_lines_panel.line_selected.connect(_on_engine_line_selected)
+	if game_review_panel != null:
+		game_review_panel.moment_selected.connect(func(ply):
+			if GameController:
+				GameController.navigate_to_ply(ply)
+				_sync_eval_to_ply(ply)
+		)
+	# T2.1 — Persistance des annotations utilisateur, par position (ply).
+	if chess_board != null:
+		chess_board.user_annotations_changed.connect(_on_user_annotations_changed)
+	if GameController != null:
+		GameController.position_changed.connect(_load_annotations_for_ply)
 
 	if btn_toggle_live != null and not btn_toggle_live.pressed.is_connected(_on_btn_toggle_live_pressed):
 		btn_toggle_live.pressed.connect(_on_btn_toggle_live_pressed)
@@ -591,6 +606,9 @@ func _on_stored_analysis_selected(analysis_entry: Dictionary) -> void:
 	if move_list:
 		move_list.set_analysis_report(analysis_entry)
 		move_list.refresh()
+	if game_review_panel:
+		game_review_panel.set_report(analysis_entry)
+	_update_graph_phase_boundaries(analysis_entry)
 	var cur_ply = GameController.current_ply_index if GameController else -1
 	_sync_eval_to_ply(cur_ply)
 
@@ -603,11 +621,7 @@ func _sync_eval_to_ply(ply_idx: int) -> void:
 			if eval_bar:
 				eval_bar.set_score(score_cp, mate_in)
 			if top_eval_label:
-				if mate_in != 0:
-					top_eval_label.text = "Mat %d" % mate_in
-				else:
-					var pawns = score_cp / 100.0
-					top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+				top_eval_label.text = EvalFormatter.format_cp_mate(score_cp, mate_in)
 			
 			var best_uci: String = rec.get("best_move", "")
 			if chess_board:
@@ -642,14 +656,11 @@ func _on_play_sound(sound_type: String) -> void:
 		"capture": sfx_capture.play()
 		"check": sfx_check.play()
 
-func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
+func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String, _pv: Array, multipv: Array) -> void:
+	_update_engine_lines(multipv, depth)
 	if analyzer != null and analyzer.is_analyzing:
 		if top_eval_label:
-			if mate_in != 0:
-				top_eval_label.text = "Mat %d" % mate_in
-			else:
-				var pawns = score_cp / 100.0
-				top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+			top_eval_label.text = EvalFormatter.format_cp_mate(score_cp, mate_in)
 		return
 
 	# Si la position actuelle correspond à un coup déjà analysé dans le graphe,
@@ -664,11 +675,7 @@ func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String,
 
 	if not has_stored_eval:
 		if top_eval_label:
-			if mate_in != 0:
-				top_eval_label.text = "Mat %d" % mate_in
-			else:
-				var pawns = score_cp / 100.0
-				top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+			top_eval_label.text = EvalFormatter.format_cp_mate(score_cp, mate_in)
 
 		if eval_bar:
 			eval_bar.set_score(score_cp, mate_in)
@@ -683,6 +690,79 @@ func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String,
 			if chess_board.arrow_overlay:
 				chess_board.arrow_overlay.queue_redraw()
 			chess_board.queue_redraw()
+
+## T1.1 — Met à jour le panneau des lignes moteur (MultiPV).
+func _update_engine_lines(multipv: Array, depth: int) -> void:
+	if engine_lines_panel == null:
+		return
+	var eng_name := "Moteur"
+	if EngineManager != null and EngineManager.has_method("get_engine_display_name"):
+		eng_name = EngineManager.get_engine_display_name()
+	engine_lines_panel.set_lines(multipv, eng_name, depth)
+
+## T2.1 — Sauvegarde les annotations du ply courant dans le JSON de la partie.
+func _on_user_annotations_changed() -> void:
+	if GameController == null or chess_board == null:
+		return
+	var dm = get_node_or_null("/root/DatabaseManager")
+	if dm == null:
+		return
+	var gid: String = GameController.get_or_create_game_id()
+	if gid == "":
+		return
+	var game: Dictionary = dm.get_game(gid)
+	if game.is_empty():
+		return
+	var ann: Dictionary = game.get("annotations", {})
+	ann[str(GameController.current_ply_index)] = chess_board.get_user_annotations()
+	game["annotations"] = ann
+	dm.save_game(game)
+
+## T2.1 — Recharge les annotations de la position affichée.
+func _load_annotations_for_ply() -> void:
+	if GameController == null or chess_board == null:
+		return
+	if GameController.current_game_id == "":
+		return
+	var dm = get_node_or_null("/root/DatabaseManager")
+	if dm == null:
+		return
+	var game: Dictionary = dm.get_game(GameController.current_game_id)
+	var ann: Dictionary = game.get("annotations", {})
+	var data = ann.get(str(GameController.current_ply_index), {})
+	chess_board.set_user_annotations(data if data is Dictionary else {})
+
+## T2.3 — Calcule et transmet les bornes de phase au graphe.
+func _update_graph_phase_boundaries(report: Dictionary) -> void:
+	if advantage_graph == null:
+		return
+	var evals: Array = report.get("evaluations", [])
+	var theory: int = int(report.get("theory_plies", 0))
+	var bounds: Array = []
+	if theory > 0:
+		bounds.append(theory)
+	for ev in evals:
+		if ev.get("is_theory", false):
+			continue
+		if GamePhaseService.phase_for(str(ev.get("fen", "")), int(ev.get("ply", 0)), theory) == "endgame":
+			var es := int(ev.get("ply", 0))
+			if es > 0:
+				bounds.append(es)
+			break
+	advantage_graph.set_phase_boundaries(bounds)
+
+## T1.1 — Prévisualise la première position d'une ligne choisie sur l'échiquier.
+func _on_engine_line_selected(_rank: int, pv: Array, best_move: String) -> void:
+	var move_uci := best_move
+	if move_uci == "" and pv.size() > 0:
+		move_uci = str(pv[0])
+	if chess_board == null or move_uci.length() < 4:
+		return
+	chess_board.best_move_arrow_from = ChessMove.coord_to_square(move_uci.substr(0, 2))
+	chess_board.best_move_arrow_to = ChessMove.coord_to_square(move_uci.substr(2, 2))
+	if chess_board.arrow_overlay:
+		chess_board.arrow_overlay.queue_redraw()
+	chess_board.queue_redraw()
 
 # --- BANDEAU D'ERREURS À L'ÉCRAN ---
 
@@ -883,9 +963,11 @@ func _build_import_menu() -> void:
 	import_menu.add_separator("Importer")
 	import_menu.add_item("🖼️  Photo du plateau (PNG)", 0)
 	import_menu.add_item("📄  Fichier / texte PGN", 1)
+	import_menu.add_item("🧩  Coller une position FEN", 7)
 	import_menu.add_item("🌐  Synchroniser Chess.com", 2)
 	import_menu.add_separator("Partie")
 	import_menu.add_item("📋  Exporter le PGN (Copier)", 3)
+	import_menu.add_item("📝  Exporter le PGN annoté (Copier)", 8)
 	import_menu.add_item("✨  Nouvelle partie (Reset)", 4)
 	import_menu.add_separator("Affichage")
 	import_menu.add_item("🎯  Aides de coups (ON/OFF)", 5)
@@ -901,17 +983,35 @@ func _on_import_menu_id_pressed(id: int) -> void:
 		4: _on_btn_new_game_pressed()
 		5: _toggle_move_hints()
 		6: _open_modal(LibraryModal.new())
+		7: _on_btn_import_fen_pressed()
+		8: _export_pgn(true)
 
-func _export_pgn() -> void:
+func _export_pgn(annotated: bool = false) -> void:
 	if GameController == null or GameController.game == null:
 		_show_error_banner("Aucune partie à exporter.")
 		return
-	var pgn_text: String = GameController.game.export_pgn()
+	var pgn_text: String = GameController.game.export_pgn(annotated)
 	DisplayServer.clipboard_set(pgn_text)
 	var pgn_modal := PGNModal.new()
 	pgn_modal.set_export_mode(pgn_text)
 	_open_modal(pgn_modal)
-	_show_toast("PGN copié dans le presse-papiers !")
+	_show_toast("PGN %s copié dans le presse-papiers !" % ("annoté" if annotated else ""))
+
+## T2.5 — Import rapide d'une position FEN (presse-papiers ou saisie via l'éditeur).
+func _on_btn_import_fen_pressed() -> void:
+	var clip := DisplayServer.clipboard_get().strip_edges()
+	if _looks_like_fen(clip):
+		GameController.load_fen(clip)
+		_trigger_live_eval()
+		_show_toast("Position FEN chargée depuis le presse-papiers")
+		return
+	_open_modal(OCREditorModal.new())
+
+func _looks_like_fen(text: String) -> bool:
+	if text.count("/") != 7:
+		return false
+	var parts := text.split(" ", false)
+	return parts.size() >= 1 and parts[0].length() >= 8
 
 func _on_btn_new_game_pressed() -> void:
 	if GameController.game and not GameController.game.move_history.is_empty():
@@ -1160,11 +1260,17 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 
 	# 3. Jauge d'évaluation et badge supérieur
 	var score_cp: int = move_record.get("score_cp", 0)
+	var mate_in: int = int(move_record.get("mate_in", 0))
 	if eval_bar:
-		eval_bar.set_score(score_cp)
+		eval_bar.set_score(score_cp, mate_in)
 	if top_eval_label:
-		var pawns: float = score_cp / 100.0
-		top_eval_label.text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+		top_eval_label.text = EvalFormatter.format_cp_mate(score_cp, mate_in)
+
+## T0.5 — Relance l'analyse pour appliquer le classifieur courant (win%, mat, brillants).
+func _on_btn_reanalyze_pressed() -> void:
+	if analyzer != null and analyzer.is_analyzing:
+		return
+	_on_btn_analyze_game_pressed()
 
 func _on_btn_analyze_game_pressed() -> void:
 	if analyzer.is_analyzing:
@@ -1256,6 +1362,7 @@ func _on_analysis_finished(report: Dictionary) -> void:
 
 	var evals = report.get("evaluations", [])
 	advantage_graph.set_evaluations(evals)
+	_update_graph_phase_boundaries(report)
 	var cur_ply = GameController.current_ply_index if GameController else -1
 	_sync_eval_to_ply(cur_ply)
 
@@ -1287,6 +1394,12 @@ func _on_analysis_finished(report: Dictionary) -> void:
 				"black_acpl": report.get("black_acpl", 0.0),
 				"white_stats": report.get("white_stats", {}),
 				"black_stats": report.get("black_stats", {}),
+				"schema_version": report.get("schema_version", 1),
+				"opening": report.get("opening", {}),
+				"theory_plies": report.get("theory_plies", 0),
+				"white_phase_stats": report.get("white_phase_stats", {}),
+				"black_phase_stats": report.get("black_phase_stats", {}),
+				"biggest_swings": report.get("biggest_swings", []),
 				"evaluations": evals
 			}
 			dm.add_engine_analysis(gid, analysis_entry)
@@ -1296,6 +1409,8 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	if move_list:
 		move_list.set_analysis_report(report)
 		move_list.refresh()
+	if game_review_panel:
+		game_review_panel.set_report(report)
 
 	# Reprise automatique du Live SF19 à la position courante
 	if live_eval_enabled:

@@ -33,10 +33,16 @@ var uci: String = ""
 # Métriques d'analyse moteur
 var eval_before_cp: int = 0
 var eval_after_cp: int = 0
+var eval_mate_in: int = 0
 var best_move_uci: String = ""
 var centipawn_loss: int = 0
+var winpct_loss: float = 0.0
 var quality: Quality = Quality.NONE
+var is_theory: bool = false
+var motifs: Array = []
 var coach_explanation: String = ""
+## Horloge restante après le coup (secondes), issue des annotations PGN [%clk] (T2.4).
+var clock_sec: float = -1.0
 
 func _init(p_from: int = -1, p_to: int = -1, p_piece: int = ChessPiece.Type.NONE, p_color: int = ChessPiece.PieceColor.NONE) -> void:
 	from_sq = p_from

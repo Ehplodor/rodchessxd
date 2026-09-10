@@ -130,6 +130,8 @@ func _get_player_quality_stats() -> Dictionary:
 	elif gc and gc.game:
 		for i in range(gc.game.move_history.size()):
 			var m = gc.game.move_history[i]
+			if m.is_theory:
+				continue
 			var is_w = (i % 2 == 0)
 			var target = w_stats if is_w else b_stats
 			match m.quality:
@@ -373,6 +375,18 @@ func _build_summary_card() -> void:
 
 # --- 3. TITRE DE LA SECTION COUPS ---
 func _build_moves_header() -> void:
+	# T1.2 — En-tête d'ouverture (ECO + nom) issue du rapport d'analyse.
+	var opening: Dictionary = _analysis_report.get("opening", {})
+	var opening_name := str(opening.get("name", ""))
+	if opening_name != "":
+		var eco := str(opening.get("eco", ""))
+		var open_lbl := Label.new()
+		open_lbl.text = "📖 %s%s" % [("%s — " % eco) if eco != "" else "", opening_name]
+		open_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		open_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		open_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+		container.add_child(open_lbl)
+
 	var lbl = Label.new()
 	lbl.text = "📜 Feuille des Coups & Navigation Interactive :"
 	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -488,13 +502,28 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 	btn.set_meta("ply", ply)
 
 	var text := m.san
-	var badge := ChessMove.quality_to_symbol(m.quality)
-	if badge != "":
-		text += " " + badge
-	text += _loss_suffix(m)
+	if m.is_theory:
+		text += "  (théorie)"
+	else:
+		var badge := ChessMove.quality_to_symbol(m.quality)
+		if badge != "":
+			text += " " + badge
+		text += _loss_suffix(m)
+	# T2.4 — Horloge restante si les annotations PGN la fournissent.
+	if m.clock_sec >= 0.0:
+		text += "  ⏱%s" % _format_clock(m.clock_sec)
+	# T1.4 — Motifs tactiques vérifiés (max 2, compacts).
+	if m.motifs.size() > 0:
+		var shown: Array = []
+		for k in range(mini(2, m.motifs.size())):
+			shown.append(str(m.motifs[k]))
+		text += "  ⚑" + ", ".join(shown)
 	btn.text = text
+	btn.tooltip_text = _move_tooltip(m)
 
-	if m.quality != ChessMove.Quality.NONE:
+	if m.is_theory:
+		btn.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	elif m.quality != ChessMove.Quality.NONE:
 		btn.add_theme_color_override("font_color", ChessMove.quality_to_color(m.quality))
 	else:
 		btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
@@ -554,6 +583,31 @@ func _loss_suffix(m: ChessMove) -> String:
 	if m.centipawn_loss > 0:
 		return " (-%d)" % int(m.centipawn_loss)
 	return ""
+
+func _format_clock(total_sec: float) -> String:
+	var s := int(maxf(0.0, total_sec))
+	var h := s / 3600
+	var mn := (s % 3600) / 60
+	var sec := s % 60
+	if h > 0:
+		return "%d:%02d:%02d" % [h, mn, sec]
+	return "%d:%02d" % [mn, sec]
+
+func _move_tooltip(m: ChessMove) -> String:
+	var parts: Array = []
+	if m.is_theory:
+		parts.append("Théorie d'ouverture")
+	else:
+		if m.quality != ChessMove.Quality.NONE:
+			parts.append("Qualité : %s" % ChessMove.quality_to_symbol(m.quality))
+		if m.centipawn_loss > 0:
+			parts.append("Perte : %d cp" % int(m.centipawn_loss))
+	if m.motifs.size() > 0:
+		var motif_strings: Array = []
+		for motif in m.motifs:
+			motif_strings.append(str(motif))
+		parts.append("Motifs : " + ", ".join(motif_strings))
+	return "\n".join(parts)
 
 func _passes_filter(q: int) -> bool:
 	match _filter:

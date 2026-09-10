@@ -22,6 +22,10 @@ var eval_depth: int = 0
 var best_move_uci: String = ""
 var pv_line: Array[String] = []
 var multipv_lines: Array[Dictionary] = []
+## Accumulateur MultiPV par rang (1..N) pendant une évaluation, protégé par state_mutex.
+var _multipv_accum: Dictionary = {}
+## Valeur MultiPV réellement demandée au moteur (1 = désactivé).
+var _multipv_requested: int = 1
 
 var engine_thread: Thread
 var should_stop_thread: bool = false
@@ -868,6 +872,8 @@ func start_engine() -> bool:
 	if not is_lc0:
 		send_command("setoption name Threads value %d" % SettingsManager.get_setting("engine_threads", 2))
 		send_command("setoption name Hash value %d" % SettingsManager.get_setting("engine_hash_mb", 32))
+		_multipv_requested = default_multipv()
+		send_command("setoption name MultiPV value %d" % _multipv_requested)
 	send_command("isready")
 	send_command("ucinewgame")
 
@@ -911,6 +917,36 @@ func is_engine_profile_active(profile_id: String) -> bool:
 func get_engine_display_name() -> String:
 	return _engine_display_name()
 
+## MultiPV par défaut : 3 sur bureau, 2 sur mobile (batterie), borné 1..5.
+func default_multipv() -> int:
+	var mobile := OS.has_feature("android") or OS.has_feature("ios")
+	var fallback := 2 if mobile else 3
+	var n := int(SettingsManager.get_setting("engine_multipv", fallback))
+	return clampi(n, 1, 5)
+
+## Demande au moteur d'analyser N lignes. `reset` vide les lignes accumulées.
+func set_multipv(n: int, reset: bool = true) -> void:
+	var value := clampi(n, 1, 5)
+	if value == _multipv_requested and not reset:
+		return
+	_multipv_requested = value
+	if is_engine_running:
+		send_command("setoption name MultiPV value %d" % value)
+	if reset:
+		state_mutex.lock()
+		multipv_lines = []
+		_multipv_accum = {}
+		state_mutex.unlock()
+
+func get_multipv() -> int:
+	return _multipv_requested
+
+## Réinitialise les accumulateurs d'évaluation (MultiPV, mate) pour une nouvelle position.
+func _reset_eval_accumulators() -> void:
+	multipv_lines = []
+	_multipv_accum = {}
+	eval_mate_in = 0
+
 func send_command(cmd: String) -> void:
 	if not is_engine_running:
 		return
@@ -946,6 +982,7 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 		return
 	current_fen = fen
 	is_evaluating = true
+	_reset_eval_accumulators()
 	state_mutex.unlock()
 	
 	if depth <= 0:
@@ -1075,6 +1112,7 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 	eval_depth = 0
 	eval_score_cp = 0
 	cancel_eval_requested = false
+	_reset_eval_accumulators()
 	state_mutex.unlock()
 
 	send_command("position fen " + fen)
@@ -1111,10 +1149,13 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 	state_mutex.lock()
 	var result = {
 		"score_cp": eval_score_cp,
+		"mate_in": eval_mate_in,
 		"best_move": best_move_uci,
 		"depth": eval_depth,
 		"timed_out": timed_out,
-		"cancelled": cancelled
+		"cancelled": cancelled,
+		"pv_line": pv_line.duplicate(),
+		"multipv_lines": multipv_lines.duplicate(true)
 	}
 	state_mutex.unlock()
 	return result
@@ -1140,7 +1181,9 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 	is_evaluating = true
 	best_move_uci = ""
 	eval_depth = 0
+	eval_score_cp = 0
 	cancel_eval_requested = false
+	_reset_eval_accumulators()
 	state_mutex.unlock()
 
 	send_command("position fen " + fen)
@@ -1180,10 +1223,13 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 	state_mutex.lock()
 	var result = {
 		"score_cp": eval_score_cp,
+		"mate_in": eval_mate_in,
 		"best_move": best_move_uci,
 		"depth": eval_depth,
 		"timed_out": timed_out,
-		"cancelled": cancelled
+		"cancelled": cancelled,
+		"pv_line": pv_line.duplicate(),
+		"multipv_lines": multipv_lines.duplicate(true)
 	}
 	state_mutex.unlock()
 	return result
@@ -1313,15 +1359,22 @@ func _parse_engine_line(line: String) -> void:
 		state_mutex.unlock()
 		var mate_in = 0
 		var pv: Array[String] = []
+		var rank := 1
+		var has_score := false
 
 		while i < tokens.size():
 			match tokens[i]:
+				"multipv":
+					if i + 1 < tokens.size():
+						rank = maxi(1, tokens[i + 1].to_int())
+						i += 1
 				"depth":
 					if i + 1 < tokens.size():
 						depth = tokens[i + 1].to_int()
 						i += 1
 				"score":
 					if i + 2 < tokens.size():
+						has_score = true
 						if tokens[i + 1] == "cp":
 							score_cp = tokens[i + 2].to_int()
 							mate_in = 0
@@ -1347,16 +1400,34 @@ func _parse_engine_line(line: String) -> void:
 				white_to_move = false
 
 		var normalized_cp = score_cp if white_to_move else -score_cp
+		var normalized_mate = mate_in if white_to_move else -mate_in
 
-		if depth > 0 or mate_in != 0 or line.contains("score mate"):
+		if has_score:
+			var line_rec := {
+				"rank": rank,
+				"depth": depth,
+				"score_cp": normalized_cp,
+				"mate_in": normalized_mate,
+				"best_move": pv[0] if pv.size() > 0 else "",
+				"fen": current_fen_snapshot,
+				"pv": pv.duplicate()
+			}
 			state_mutex.lock()
-			eval_depth = maxi(depth, 1 if mate_in != 0 else 0)
-			eval_score_cp = normalized_cp
-			eval_mate_in = mate_in
-			pv_line = pv
-			if pv.size() > 0:
-				best_move_uci = pv[0]
-			var emit_args = [normalized_cp, mate_in, eval_depth, best_move_uci, pv_line, multipv_lines, generation]
+			_multipv_accum[rank] = line_rec
+			var ranks := _multipv_accum.keys()
+			ranks.sort()
+			var lines: Array[Dictionary] = []
+			for r in ranks:
+				lines.append(_multipv_accum[r])
+			multipv_lines = lines
+			if rank == 1:
+				eval_depth = maxi(depth, 1 if normalized_mate != 0 else 0)
+				eval_score_cp = normalized_cp
+				eval_mate_in = normalized_mate
+				pv_line = pv
+				if pv.size() > 0:
+					best_move_uci = pv[0]
+			var emit_args = [eval_score_cp, eval_mate_in, eval_depth, best_move_uci, pv_line, multipv_lines.duplicate(true), generation]
 			state_mutex.unlock()
 			_emit_evaluation_deferred.call_deferred(emit_args)
 

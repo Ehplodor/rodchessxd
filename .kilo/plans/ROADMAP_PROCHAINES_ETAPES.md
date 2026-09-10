@@ -4,6 +4,14 @@
 > câblées à l'état réel du code (signaux, formats, composants). **Jalons M1, M2 et M8
 > livrés** (sept. 2026, cf. leurs sections ci-dessous) ; M3 → M7 non implémentés.
 >
+> **Note v1.2.0 (sept. 2026)** : un plan distinct « fiabilité d'analyse, outillage
+> moteur, UX » a été implémenté (voir `.kilo/plans/*evolutions-analyse-coach-ux.md`
+> et `docs/FICHE_ETAT_RodChessXD.md` §3.10–3.15). Il recouvre partiellement M3
+> (qualité de coup : classification win%, `GREAT`/`MISS`), apporte MultiPV, ouverture/
+> théorie, rapport de partie, motifs tactiques, annotations, PGN annoté, horloges et
+> import FEN. M4 (TTS), M5 (cache/rate-limiter coach), M6 (sync) et M7 (ELO/training)
+> restent à faire ; le PV cliquable et le what-if du coach restent en P3.
+>
 > Contexte : Godot 4.7.1, gl_compatibility, viewport 450x800, persistance JSON
 > (`user://library/games_index.json` + 1 fichier JSON par partie), autoloads
 > (SettingsManager, GameController, EngineManager, AICoach, DatabaseManager…),

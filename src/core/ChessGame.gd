@@ -601,17 +601,90 @@ func load_pgn(pgn: String) -> bool:
 	else:
 		load_fen(INITIAL_FEN)
 
-	var clean_tokens = _tokenize_pgn(move_text)
-	for token in clean_tokens:
-		if token in ["1-0", "0-1", "1/2-1/2", "*"]:
-			pgn_headers["Result"] = token
-			break
-		var found_move = _find_matching_move(token)
-		if found_move:
-			make_move(found_move)
+	_apply_pgn_moves(move_text)
 
 	board_changed.emit()
 	return true
+
+## T2.4 — Applique les coups d'un texte PGN en capturant les annotations d'horloge
+## `{[%clk H:MM:SS]}` attachées au coup précédent. Ignore commentaires et variantes.
+func _apply_pgn_moves(text: String) -> void:
+	var i := 0
+	var n := text.length()
+	var buf := ""
+	while i < n:
+		var c := text[i]
+		if c == "{":
+			_flush_pgn_token(buf)
+			buf = ""
+			var end := text.find("}", i)
+			if end == -1:
+				end = n - 1
+			_apply_clock_comment(text.substr(i, end - i + 1))
+			i = end + 1
+			continue
+		if c == "(":
+			_flush_pgn_token(buf)
+			buf = ""
+			var depth := 1
+			i += 1
+			while i < n and depth > 0:
+				if text[i] == "(":
+					depth += 1
+				elif text[i] == ")":
+					depth -= 1
+				i += 1
+			continue
+		if c == " " or c == "\n" or c == "\t" or c == "\r":
+			_flush_pgn_token(buf)
+			buf = ""
+			i += 1
+			continue
+		buf += c
+		i += 1
+	_flush_pgn_token(buf)
+
+func _flush_pgn_token(raw: String) -> void:
+	var token := _clean_pgn_token(raw)
+	if token == "":
+		return
+	if token in ["1-0", "0-1", "1/2-1/2", "*"]:
+		pgn_headers["Result"] = token
+		return
+	if token.begins_with("$") or token.begins_with(";"):
+		return
+	var found_move := _find_matching_move(token)
+	if found_move:
+		make_move(found_move)
+
+func _clean_pgn_token(raw: String) -> String:
+	var tok := raw.strip_edges()
+	while tok.length() > 0 and (tok[0].is_valid_int() or tok[0] == '.'):
+		tok = tok.substr(1)
+	tok = tok.replace("+", "").replace("#", "").replace("!", "").replace("?", "")
+	return tok
+
+## Extrait le temps restant d'un commentaire `{[%clk 0:05:30]}` et l'attache au dernier coup.
+func _apply_clock_comment(comment: String) -> void:
+	var idx := comment.find("%clk")
+	if idx == -1 or move_history.is_empty():
+		return
+	var rest := comment.substr(idx + 4).strip_edges()
+	var end := rest.find("]")
+	if end != -1:
+		rest = rest.substr(0, end)
+	rest = rest.strip_edges()
+	if rest == "":
+		return
+	var parts := rest.split(":")
+	var seconds := 0.0
+	if parts.size() == 3:
+		seconds = float(parts[0].to_int()) * 3600.0 + float(parts[1].to_int()) * 60.0 + float(parts[2].to_float())
+	elif parts.size() == 2:
+		seconds = float(parts[0].to_int()) * 60.0 + float(parts[1].to_float())
+	else:
+		seconds = float(rest.to_float())
+	move_history[move_history.size() - 1].clock_sec = seconds
 
 func _tokenize_pgn(text: String) -> Array[String]:
 	var result: Array[String] = []
@@ -627,12 +700,9 @@ func _tokenize_pgn(text: String) -> Array[String]:
 		if c == ')': in_bracket = false; continue
 		if in_bracket: continue
 		cleaned += c
-	
+
 	for raw_token in cleaned.split(" ", false):
-		var tok = raw_token.strip_edges()
-		while tok.length() > 0 and (tok[0].is_valid_int() or tok[0] == '.'):
-			tok = tok.substr(1)
-		tok = tok.replace("+", "").replace("#", "").replace("!", "").replace("?", "")
+		var tok := _clean_pgn_token(raw_token)
 		if tok != "":
 			result.append(tok)
 	return result
@@ -735,19 +805,48 @@ func _find_matching_move(token: String) -> ChessMove:
 
 	return null
 
-func export_pgn() -> String:
+## Export PGN. `include_annotations` ajoute les NAG de qualité, les commentaires du
+## coach/du joueur et les annotations d'horloge (T2.2), compatibles Lichess/Chess.com.
+func export_pgn(include_annotations: bool = false) -> String:
 	var pgn = ""
 	for k in pgn_headers.keys():
 		pgn += '[%s "%s"]\n' % [k, pgn_headers[k]]
 	pgn += "\n"
-	
+
 	for i in range(move_history.size()):
+		var m := move_history[i]
 		if i % 2 == 0:
 			pgn += str((i / 2) + 1) + ". "
-		pgn += move_history[i].san + " "
-	
+		pgn += m.san
+		if include_annotations:
+			var nag := quality_nag(m.quality)
+			if nag != "":
+				pgn += " " + nag
+			var comment := m.coach_explanation.strip_edges()
+			if m.clock_sec >= 0.0:
+				var clk := _format_clock_annotation(m.clock_sec)
+				comment = ("%s [%%clk %s]" % [comment, clk]) if comment != "" else ("[%%clk %s]" % clk)
+			if comment != "":
+				pgn += " {%s}" % comment
+		pgn += " "
+
 	pgn += pgn_headers.get("Result", "*")
 	return pgn
+
+## NAG standard pour une qualité de coup.
+static func quality_nag(q: int) -> String:
+	match q:
+		ChessMove.Quality.BRILLIANT: return "$3"
+		ChessMove.Quality.GREAT: return "$1"
+		ChessMove.Quality.INACCURACY: return "$6"
+		ChessMove.Quality.MISTAKE: return "$2"
+		ChessMove.Quality.BLUNDER: return "$4"
+		ChessMove.Quality.MISS: return "$4"
+		_: return ""
+
+static func _format_clock_annotation(total_sec: float) -> String:
+	var s := int(maxf(0.0, total_sec))
+	return "%d:%02d:%02d" % [s / 3600, (s % 3600) / 60, s % 60]
 
 # --- INTERPRÉTATION ALGORITHMIQUE NATURELLE DES COUPS & ACTIONS ÉCHIQUÉENNES ---
 

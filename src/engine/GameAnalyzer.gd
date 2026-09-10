@@ -28,8 +28,17 @@ var white_elo_ci_margin: int = 70
 var black_elo_ci_margin: int = 70
 var elo_stat_test: Dictionary = {}
 
-var white_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0}
-var black_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0}
+var white_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0, "miss": 0}
+var black_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0, "miss": 0}
+
+## Version du schéma de rapport (T0.5). Les lecteurs tolèrent l'absence du champ.
+const SCHEMA_VERSION := 2
+
+var opening_info: Dictionary = {}
+var theory_plies: int = 0
+var white_phase_stats: Dictionary = {}
+var black_phase_stats: Dictionary = {}
+var biggest_swings: Array = []
 
 var engine_manager: Node = null
 var settings_manager: Node = null
@@ -55,7 +64,15 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15))
 	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8))
 	var wait_for_display: bool = bool(options.get("wait_for_display", false))
-	
+
+	# T1.2 — Détection de l'ouverture / sortie de théorie (exclue des métriques).
+	opening_info = OpeningBook.identify(_moves_to_uci(game.move_history))
+	theory_plies = int(opening_info.get("out_of_book_ply", 0))
+	# T1.1 — MultiPV réduit pendant l'analyse de masse (2 sur bureau pour GREAT, 1 mobile).
+	if engine_manager != null and engine_manager.has_method("set_multipv"):
+		var _mobile := OS.has_feature("android") or OS.has_feature("ios")
+		engine_manager.set_multipv(1 if _mobile else 2, true)
+
 	var moves = game.move_history
 	var total_plies = moves.size()
 	
@@ -80,6 +97,9 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		return _fail_analysis("Le moteur n'a pas répondu à l'évaluation de la position de départ.")
 	var prev_score_cp = start_eval.get("score_cp", 20)
 	var prev_best_move = start_eval.get("best_move", "")
+	var prev_fen: String = ChessGame.INITIAL_FEN
+	var prev_pv: Array = start_eval.get("pv_line", [])
+	var prev_multipv: Array = start_eval.get("multipv_lines", [])
 	var white_loss_sum = 0
 	var black_loss_sum = 0
 	var white_moves_count = 0
@@ -96,6 +116,9 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		var is_white = (i % 2 == 0)
 		var score_before = prev_score_cp
 		var expected_best_move = prev_best_move
+		var fen_before: String = prev_fen
+		var pv_before: Array = prev_pv
+		var multipv_before: Array = prev_multipv
 
 		# Exécution du coup
 		sim_game.make_move(move)
@@ -127,7 +150,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 				"score_cp": mate_score,
 				"best_move": move.uci,
 				"depth": depth,
-				"mate_in": 0
+				"mate_in": 1 if is_white else -1
 			}
 		elif is_stalemate:
 			eval_after_data = {
@@ -146,36 +169,45 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		if cancel_requested:
 			break
 		var score_after = eval_after_data.get("score_cp", score_before)
+		var mate_after = int(eval_after_data.get("mate_in", 0))
 		var reply_best_move = eval_after_data.get("best_move", "")
 		var eff_d = eval_after_data.get("depth", depth)
 
-		# Mise à jour pour le coup suivant
+		# Mise à jour pour le coup suivant (le MultiPV courant concernera le coup i+1)
+		var ply_metrics := _evaluate_ply_quality(move, i, score_before, score_after, expected_best_move,
+				fen_before, pv_before, multipv_before, is_white)
 		prev_score_cp = score_after
 		prev_best_move = reply_best_move
+		prev_fen = fen_after
+		prev_pv = eval_after_data.get("pv_line", [])
+		prev_multipv = eval_after_data.get("multipv_lines", [])
 
-		# Calcul de la perte en centipions (du point de vue du joueur actif)
-		var cp_loss = 0
-		if is_white:
-			cp_loss = maxi(0, score_before - score_after)
-			white_loss_sum += cp_loss
-			white_moves_count += 1
-		else:
-			cp_loss = maxi(0, score_after - score_before)
-			black_loss_sum += cp_loss
-			black_moves_count += 1
+		var quality: int = ply_metrics["quality"]
+		var cp_loss: int = ply_metrics["cp_loss"]
+		var is_theory: bool = ply_metrics["is_theory"]
 
-		# Classification qualitative du coup par rapport au meilleur coup possible dans la position de départ du coup
-		var quality = _classify_move(cp_loss, move, expected_best_move, score_before, score_after, is_white)
-		move.quality = quality
-		move.centipawn_loss = cp_loss
-		move.eval_before_cp = score_before
-		move.eval_after_cp = score_after
-		move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
-
+		# Les coups de théorie n'entrent ni dans l'ACPL, ni dans la précision, ni dans l'ELO.
+		if not is_theory:
+			if is_white:
+				white_loss_sum += cp_loss
+				white_moves_count += 1
+			else:
+				black_loss_sum += cp_loss
+				black_moves_count += 1
 		if is_white:
 			_increment_quality_stat(white_stats, quality)
 		else:
 			_increment_quality_stat(black_stats, quality)
+
+		move.quality = quality
+		move.centipawn_loss = cp_loss
+		move.eval_before_cp = score_before
+		move.eval_after_cp = score_after
+		move.eval_mate_in = mate_after
+		move.winpct_loss = ply_metrics["winpct_loss"]
+		move.is_theory = is_theory
+		move.motifs = ply_metrics["motifs"]
+		move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
 
 		# Calcul de l'intervalle de confiance pour l'évaluation de cette position (IC 95%)
 		var is_tactical = (quality == ChessMove.Quality.BRILLIANT or quality == ChessMove.Quality.BLUNDER or abs(score_after - score_before) > 75)
@@ -189,8 +221,14 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 			"san": move.san,
 			"uci": move.uci,
 			"score_cp": score_after,
+			"mate_in": mate_after,
 			"loss_cp": cp_loss,
 			"quality": quality,
+			"win_before": ply_metrics["win_before"],
+			"win_after": ply_metrics["win_after"],
+			"winpct_loss": ply_metrics["winpct_loss"],
+			"is_theory": is_theory,
+			"motifs": ply_metrics["motifs"],
 			"best_move": reply_best_move,
 			"best_alternative": expected_best_move,
 			"fen": fen_after,
@@ -250,7 +288,15 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15))
 	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8))
 	var wait_for_display: bool = bool(options.get("wait_for_display", false))
-	
+
+	# T1.2 — Détection de l'ouverture / sortie de théorie (exclue des métriques).
+	opening_info = OpeningBook.identify(_moves_to_uci(game.move_history))
+	theory_plies = int(opening_info.get("out_of_book_ply", 0))
+	# T1.1 — MultiPV réduit pendant l'analyse de masse (2 sur bureau pour GREAT, 1 mobile).
+	if engine_manager != null and engine_manager.has_method("set_multipv"):
+		var _mobile := OS.has_feature("android") or OS.has_feature("ios")
+		engine_manager.set_multipv(1 if _mobile else 2, true)
+
 	var moves = game.move_history
 	var total_plies = moves.size()
 	
@@ -287,6 +333,9 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		return _fail_analysis("Le moteur n'a pas répondu à l'évaluation de la position de départ.")
 	var prev_score_cp = start_eval.get("score_cp", 20)
 	var prev_best_move = start_eval.get("best_move", "")
+	var prev_fen: String = ChessGame.INITIAL_FEN
+	var prev_pv: Array = start_eval.get("pv_line", [])
+	var prev_multipv: Array = start_eval.get("multipv_lines", [])
 	var white_loss_sum = 0
 	var black_loss_sum = 0
 	var white_moves_count = 0
@@ -305,6 +354,9 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		var is_white = (i % 2 == 0)
 		var score_before = prev_score_cp
 		var expected_best_move = prev_best_move
+		var fen_before: String = prev_fen
+		var pv_before: Array = prev_pv
+		var multipv_before: Array = prev_multipv
 
 		# Exécution du coup
 		sim_game.make_move(move)
@@ -348,7 +400,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 				"score_cp": mate_score,
 				"best_move": move.uci,
 				"depth": depth,
-				"mate_in": 0
+				"mate_in": 1 if is_white else -1
 			}
 		elif is_stalemate:
 			eval_after_data = {
@@ -365,34 +417,43 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 				return _fail_analysis("Le moteur n'a pas répondu à l'évaluation du coup %s." % move.san)
 
 		var score_after = eval_after_data.get("score_cp", score_before)
+		var mate_after = int(eval_after_data.get("mate_in", 0))
 		var reply_best_move = eval_after_data.get("best_move", "")
 		var depth_reached = eval_after_data.get("depth", depth)
 
-		# Mise à jour pour le coup suivant
+		var ply_metrics := _evaluate_ply_quality(move, i, score_before, score_after, expected_best_move,
+				fen_before, pv_before, multipv_before, is_white)
 		prev_score_cp = score_after
 		prev_best_move = reply_best_move
+		prev_fen = fen_after
+		prev_pv = eval_after_data.get("pv_line", [])
+		prev_multipv = eval_after_data.get("multipv_lines", [])
 
-		var cp_loss = 0
-		if is_white:
-			cp_loss = max(0, score_before - score_after)
-			white_loss_sum += cp_loss
-			white_moves_count += 1
-		else:
-			cp_loss = max(0, score_after - score_before)
-			black_loss_sum += cp_loss
-			black_moves_count += 1
+		var qual: int = ply_metrics["quality"]
+		var cp_loss: int = ply_metrics["cp_loss"]
+		var is_theory: bool = ply_metrics["is_theory"]
 
-		var qual = _classify_move(cp_loss, move, expected_best_move, score_before, score_after, is_white)
-		move.quality = qual
-		move.centipawn_loss = cp_loss
-		move.eval_before_cp = score_before
-		move.eval_after_cp = score_after
-		move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
-
+		if not is_theory:
+			if is_white:
+				white_loss_sum += cp_loss
+				white_moves_count += 1
+			else:
+				black_loss_sum += cp_loss
+				black_moves_count += 1
 		if is_white:
 			_increment_quality_stat(white_stats, qual)
 		else:
 			_increment_quality_stat(black_stats, qual)
+
+		move.quality = qual
+		move.centipawn_loss = cp_loss
+		move.eval_before_cp = score_before
+		move.eval_after_cp = score_after
+		move.eval_mate_in = mate_after
+		move.winpct_loss = ply_metrics["winpct_loss"]
+		move.is_theory = is_theory
+		move.motifs = ply_metrics["motifs"]
+		move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
 
 		var is_tactical = (qual == ChessMove.Quality.BRILLIANT or qual == ChessMove.Quality.BLUNDER or abs(score_after - score_before) > 75)
 		var eval_ci = _calculate_eval_ci_margin(depth_reached, cp_loss, is_tactical)
@@ -403,8 +464,14 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 			"san": move.san,
 			"uci": move.uci,
 			"score_cp": score_after,
+			"mate_in": mate_after,
 			"loss_cp": cp_loss,
 			"quality": qual,
+			"win_before": ply_metrics["win_before"],
+			"win_after": ply_metrics["win_after"],
+			"winpct_loss": ply_metrics["winpct_loss"],
+			"is_theory": is_theory,
+			"motifs": ply_metrics["motifs"],
 			"best_move": reply_best_move,
 			"best_alternative": expected_best_move,
 			"fen": fen_after,
@@ -467,34 +534,66 @@ func _reset_stats() -> void:
 		white_stats[k] = 0
 		black_stats[k] = 0
 
-func _classify_move(cp_loss: int, move: ChessMove, best_move: String, _score_before: int, _score_after: int, _is_white: bool) -> ChessMove.Quality:
-	# 1. Si le coup joué est exactement le #1 du moteur
-	if move.uci == best_move:
-		if move.captured_piece == ChessPiece.Type.NONE and move.piece != ChessPiece.Type.PAWN:
-			return ChessMove.Quality.BRILLIANT
-		return ChessMove.Quality.BEST
+## T0.2/T0.3/T0.4/T1.2/T1.4 — Calcule les métriques d'un demi-coup à partir des
+## évaluations avant/après, de la ligne principale et du MultiPV de la position AVANT
+## le coup. Ne touche pas aux sommes ACPL/aux compteurs (fait par l'appelant).
+func _evaluate_ply_quality(
+		move: ChessMove, ply: int, score_before: int, score_after: int,
+		expected_best_move: String, prev_fen: String, prev_pv: Array,
+		prev_multipv: Array, is_white: bool) -> Dictionary:
+	var is_theory := ply < theory_plies
+	var win_before := MoveQualityService.win_for(score_before, is_white)
+	var win_after := MoveQualityService.win_for(score_after, is_white)
+	var loss_cp := maxi(0, score_before - score_after) if is_white else maxi(0, score_after - score_before)
 
-	# 2. Selon la perte en centipions (normes FIDE / Lichess)
-	if cp_loss <= 15:
-		return ChessMove.Quality.EXCELLENT
-	elif cp_loss <= 40:
-		return ChessMove.Quality.GOOD
-	elif cp_loss <= 90:
-		return ChessMove.Quality.INACCURACY
-	elif cp_loss <= 200:
-		return ChessMove.Quality.MISTAKE
-	else:
-		return ChessMove.Quality.BLUNDER
+	var quality := ChessMove.Quality.NONE
+	var motifs: Array = []
+	if not is_theory:
+		var second_score: int = MoveQualityService.NO_SECOND_LINE
+		if prev_multipv is Array and prev_multipv.size() >= 2:
+			var second_line: Dictionary = prev_multipv[1]
+			second_score = int(second_line.get("score_cp", MoveQualityService.NO_SECOND_LINE))
+		var pv: Array = prev_pv if prev_pv is Array else []
+		# Le sacrifice n'est testé que pour le coup #1 non-pion (prérequis au « brillant ») :
+		# évite une simulation coûteuse sur chaque demi-coup.
+		var is_sac := false
+		if move.uci == expected_best_move and move.piece != ChessPiece.Type.PAWN and win_after < 95.0:
+			is_sac = MoveQualityService.is_sacrifice(prev_fen, move.uci, pv)
+		quality = MoveQualityService.classify(move.uci, expected_best_move, score_before, score_after,
+				loss_cp, is_white, is_sac, second_score)
+		# Motifs calculés uniquement pour les coups notables (perf + pertinence).
+		if MoveQualityService.group(quality) > 0 or quality == ChessMove.Quality.BRILLIANT or quality == ChessMove.Quality.GREAT:
+			motifs = TacticalMotifDetector.detect(prev_fen, move.uci, prev_pv)
+
+	return {
+		"quality": quality,
+		"cp_loss": loss_cp,
+		"win_before": win_before,
+		"win_after": win_after,
+		"winpct_loss": MoveQualityService.winpct_loss(win_before, win_after),
+		"is_theory": is_theory,
+		"motifs": motifs
+	}
+
+## Liste des coups au format UCI pour l'identification d'ouverture.
+func _moves_to_uci(history: Array) -> Array:
+	var out: Array = []
+	for m in history:
+		if m is ChessMove:
+			out.append(m.uci)
+	return out
 
 func _increment_quality_stat(stats: Dictionary, q: ChessMove.Quality) -> void:
 	match q:
 		ChessMove.Quality.BRILLIANT: stats["brilliant"] += 1
+		ChessMove.Quality.GREAT: stats["great"] += 1
 		ChessMove.Quality.BEST: stats["best"] += 1
 		ChessMove.Quality.EXCELLENT: stats["excellent"] += 1
 		ChessMove.Quality.GOOD: stats["good"] += 1
 		ChessMove.Quality.INACCURACY: stats["inaccuracy"] += 1
 		ChessMove.Quality.MISTAKE: stats["mistake"] += 1
 		ChessMove.Quality.BLUNDER: stats["blunder"] += 1
+		ChessMove.Quality.MISS: stats["miss"] += 1
 
 ## Conversion centipions -> Probabilité de gain (modèle sigmoïde standard FIDE / Lichess)
 ## 0 cp -> 50%, +100 cp -> ~64%, +300 cp -> ~85%, +600 cp -> ~97%
@@ -511,6 +610,11 @@ func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> floa
 		var cur_cp = ev.get("score_cp", 0)
 		var is_white_move = ev.get("is_white", true)
 		var ply_idx = ev.get("ply", 0)
+
+		# T1.2 — La théorie d'ouverture est exclue de la précision.
+		if ev.get("is_theory", false):
+			prev_cp = cur_cp
+			continue
 
 		if is_white_move == for_white:
 			var win_before: float
@@ -687,6 +791,9 @@ func _calculate_elo_statistics(evals: Array[Dictionary], for_white: bool, accura
 	for ev in evals:
 		var cur_cp = ev.get("score_cp", 0)
 		var is_w = ev.get("is_white", true)
+		if ev.get("is_theory", false):
+			prev_cp = cur_cp
+			continue
 		if is_w == for_white:
 			var win_before = _win_percentage(prev_cp) if for_white else (100.0 - _win_percentage(prev_cp))
 			var win_after = _win_percentage(cur_cp) if for_white else (100.0 - _win_percentage(cur_cp))
@@ -879,7 +986,10 @@ func _evaluate_fen_async(fen: String, depth: int, movetime_ms: int = -1) -> Dict
 	return _evaluate_fen_sync(fen, depth, movetime_ms)
 
 func _build_final_report() -> Dictionary:
+	_compute_phase_stats()
+	_compute_biggest_swings()
 	return {
+		"schema_version": SCHEMA_VERSION,
 		"white_acpl": white_acpl,
 		"black_acpl": black_acpl,
 		"white_accuracy": white_accuracy,
@@ -891,5 +1001,58 @@ func _build_final_report() -> Dictionary:
 		"elo_comparison": elo_stat_test,
 		"white_stats": white_stats,
 		"black_stats": black_stats,
+		"opening": opening_info,
+		"theory_plies": theory_plies,
+		"white_phase_stats": white_phase_stats,
+		"black_phase_stats": black_phase_stats,
+		"biggest_swings": biggest_swings,
 		"evaluations": move_evaluations
 	}
+
+## T1.3 — Agrège la perte de win% moyenne par phase et par camp.
+func _compute_phase_stats() -> void:
+	white_phase_stats = _empty_phase_stats()
+	black_phase_stats = _empty_phase_stats()
+	for ev in move_evaluations:
+		if ev.get("is_theory", false):
+			continue
+		var phase: String = GamePhaseService.phase_for(str(ev.get("fen", "")), int(ev.get("ply", 0)), theory_plies)
+		var target: Dictionary = white_phase_stats if bool(ev.get("is_white", true)) else black_phase_stats
+		var bucket: Dictionary = target[phase]
+		bucket["moves"] = int(bucket.get("moves", 0)) + 1
+		bucket["winpct_loss"] = float(bucket.get("winpct_loss", 0.0)) + float(ev.get("winpct_loss", 0.0))
+	for stats in [white_phase_stats, black_phase_stats]:
+		for phase in stats.keys():
+			var b: Dictionary = stats[phase]
+			var m := int(b.get("moves", 0))
+			b["avg_winpct_loss"] = (float(b.get("winpct_loss", 0.0)) / float(m)) if m > 0 else 0.0
+
+func _empty_phase_stats() -> Dictionary:
+	return {
+		"opening": {"moves": 0, "winpct_loss": 0.0, "avg_winpct_loss": 0.0},
+		"middlegame": {"moves": 0, "winpct_loss": 0.0, "avg_winpct_loss": 0.0},
+		"endgame": {"moves": 0, "winpct_loss": 0.0, "avg_winpct_loss": 0.0}
+	}
+
+## T1.3 — Les 3 plus gros basculements de win% (moments clés, cliquables dans l'UI).
+func _compute_biggest_swings() -> void:
+	var candidates: Array = []
+	for ev in move_evaluations:
+		if ev.get("is_theory", false):
+			continue
+		candidates.append(ev)
+	candidates.sort_custom(func(a, b):
+		return float(a.get("winpct_loss", 0.0)) > float(b.get("winpct_loss", 0.0))
+	)
+	biggest_swings = []
+	for k in range(mini(3, candidates.size())):
+		var ev: Dictionary = candidates[k]
+		biggest_swings.append({
+			"ply": int(ev.get("ply", 0)),
+			"move_number": int(ev.get("move_number", 1)),
+			"is_white": bool(ev.get("is_white", true)),
+			"san": str(ev.get("san", "")),
+			"quality": int(ev.get("quality", ChessMove.Quality.NONE)),
+			"winpct_loss": float(ev.get("winpct_loss", 0.0)),
+			"score_cp": int(ev.get("score_cp", 0))
+		})

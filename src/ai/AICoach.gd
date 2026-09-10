@@ -243,6 +243,14 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 	if extra_context.get("is_checkmate", false):
 		user_prompt += "- **Alerte immédiate** : ÉCHEC ET MAT !\n"
 
+	# T1.4 — Motifs tactiques DÉTECTÉS LOCALEMENT (faits vérifiés, à expliquer et non à deviner).
+	var motifs: Array = extra_context.get("motifs", [])
+	if motifs is Array and not motifs.is_empty():
+		var motif_labels: Array = []
+		for motif in motifs:
+			motif_labels.append(str(motif))
+		user_prompt += "- **Motifs tactiques détectés (vérifiés par l'analyseur)** : %s. Utilise-les tels quels, ne les invente pas.\n" % ", ".join(motif_labels)
+
 	user_prompt += "\n---\n"
 	if user_question != "":
 		user_prompt += "### 💬 QUESTION DU JOUEUR :\n\"%s\"\n\nRéponds précisément à la question en t'appuyant rigoureusement sur les données objectives ci-dessus." % user_question

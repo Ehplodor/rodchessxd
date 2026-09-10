@@ -7,6 +7,8 @@ signal analysis_selected(analysis_entry: Dictionary)
 
 var evaluations: Array = []
 var active_ply: int = -1
+## T2.3 — Bornes de phase (plies) à matérialiser par des traits verticaux.
+var phase_boundaries: Array = []
 
 var max_eval_cp: float = 500.0 # Plafond visuel à ±5 pions
 var depth_badge: PanelContainer
@@ -238,6 +240,11 @@ func set_evaluations(eval_data: Array) -> void:
 		active_ply = evaluations.size() - 1
 	queue_redraw()
 
+## T2.3 — Définit les plies de séparation de phases à afficher sur le graphe.
+func set_phase_boundaries(bounds: Array) -> void:
+	phase_boundaries = bounds.duplicate()
+	queue_redraw()
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_update_button_positions()
@@ -374,6 +381,15 @@ func _draw() -> void:
 			draw_circle(pt, 5.0, Color("#10b981"))
 			draw_arc(pt, 5.0, 0, TAU, 16, Color("#ffffff"), 1.2)
 
+	# 8bis. T2.3 — Repères de phase (fin d'ouverture, début de finale).
+	if not points.is_empty():
+		for bound in phase_boundaries:
+			var bp: int = int(bound)
+			if bp <= 0 or bp >= total_points:
+				continue
+			var bx: float = points[bp].x
+			draw_dashed_line(Vector2(bx, top_margin), Vector2(bx, h - bottom_margin), Color(1, 1, 1, 0.22), 1.0, 5.0, true, true)
+
 	# 9. Curseur actif : ligne + point, SANS texte superposé à la courbe.
 	if active_ply >= 0 and active_ply < points.size():
 		var cursor_pt = points[active_ply]
@@ -397,9 +413,8 @@ func _draw() -> void:
 	else:
 		var rec = evaluations[active_ply] if active_ply >= 0 and active_ply < evaluations.size() else {}
 		if not rec.is_empty():
-			var score_cp = rec.get("score_cp", 0)
-			var pawns_val = score_cp / 100.0
-			var eval_str = ("+%.1f" if pawns_val >= 0 else "%.1f") % pawns_val
+			var score_cp = int(rec.get("score_cp", 0))
+			var eval_str = EvalFormatter.format_cp_mate(score_cp, int(rec.get("mate_in", 0)))
 			var margin_pawns = float(rec.get("ci_margin", 0.0)) / 100.0
 			var ci_str = " [±%.1f]" % margin_pawns if margin_pawns > 0.0 else ""
 			var move_num = rec.get("move_number", 1)

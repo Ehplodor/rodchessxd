@@ -285,6 +285,30 @@ func _setup_ui() -> void:
 	hash_row.add_child(hash_spin)
 	vbox.add_child(hash_row)
 
+	# T1.1 — Nombre de lignes moteur (MultiPV)
+	var mpv_row = HBoxContainer.new()
+	mpv_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var mpv_lbl = Label.new()
+	mpv_lbl.text = "Lignes d'analyse (MultiPV) :"
+	mpv_lbl.custom_minimum_size = Vector2(50, 0)
+	mpv_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mpv_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mpv_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	mpv_row.add_child(mpv_lbl)
+
+	var mpv_spin = SpinBox.new()
+	mpv_spin.min_value = 1
+	mpv_spin.max_value = 5
+	mpv_spin.step = 1
+	mpv_spin.value = SettingsManager.get_setting("engine_multipv", 2)
+	mpv_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_multipv", int(val)))
+	mpv_spin.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_MIN)
+	mpv_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if mpv_spin.get_line_edit():
+		mpv_spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mpv_row.add_child(mpv_spin)
+	vbox.add_child(mpv_row)
+
 	var param_note = Label.new()
 	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Mode Dynamique : vitesse maximale sur les coups évidents (0.15s) et approfondissement automatique sur les coups critiques.\n• Mode Temps fixe : durée garantie par demi-coup (0.1s à 3.0s).\n• Mode Profondeur : analyse à profondeur UCI fixe.\n• Intervalles de confiance (IC 95%) : calculés statistiquement sur les évaluations et les ELO avec test de Welch (*, **, ***).\n• Threads & Hash : nombre de cœurs CPU et mémoire cache (redémarre le moteur si modifié)."
 	param_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

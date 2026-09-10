@@ -743,6 +743,8 @@ func _execute_prompt(label_text: String, query_text: String, prompt_type: String
 		extra_context["last_move_color"] = "white" if (current_ply_index % 2 == 0) else "black"
 		extra_context["is_check"] = m.is_check
 		extra_context["is_checkmate"] = m.is_checkmate
+		extra_context["motifs"] = m.motifs
+		extra_context["is_theory"] = m.is_theory
 	else:
 		extra_context["move_number"] = 1
 		extra_context["ply_index"] = -1

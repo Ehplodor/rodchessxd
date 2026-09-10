@@ -1,6 +1,8 @@
-[gd_scene load_steps=11 format=3 uid="uid://c53k8b0a9xq2d"]
+[gd_scene load_steps=13 format=3 uid="uid://c53k8b0a9xq2d"]
 
 [ext_resource type="Script" path="res://src/ui/Main.gd" id="1_main"]
+[ext_resource type="Script" path="res://src/ui/components/EngineLinesPanel2D.gd" id="10_englines"]
+[ext_resource type="Script" path="res://src/ui/components/GameReviewPanel2D.gd" id="11_review"]
 [ext_resource type="Script" path="res://src/ui/components/EvalBar2D.gd" id="2_eval"]
 [ext_resource type="Script" path="res://src/ui/components/ChessBoard2D.gd" id="3_board"]
 [ext_resource type="Script" path="res://src/ui/components/AdvantageGraph2D.gd" id="4_graph"]
@@ -260,6 +262,10 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 script = ExtResource("4_graph")
 
+[node name="EngineLinesPanel" type="VBoxContainer" parent="VBox/Dashboard"]
+layout_mode = 2
+script = ExtResource("10_englines")
+
 [node name="AnalyseOverlay" type="Control" parent="."]
 visible = false
 layout_mode = 1
@@ -309,10 +315,20 @@ layout_mode = 2
 tooltip_text = "Basculer vers le Coach IA"
 text = "🤖 Coach"
 
+[node name="BtnReanalyze" type="Button" parent="AnalyseOverlay/Layout/Header"]
+custom_minimum_size = Vector2(56, 56)
+layout_mode = 2
+tooltip_text = "Ré-analyser la partie avec le classifieur courant"
+text = "🔄"
+
 [node name="BtnCloseAnalyse" type="Button" parent="AnalyseOverlay/Layout/Header"]
 custom_minimum_size = Vector2(64, 56)
 layout_mode = 2
 text = "✕"
+
+[node name="GameReviewPanel" type="VBoxContainer" parent="AnalyseOverlay/Layout"]
+layout_mode = 2
+script = ExtResource("11_review")
 
 [node name="MoveList" type="ScrollContainer" parent="AnalyseOverlay/Layout"]
 layout_mode = 2
@@ -400,6 +416,7 @@ stream = ExtResource("9_sfx_check")
 [connection signal="pressed" from="VBox/NavRow/BtnLast" to="." method="_on_btn_last_pressed"]
 [connection signal="pressed" from="VBox/NavRow/BtnAnalyzeGame" to="." method="_on_btn_analyze_game_pressed"]
 [connection signal="pressed" from="AnalyseOverlay/Layout/Header/BtnSwitchToCoach" to="." method="_open_coach_overlay"]
+[connection signal="pressed" from="AnalyseOverlay/Layout/Header/BtnReanalyze" to="." method="_on_btn_reanalyze_pressed"]
 [connection signal="pressed" from="AnalyseOverlay/Layout/Header/BtnCloseAnalyse" to="." method="_close_overlays"]
 [connection signal="pressed" from="CoachOverlay/Layout/Header/BtnSwitchToAnalyse" to="." method="_open_analyse_overlay"]
 [connection signal="pressed" from="CoachOverlay/Layout/Header/BtnCloseCoach" to="." method="_close_overlays"]
