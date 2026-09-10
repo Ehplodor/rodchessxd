@@ -64,7 +64,7 @@ static func ingest_game(game_id: String, atoms: Array, meta: Dictionary = {}, pr
 	var entries: Dictionary = sync.get("entries", {})
 	entries[game_id] = {
 		"perspective": str(meta.get("perspective", "")),
-		"date_iso": str(meta.get("date_iso", game.get("date", ""))),
+		"date_iso": DateUtil.normalize(str(meta.get("date_iso", game.get("date", "")))),
 		"analysis_version": analysis_version,
 		"atom_version": CarnetConfig.ATOM_VERSION,
 		"atoms_count": atoms.size(),

@@ -427,20 +427,11 @@ static func _count_games(atoms: Array) -> int:
 	return games.size()
 
 static func _age_days(date_iso: String, today_iso: String) -> float:
-	var a := _day_index(date_iso)
-	var b := _day_index(today_iso)
+	var a := DateUtil.day_index(date_iso)
+	var b := DateUtil.day_index(today_iso)
 	if a < 0 or b < 0:
 		return 0.0
 	return maxf(0.0, float(b - a))
-
-static func _day_index(date_iso: String) -> int:
-	if date_iso.length() < 10:
-		return -1
-	var day := date_iso.substr(0, 10)
-	var unix := Time.get_unix_time_from_datetime_string(day + "T00:00:00")
-	if unix <= 0:
-		return -1
-	return int(unix / 86400.0)
 
 static func libelle(famille: String, cle: String) -> String:
 	match famille:

@@ -13,6 +13,9 @@ const ChessComImportModal = preload("res://src/ui/components/ChessComImportModal
 const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
 const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
+const CarnetPresenter = preload("res://src/ui/carnet/CarnetPresenter.gd")
+const CarnetOverlay = preload("res://src/ui/carnet/CarnetOverlay.gd")
+const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
 
 @onready var vbox: VBoxContainer = $VBox
 @onready var top_bar: HBoxContainer = $VBox/TopBar
@@ -59,6 +62,10 @@ var live_eval_enabled: bool = true
 
 var error_label: Label = null
 var _error_token := 0
+
+## LeCarnet (UI 3 couches) : overlay plein écran + présentateur, câblés en code.
+var carnet_overlay: Control = null
+var carnet_presenter: CarnetPresenter = null
 
 func _ready() -> void:
 	DesignTokens.setup_global_fonts()
@@ -132,6 +139,7 @@ func _ready() -> void:
 	_update_player_labels()
 	_update_live_button_style()
 	_check_and_update_layout()
+	_setup_carnet_overlay()
 	call_deferred("_start_initial_eval")
 
 func _exit_tree() -> void:
@@ -964,6 +972,48 @@ func _open_coach_overlay() -> void:
 		coach_panel.refresh_for_current_ply()
 	_show_overlay(coach_overlay)
 
+## LeCarnet : overlay plein écran accessible depuis la barre supérieure.
+func _setup_carnet_overlay() -> void:
+	if top_bar == null:
+		return
+	carnet_presenter = CarnetPresenter.new()
+	carnet_overlay = CarnetOverlay.new()
+	carnet_overlay.name = "CarnetOverlay"
+	add_child(carnet_overlay)
+	carnet_overlay.closed.connect(_close_carnet_overlay)
+	# Le lot analyse via le moteur partagé : il cède le pas à l'utilisateur.
+	carnet_presenter.set_analyzer(CarnetBatchRunner.default_analyzer(14))
+	carnet_presenter.set_engine_free_provider(func() -> bool:
+		if analyse_overlay != null and analyse_overlay.visible:
+			return false
+		if analyzer != null and analyzer.is_analyzing:
+			return false
+		return true)
+	carnet_presenter.error.connect(_show_error_banner)
+	var btn := Button.new()
+	btn.name = "BtnCarnet"
+	btn.text = "📓"
+	btn.tooltip_text = "LeCarnet"
+	btn.clip_text = true
+	DesignTokens.style_button(btn, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+	btn.custom_minimum_size.x = float(DesignTokens.TOUCH_MIN)
+	btn.pressed.connect(_open_carnet_overlay)
+	top_bar.add_child(btn)
+
+func _open_carnet_overlay() -> void:
+	if carnet_overlay == null or carnet_presenter == null:
+		return
+	if analyse_overlay:
+		analyse_overlay.visible = false
+	if coach_overlay:
+		coach_overlay.visible = false
+	carnet_overlay.open(carnet_presenter)
+	_show_overlay(carnet_overlay)
+
+func _close_carnet_overlay() -> void:
+	if carnet_overlay != null:
+		carnet_overlay.visible = false
+
 func _show_overlay(overlay: Control) -> void:
 	_dock_overlay(overlay)
 	overlay.visible = true
@@ -972,6 +1022,8 @@ func _show_overlay(overlay: Control) -> void:
 func _close_overlays() -> void:
 	analyse_overlay.visible = false
 	coach_overlay.visible = false
+	if carnet_overlay != null:
+		carnet_overlay.visible = false
 
 ## Retour à la vue principale (clic sur un coup dans l'analyse).
 func show_board_tab() -> void:

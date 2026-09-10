@@ -118,7 +118,7 @@ static func annotate(coup: Dictionary) -> Dictionary:
 		"event_id": event_id_for(game_id, ply, couleur),
 		"game_id": game_id,
 		"ply": ply,
-		"date_iso": str(coup.get("date_iso", "")),
+		"date_iso": DateUtil.normalize(str(coup.get("date_iso", ""))),
 		"couleur": couleur,
 		"polarite": polarite,
 		"polarites": polarites,
@@ -168,7 +168,7 @@ static func annotate_game(game_data: Dictionary, analysis: Dictionary, options: 
 	var nb_plies: int = moves.size()
 	var couleur_joueur: String = str(options.get("couleur_joueur", game_data.get("couleur_joueur", "")))
 	var mode_analyse: bool = bool(options.get("mode_analyse", false))
-	var date_iso: String = str(game_data.get("date", game_data.get("date_iso", "")))
+	var date_iso: String = DateUtil.normalize(str(game_data.get("date", game_data.get("date_iso", ""))))
 	var game_id: String = str(game_data.get("id", ""))
 
 	var sim := ChessGame.new()

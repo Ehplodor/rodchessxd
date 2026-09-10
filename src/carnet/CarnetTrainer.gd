@@ -452,13 +452,13 @@ static func update_streak(state: Dictionary, today_iso: String, had_drill: bool)
 	var derniere_joker := str(state.get("derniere_joker_date", ""))
 	# Le joker se recharge 7 jours après avoir été consommé.
 	if joker_dispo < CarnetConfig.JOKER_PAR_SEMAINE and derniere_joker != "" \
-			and _day_index(today_iso) - _day_index(derniere_joker) >= 7:
+			and DateUtil.day_index(today_iso) - DateUtil.day_index(derniere_joker) >= 7:
 		joker_dispo = CarnetConfig.JOKER_PAR_SEMAINE
 	if had_drill:
 		if derniere == "":
 			serie = 1
 		elif derniere != today_iso:
-			var gap := _day_index(today_iso) - _day_index(derniere)
+			var gap := DateUtil.day_index(today_iso) - DateUtil.day_index(derniere)
 			if gap == 1:
 				serie += 1
 			elif gap == 2 and joker_dispo > 0:
@@ -477,18 +477,7 @@ static func update_streak(state: Dictionary, today_iso: String, had_drill: bool)
 static func _echeance_due(echeance: String, today: String) -> bool:
 	if echeance == "":
 		return false
-	return _day_index(echeance) <= _day_index(today)
+	return DateUtil.day_index(echeance) <= DateUtil.day_index(today)
 
 static func add_days(date_iso: String, days: int) -> String:
-	var idx := _day_index(date_iso)
-	if idx < 0:
-		return date_iso
-	return Time.get_date_string_from_unix_time(idx * 86400 + days * 86400)
-
-static func _day_index(date_iso: String) -> int:
-	if date_iso.length() < 10:
-		return -1
-	var unix := Time.get_unix_time_from_datetime_string(date_iso.substr(0, 10) + "T00:00:00")
-	if unix <= 0:
-		return -1
-	return int(unix / 86400.0)
+	return DateUtil.add_days(date_iso, days)
