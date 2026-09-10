@@ -89,6 +89,7 @@ var _async_analysis_session_active := false
 # Correctif démarrage Live : n'émettre `engine_ready` qu'après la poignée de main UCI.
 var _handshake_ready := false
 var _pending_live_fen := ""
+var _engine_ready_emitted := false
 
 # Transport Android via plugin natif "RodChessUci" (ProcessBuilder) quand il est présent.
 var _use_plugin := false
@@ -112,6 +113,10 @@ func _ready() -> void:
 	call_deferred("_ensure_engine_started")
 
 func _process(_delta: float) -> void:
+	# Correctif Live : émettre `engine_ready` sur le thread principal dès la fin du handshake.
+	if _handshake_ready and not _engine_ready_emitted:
+		_engine_ready_emitted = true
+		_emit_engine_ready_deferred()
 	if is_engine_running and not should_stop_thread and _started_msec > 0 and not _received_any_output and Time.get_ticks_msec() - _started_msec > 15000:
 		_handle_engine_dead("Le moteur d'échecs ne répond pas (aucune sortie UCI en 15 s depuis « %s »). Binaire probablement non exécutable sur cet appareil (architecture/noexec) ou processus suspendu." % _current_engine_path)
 	if not _installing_engine or install_http == null:
@@ -859,6 +864,7 @@ func start_engine() -> bool:
 	is_engine_running = true
 	_handshake_ready = false
 	_pending_live_fen = ""
+	_engine_ready_emitted = false
 	state_mutex.unlock()
 	_received_any_output = false
 	_log_first_raw_line = true
@@ -1469,8 +1475,6 @@ func _parse_engine_line(line: String) -> void:
 		if first_ready:
 			_handshake_ready = true
 		state_mutex.unlock()
-		if first_ready:
-			_emit_engine_ready_deferred.call_deferred()
 
 func _emit_evaluation_finished_deferred(b_move: String, s_cp: int, d: int) -> void:
 	evaluation_finished.emit(b_move, s_cp, d)
@@ -1489,6 +1493,10 @@ func _emit_engine_ready_deferred() -> void:
 	state_mutex.lock()
 	var pending := _pending_live_fen
 	_pending_live_fen = ""
+	# Réarme l'état d'évaluation pour que le rejeu Live ne soit pas avalé par la garde
+	# `current_fen == fen and is_evaluating`.
+	current_fen = ""
+	is_evaluating = false
 	state_mutex.unlock()
 	engine_ready.emit()
 	if pending != "":
@@ -1536,6 +1544,7 @@ func _start_wasm_engine() -> bool:
 	is_engine_running = true
 	_handshake_ready = false
 	_pending_live_fen = ""
+	_engine_ready_emitted = false
 	state_mutex.unlock()
 
 	_received_any_output = false
