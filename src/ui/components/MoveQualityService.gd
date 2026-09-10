@@ -111,24 +111,37 @@ static func is_sacrifice(fen_before: String, played_uci: String, pv: Array) -> b
 	var played := game.find_move(played_uci)
 	if played == null:
 		return false
+	var material := material_before
+	# Le coup joué peut lui-même capturer : créditer avant de suivre la PV (sinon
+	# un échange égal type Qxd8 Rxd8 serait vu comme un sacrifice).
+	if int(played.captured_piece) != ChessPiece.Type.NONE:
+		material += int(ChessPiece.VALUES.get(int(played.captured_piece), 0))
 	game.make_move(played)
-	var min_material := _material_for(game, mover_color)
 
+	# Suivi incrémental du matériel du camp qui a joué (pas de rescan 64 cases par ply).
+	var threshold: int = int(ChessPiece.VALUES[ChessPiece.Type.PAWN])
 	var steps := 0
 	for token in pv:
 		if steps >= 6:
 			break
-		if str(token) == played_uci and steps == 0:
+		if steps == 0 and str(token) == played_uci:
 			steps += 1
 			continue
 		var mv := game.find_move(str(token))
 		if mv == null:
 			break
+		if int(mv.captured_piece) != ChessPiece.Type.NONE:
+			var captured_value: int = int(ChessPiece.VALUES.get(int(mv.captured_piece), 0))
+			if int(mv.color) == mover_color:
+				material += captured_value
+			else:
+				material -= captured_value
 		game.make_move(mv)
-		min_material = mini(min_material, _material_for(game, mover_color))
+		if material_before - material >= threshold:
+			return true
 		steps += 1
 
-	return (material_before - min_material) >= ChessPiece.VALUES[ChessPiece.Type.PAWN]
+	return false
 
 static func _material_for(game: ChessGame, color: int) -> int:
 	var total := 0

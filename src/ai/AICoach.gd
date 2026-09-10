@@ -317,24 +317,17 @@ func _compute_material_balance(fen: String) -> Dictionary:
 		"diff": diff
 	}
 
-## Détecte la phase de jeu (Ouverture, Milieu de jeu, Finale)
+## Détecte la phase de jeu (Ouverture, Milieu de jeu, Finale).
+## Source unique : GamePhaseService (même définition que le rapport de partie, T1.3).
 func _detect_game_phase(fen: String, move_number: int) -> String:
-	var parts = fen.split(" ")
-	if parts.is_empty():
-		return "Milieu de jeu"
-	
-	var board_str = parts[0]
-	var non_pawn_pieces = 0
-	for ch in board_str:
-		if ch in ["Q", "R", "B", "N", "q", "r", "b", "n"]:
-			non_pawn_pieces += 1
-
-	if move_number > 0 and move_number <= 10 and non_pawn_pieces >= 14:
-		return "Ouverture (Développement des pièces, contrôle du centre et mise en sécurité du roi)"
-	elif non_pawn_pieces <= 4 or (not ("Q" in board_str or "q" in board_str) and non_pawn_pieces <= 6):
-		return "Finale (Activité des rois, poussée et promotion des pions passés)"
-	else:
-		return "Milieu de jeu (Manoeuvres tactiques, avant-postes, attaques sur les faiblesses)"
+	var ply: int = maxi(0, move_number * 2 - 1)
+	match GamePhaseService.phase_for(fen, ply, 0):
+		"opening":
+			return "Ouverture (Développement des pièces, contrôle du centre et mise en sécurité du roi)"
+		"endgame":
+			return "Finale (Activité des rois, poussée et promotion des pions passés)"
+		_:
+			return "Milieu de jeu (Manoeuvres tactiques, avant-postes, attaques sur les faiblesses)"
 
 ## Formate la description humaine de l'évaluation Stockfish
 func _format_eval_description(eval_cp: int) -> String:

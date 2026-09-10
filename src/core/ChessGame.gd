@@ -606,9 +606,13 @@ func load_pgn(pgn: String) -> bool:
 	board_changed.emit()
 	return true
 
+## Vrai dès qu'un token de résultat PGN a été rencontré (arrête l'application des coups).
+var _pgn_result_seen: bool = false
+
 ## T2.4 — Applique les coups d'un texte PGN en capturant les annotations d'horloge
 ## `{[%clk H:MM:SS]}` attachées au coup précédent. Ignore commentaires et variantes.
 func _apply_pgn_moves(text: String) -> void:
+	_pgn_result_seen = false
 	var i := 0
 	var n := text.length()
 	var buf := ""
@@ -645,11 +649,18 @@ func _apply_pgn_moves(text: String) -> void:
 	_flush_pgn_token(buf)
 
 func _flush_pgn_token(raw: String) -> void:
-	var token := _clean_pgn_token(raw)
-	if token == "":
+	# Régression corrigée : ne plus appliquer de coups après le token de résultat
+	# (un PGN multi-parties verrait sinon la 2e partie se superposer à la 1re).
+	# Le résultat est testé AVANT `_clean_pgn_token`, qui amputerait « 1-0 » en « -0 ».
+	if _pgn_result_seen:
 		return
-	if token in ["1-0", "0-1", "1/2-1/2", "*"]:
-		pgn_headers["Result"] = token
+	var raw_tok := raw.strip_edges()
+	if raw_tok in ["1-0", "0-1", "1/2-1/2", "*"]:
+		pgn_headers["Result"] = raw_tok
+		_pgn_result_seen = true
+		return
+	var token := _clean_pgn_token(raw_tok)
+	if token == "":
 		return
 	if token.begins_with("$") or token.begins_with(";"):
 		return
@@ -685,27 +696,6 @@ func _apply_clock_comment(comment: String) -> void:
 	else:
 		seconds = float(rest.to_float())
 	move_history[move_history.size() - 1].clock_sec = seconds
-
-func _tokenize_pgn(text: String) -> Array[String]:
-	var result: Array[String] = []
-	var in_comment = false
-	var in_bracket = false
-	var cleaned = ""
-	for i in range(text.length()):
-		var c = text[i]
-		if c == '{': in_comment = true; continue
-		if c == '}': in_comment = false; continue
-		if in_comment: continue
-		if c == '(': in_bracket = true; continue
-		if c == ')': in_bracket = false; continue
-		if in_bracket: continue
-		cleaned += c
-
-	for raw_token in cleaned.split(" ", false):
-		var tok := _clean_pgn_token(raw_token)
-		if tok != "":
-			result.append(tok)
-	return result
 
 func _find_matching_move(token: String) -> ChessMove:
 	var legal = get_legal_moves(active_color)

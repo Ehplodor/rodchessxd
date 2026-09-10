@@ -39,6 +39,8 @@ var theory_plies: int = 0
 var white_phase_stats: Dictionary = {}
 var black_phase_stats: Dictionary = {}
 var biggest_swings: Array = []
+## MultiPV utilisateur à restaurer après une analyse de masse (T1.1).
+var _multipv_before_analysis: int = -1
 
 var engine_manager: Node = null
 var settings_manager: Node = null
@@ -68,16 +70,19 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	# T1.2 — Détection de l'ouverture / sortie de théorie (exclue des métriques).
 	opening_info = OpeningBook.identify(_moves_to_uci(game.move_history))
 	theory_plies = int(opening_info.get("out_of_book_ply", 0))
-	# T1.1 — MultiPV réduit pendant l'analyse de masse (2 sur bureau pour GREAT, 1 mobile).
+	# T1.1 — MultiPV réduit pendant l'analyse de masse (2 sur bureau pour GREAT,
+	# 1 sur mobile/web mono-thread). Restauré en fin d'analyse.
 	if engine_manager != null and engine_manager.has_method("set_multipv"):
-		var _mobile := OS.has_feature("android") or OS.has_feature("ios")
-		engine_manager.set_multipv(1 if _mobile else 2, true)
+		var _low_power := OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
+		_multipv_before_analysis = int(engine_manager.default_multipv())
+		engine_manager.set_multipv(1 if _low_power else 2, true)
 
 	var moves = game.move_history
 	var total_plies = moves.size()
 	
 	if total_plies == 0:
 		is_analyzing = false
+		_restore_default_multipv()
 		var rep = _build_final_report()
 		call_deferred("emit_signal", "analysis_finished", rep)
 		return rep
@@ -203,8 +208,6 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		move.centipawn_loss = cp_loss
 		move.eval_before_cp = score_before
 		move.eval_after_cp = score_after
-		move.eval_mate_in = mate_after
-		move.winpct_loss = ply_metrics["winpct_loss"]
 		move.is_theory = is_theory
 		move.motifs = ply_metrics["motifs"]
 		move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
@@ -266,6 +269,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	elo_stat_test = _perform_elo_comparison_test(w_stat, b_stat)
 
 	is_analyzing = false
+	_restore_default_multipv()
 	var report = _build_final_report()
 	call_deferred("emit_signal", "analysis_finished", report)
 	return report
@@ -292,16 +296,19 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	# T1.2 — Détection de l'ouverture / sortie de théorie (exclue des métriques).
 	opening_info = OpeningBook.identify(_moves_to_uci(game.move_history))
 	theory_plies = int(opening_info.get("out_of_book_ply", 0))
-	# T1.1 — MultiPV réduit pendant l'analyse de masse (2 sur bureau pour GREAT, 1 mobile).
+	# T1.1 — MultiPV réduit pendant l'analyse de masse (2 sur bureau pour GREAT,
+	# 1 sur mobile/web mono-thread). Restauré en fin d'analyse.
 	if engine_manager != null and engine_manager.has_method("set_multipv"):
-		var _mobile := OS.has_feature("android") or OS.has_feature("ios")
-		engine_manager.set_multipv(1 if _mobile else 2, true)
+		var _low_power := OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
+		_multipv_before_analysis = int(engine_manager.default_multipv())
+		engine_manager.set_multipv(1 if _low_power else 2, true)
 
 	var moves = game.move_history
 	var total_plies = moves.size()
 	
 	if total_plies == 0:
 		is_analyzing = false
+		_restore_default_multipv()
 		var rep = _build_final_report()
 		analysis_finished.emit(rep)
 		return rep
@@ -318,6 +325,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		_release_async_engine_session()
 		is_analyzing = false
 		cancel_requested = false
+		_restore_default_multipv()
 		var cancelled_report = _build_final_report()
 		analysis_finished.emit(cancelled_report)
 		return cancelled_report
@@ -449,8 +457,6 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		move.centipawn_loss = cp_loss
 		move.eval_before_cp = score_before
 		move.eval_after_cp = score_after
-		move.eval_mate_in = mate_after
-		move.winpct_loss = ply_metrics["winpct_loss"]
 		move.is_theory = is_theory
 		move.motifs = ply_metrics["motifs"]
 		move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
@@ -512,6 +518,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 
 	_release_async_engine_session()
 	is_analyzing = false
+	_restore_default_multipv()
 	var report = _build_final_report()
 	analysis_finished.emit(report)
 	return report
@@ -563,7 +570,7 @@ func _evaluate_ply_quality(
 				loss_cp, is_white, is_sac, second_score)
 		# Motifs calculés uniquement pour les coups notables (perf + pertinence).
 		if MoveQualityService.group(quality) > 0 or quality == ChessMove.Quality.BRILLIANT or quality == ChessMove.Quality.GREAT:
-			motifs = TacticalMotifDetector.detect(prev_fen, move.uci, prev_pv)
+			motifs = TacticalMotifDetector.detect(prev_fen, move.uci)
 
 	return {
 		"quality": quality,
@@ -598,7 +605,8 @@ func _increment_quality_stat(stats: Dictionary, q: ChessMove.Quality) -> void:
 ## Conversion centipions -> Probabilité de gain (modèle sigmoïde standard FIDE / Lichess)
 ## 0 cp -> 50%, +100 cp -> ~64%, +300 cp -> ~85%, +600 cp -> ~97%
 func _win_percentage(score_cp: int) -> float:
-	return 100.0 / (1.0 + exp(-0.00368208 * float(score_cp)))
+	# Source unique : évite la dérive entre classification (MoveQualityService) et CAPS2/ELO.
+	return MoveQualityService.win_percentage(score_cp)
 
 ## Précision CAPS2 (Chess.com / Lichess) calculée coup par coup avec pondération contextuelle
 func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> float:
@@ -755,9 +763,17 @@ func _wait_for_engine_async() -> bool:
 		waited += 16
 	return engine_manager.is_engine_available()
 
+## T1.1 — Restaure le MultiPV demandé par l'utilisateur après l'analyse de masse.
+func _restore_default_multipv() -> void:
+	if engine_manager != null and engine_manager.has_method("set_multipv"):
+		var target: int = _multipv_before_analysis if _multipv_before_analysis > 0 else int(engine_manager.default_multipv())
+		engine_manager.set_multipv(target, true)
+	_multipv_before_analysis = -1
+
 func _fail_analysis(msg: String) -> Dictionary:
 	_release_async_engine_session()
 	is_analyzing = false
+	_restore_default_multipv()
 	cancel_requested = false
 	_emit_engine_error(msg)
 	var rep = _build_final_report()

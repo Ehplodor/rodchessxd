@@ -17,7 +17,7 @@ var settings := {
 	"analysis_time_per_move": 0.3, # secondes par coup en mode time
 	"analysis_dynamic_base": 0.15, # temps de base en mode dynamique (secondes)
 	"analysis_dynamic_max": 0.8, # plafond en mode dynamique (secondes)
-	"engine_multipv": 2,
+	"engine_multipv": 3,
 	"engine_path": "",
 	"active_engine": "Stockfish",
 	"board_theme": "emerald",
@@ -45,6 +45,7 @@ func _ready() -> void:
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		settings["engine_depth"] = 12
 		settings["analysis_depth"] = 14
+		settings["engine_multipv"] = 2
 	load_settings()
 	DesignTokens.apply_theme_mode(settings.get("app_theme_mode", "dark"))
 

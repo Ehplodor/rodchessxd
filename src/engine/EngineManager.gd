@@ -938,9 +938,6 @@ func set_multipv(n: int, reset: bool = true) -> void:
 		_multipv_accum = {}
 		state_mutex.unlock()
 
-func get_multipv() -> int:
-	return _multipv_requested
-
 ## Réinitialise les accumulateurs d'évaluation (MultiPV, mate) pour une nouvelle position.
 func _reset_eval_accumulators() -> void:
 	multipv_lines = []

@@ -301,7 +301,11 @@ func _setup_ui() -> void:
 	mpv_spin.max_value = 5
 	mpv_spin.step = 1
 	mpv_spin.value = SettingsManager.get_setting("engine_multipv", 2)
-	mpv_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_multipv", int(val)))
+	mpv_spin.value_changed.connect(func(val):
+		SettingsManager.set_setting("engine_multipv", int(val))
+		if EngineManager != null and EngineManager.has_method("set_multipv"):
+			EngineManager.set_multipv(int(val))
+	)
 	mpv_spin.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_MIN)
 	mpv_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	if mpv_spin.get_line_edit():

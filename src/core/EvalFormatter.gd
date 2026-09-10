@@ -19,8 +19,3 @@ static func format_cp_mate(score_cp: int, mate_in: int = 0) -> String:
 		return "M" if score_cp > 0 else "-M"
 	var pawns := float(score_cp) / 100.0
 	return ("+%.1f" if pawns >= 0.0 else "%.1f") % pawns
-
-## Représentation numérique pour la légende du graphe ("+5.0", "-2.0").
-static func format_pawns(score_cp: int) -> String:
-	var pawns := float(score_cp) / 100.0
-	return ("+%.1f" if pawns >= 0.0 else "%.1f") % pawns

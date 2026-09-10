@@ -184,8 +184,7 @@ func record_pgn_game(pgn_text: String, source: String = "pgn_import") -> String:
 			"move_number": (i / 2) + 1,
 			"is_white": (i % 2 == 0),
 			"san": m.san,
-			"uci": m.uci,
-			"clock_sec": m.clock_sec
+			"uci": m.uci
 		})
 
 	var game_data = {
@@ -247,10 +246,7 @@ func record_active_game(game: ChessGame, title_override: String = "", source: St
 			"san": m.san,
 			"uci": m.uci,
 			"quality": m.quality,
-			"loss_cp": m.centipawn_loss,
-			"clock_sec": m.clock_sec,
-			"is_theory": m.is_theory,
-			"motifs": m.motifs
+			"loss_cp": m.centipawn_loss
 		})
 
 	var game_data = {

@@ -43,15 +43,31 @@ func _init() -> void:
 	var sac_fen := "4k3/8/2p5/3p4/8/8/8/3QK3 w - - 0 1"
 	assert(MoveQualityService.is_sacrifice(sac_fen, "d1d5", ["d1d5", "c6d5"]), "Qxd5 cxd5 doit être un sacrifice")
 	assert(not MoveQualityService.is_sacrifice(sac_fen, "d1d2", ["d1d2"]), "Un simple recul de dame n'est pas un sacrifice")
+	# Échange égal de dames : ne doit PAS être vu comme un sacrifice.
+	var exchange_fen := "r2q2k1/8/8/8/8/8/8/3Q2K1 w - - 0 1"
+	assert(not MoveQualityService.is_sacrifice(exchange_fen, "d1d8", ["d1d8", "a8d8"]), "Qxd8 Rxd8 est un échange, pas un sacrifice")
 	print("    OK")
 
 	# --- 4. Motifs tactiques ---
-	print("  -> Test 4: Détection de motifs (fourchette royale)...")
+	print("  -> Test 4: Détection de motifs (fourchette, mat du couloir, promotion)...")
 	var fork_fen := "r3k3/8/8/1N6/8/8/8/4K3 w - - 0 1"
-	var motifs := TacticalMotifDetector.detect(fork_fen, "b5c7", ["b5c7"])
+	var motifs := TacticalMotifDetector.detect(fork_fen, "b5c7")
 	assert(motifs.has("Échec"), "Nc7+ doit donner Échec")
 	assert(motifs.has("Fourchette royale"), "Nc7+ attaquant roi et tour = Fourchette royale")
-	print("    OK (%s)" % ", ".join(motifs))
+
+	# Mat du couloir : Re8# avec roi noir en g8 et pions bloqués.
+	var back_rank_fen := "6k1/5ppp/5PPP/8/8/8/8/4R1K1 w - - 0 1"
+	var back_motifs := TacticalMotifDetector.detect(back_rank_fen, "e1e8")
+	assert(back_motifs.has("Mat"), "Re8 doit être mat")
+	assert(back_motifs.has("Mat du couloir"), "Mat sur la rangée de fond = Mat du couloir")
+
+	# Promotion avec échec : la pièce promue donne échec, pas de fausse découverte.
+	var promo_fen := "4k3/1P6/8/8/8/8/8/4K3 w - - 0 1"
+	var promo_motifs := TacticalMotifDetector.detect(promo_fen, "b7b8q")
+	assert(promo_motifs.has("Promotion"), "b8=Q doit être une promotion")
+	assert(promo_motifs.has("Échec"), "b8=Q+ doit donner Échec")
+	assert(not promo_motifs.has("Attaque à la découverte"), "Pas de fausse découverte sur promotion")
+	print("    OK (%s | %s | %s)" % [", ".join(motifs), ", ".join(back_motifs), ", ".join(promo_motifs)])
 
 	# --- 5. Table d'ouvertures ---
 	print("  -> Test 5: Identification d'ouverture (ECO)...")
@@ -80,6 +96,14 @@ func _init() -> void:
 	assert(pgn.contains("e4 $3"), "Le PGN annoté doit contenir le NAG $3 pour un brillant")
 	assert(pgn.contains("{Coup clé}"), "Le PGN annoté doit contenir le commentaire du coach")
 	assert(not game.export_pgn(false).contains("$3"), "Le PGN simple ne doit pas contenir de NAG")
+	print("    OK")
+
+	# --- 7b. PGN multi-parties : aucun coup ne doit suivre le token de résultat ---
+	print("  -> Test 7b: Arrêt au résultat (PGN multi-parties)...")
+	var multi := ChessGame.new()
+	multi.load_pgn("1. e4 e5 2. Nf3 Nc6 1-0\n\n1. d4 d5 2. c4")
+	assert(multi.move_history.size() == 4, "Les coups de la 2e partie ne doivent pas être appliqués")
+	assert(str(multi.pgn_headers.get("Result", "")) == "1-0", "Le résultat de la 1re partie doit être conservé")
 	print("    OK")
 
 	# --- 8. Comparaison classification : mat terminal cohérent ---

@@ -5,8 +5,6 @@ extends VBoxContainer
 
 signal line_selected(rank: int, pv: Array, best_move: String)
 
-const MAX_DISPLAY := 3
-
 var _header_btn: Button
 var _rows_box: VBoxContainer
 var _collapsed := false
@@ -32,24 +30,32 @@ func _ready() -> void:
 	add_child(_rows_box)
 	_update_header()
 
+## Vrai si le panneau est replié (permet à l'appelant d'éviter tout travail inutile).
+func is_collapsed() -> bool:
+	return _collapsed
+
 func set_lines(lines: Array, engine_name: String = "", depth: int = 0) -> void:
 	_lines = lines
 	if engine_name != "":
 		_engine_name = engine_name
 	_depth = depth
-	_rebuild()
+	# Ne rien reconstruire tant que le panneau est replié (perf : appelé à chaque info moteur).
+	if not _collapsed:
+		_rebuild()
 	_update_header()
 
 func _toggle() -> void:
 	_collapsed = not _collapsed
 	_rows_box.visible = not _collapsed
+	if not _collapsed:
+		_rebuild()
 	_update_header()
 
 func _update_header() -> void:
 	if _header_btn == null:
 		return
 	var arrow := "▸" if _collapsed else "▾"
-	_header_btn.text = "%s Lignes moteur (%d) — %s d%d" % [arrow, mini(_lines.size(), MAX_DISPLAY), _engine_name, _depth]
+	_header_btn.text = "%s Lignes moteur (%d) — %s d%d" % [arrow, _lines.size(), _engine_name, _depth]
 
 func _rebuild() -> void:
 	if _rows_box == null:
@@ -58,8 +64,6 @@ func _rebuild() -> void:
 		c.queue_free()
 	var shown := 0
 	for i in range(_lines.size()):
-		if shown >= MAX_DISPLAY:
-			break
 		var line: Dictionary = _lines[i]
 		var pv: Array = line.get("pv", [])
 		if pv.is_empty():

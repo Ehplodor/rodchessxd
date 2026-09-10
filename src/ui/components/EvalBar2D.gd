@@ -110,20 +110,15 @@ func set_score_cp(score_cp: int, mate_in: int = 0) -> void:
 	_on_engine_eval(score_cp, mate_in, 0, "", [], [])
 
 func _on_engine_eval(score_cp: int, mate_in: int, _depth: int, _best_move: String, _pv: Array, _multipv: Array) -> void:
-	if mate_in != 0:
-		if mate_in > 0:
-			target_ratio = 1.0
-			display_score_text = "M%d" % mate_in
-		else:
-			target_ratio = 0.0
-			display_score_text = "-M%d" % abs(mate_in)
+	# T0.1 — Formatage centralisé (gère les archives v1 : score ±10000 sans mate_in).
+	var is_mate := EvalFormatter.is_mate(score_cp, mate_in)
+	if is_mate:
+		target_ratio = 1.0 if score_cp > 0 else 0.0
 	else:
 		# Formule sigmoïde de conversion centipions -> ratio visuel 0.0 à 1.0
 		var win_chance = 1.0 / (1.0 + pow(10.0, -score_cp / 400.0))
 		target_ratio = clampf(win_chance, 0.04, 0.96)
-		
-		var pawns = score_cp / 100.0
-		display_score_text = ("+%.1f" if pawns >= 0 else "%.1f") % pawns
+	display_score_text = EvalFormatter.format_cp_mate(score_cp, mate_in)
 
 	if score_label:
 		score_label.text = display_score_text

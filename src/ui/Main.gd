@@ -691,43 +691,110 @@ func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String,
 				chess_board.arrow_overlay.queue_redraw()
 			chess_board.queue_redraw()
 
+## Dernier état publié du panneau MultiPV (throttle par profondeur + nb de lignes).
+var _engine_lines_last_depth: int = -1
+var _engine_lines_last_count: int = -1
+
 ## T1.1 — Met à jour le panneau des lignes moteur (MultiPV).
+## Throttlé (profondeur/nombre de lignes) et ignoré pendant l'analyse de masse pour
+## ne pas reconstruire les boutons à chaque ligne `info` du moteur.
 func _update_engine_lines(multipv: Array, depth: int) -> void:
-	if engine_lines_panel == null:
+	if engine_lines_panel == null or multipv.is_empty():
 		return
+	if analyzer != null and analyzer.is_analyzing:
+		return
+	if depth == _engine_lines_last_depth and multipv.size() == _engine_lines_last_count:
+		return
+	_engine_lines_last_depth = depth
+	_engine_lines_last_count = multipv.size()
 	var eng_name := "Moteur"
 	if EngineManager != null and EngineManager.has_method("get_engine_display_name"):
 		eng_name = EngineManager.get_engine_display_name()
 	engine_lines_panel.set_lines(multipv, eng_name, depth)
 
-## T2.1 — Sauvegarde les annotations du ply courant dans le JSON de la partie.
+## T2.1 — Cache mémoire de la partie courante + écriture différée des annotations.
+## Évite une lecture/parse et une réécriture complète du JSON à chaque flèche/ply.
+var _annot_game_cache_id: String = ""
+var _annot_game_cache: Dictionary = {}
+var _annotation_save_timer: Timer = null
+
+func _ensure_annotation_timer() -> void:
+	if _annotation_save_timer == null:
+		_annotation_save_timer = Timer.new()
+		_annotation_save_timer.one_shot = true
+		_annotation_save_timer.wait_time = 0.6
+		_annotation_save_timer.timeout.connect(_flush_annotation_save)
+		add_child(_annotation_save_timer)
+
+func _get_cached_game(gid: String) -> Dictionary:
+	if gid == "":
+		return {}
+	if gid != _annot_game_cache_id:
+		var dm = get_node_or_null("/root/DatabaseManager")
+		if dm == null:
+			return {}
+		var loaded: Dictionary = dm.get_game(gid)
+		_annot_game_cache = loaded
+		_annot_game_cache_id = gid if not loaded.is_empty() else ""
+	return _annot_game_cache
+
+## T2.1 — Sauvegarde (différée) les annotations du ply courant.
 func _on_user_annotations_changed() -> void:
 	if GameController == null or chess_board == null:
-		return
-	var dm = get_node_or_null("/root/DatabaseManager")
-	if dm == null:
 		return
 	var gid: String = GameController.get_or_create_game_id()
 	if gid == "":
 		return
-	var game: Dictionary = dm.get_game(gid)
+	var game := _get_cached_game(gid)
 	if game.is_empty():
 		return
 	var ann: Dictionary = game.get("annotations", {})
 	ann[str(GameController.current_ply_index)] = chess_board.get_user_annotations()
 	game["annotations"] = ann
-	dm.save_game(game)
+	_ensure_annotation_timer()
+	_annotation_save_timer.start()
+
+## Écrit une seule fois pour une rafale d'annotations.
+func _flush_annotation_save() -> void:
+	if GameController == null or _annot_game_cache_id == "" or _annot_game_cache.is_empty():
+		return
+	var dm = get_node_or_null("/root/DatabaseManager")
+	if dm == null:
+		return
+	_sync_cached_game_moves(_annot_game_cache)
+	dm.save_game(_annot_game_cache)
+
+## Correction revue : l'enregistrement doit refléter TOUS les coups joués
+## (sinon la fiche archivée reste figée aux coups présents lors de sa création).
+func _sync_cached_game_moves(game: Dictionary) -> void:
+	if GameController == null or GameController.game == null:
+		return
+	var live: ChessGame = GameController.game
+	var moves_arr: Array = []
+	for i in range(live.move_history.size()):
+		var m = live.move_history[i]
+		moves_arr.append({
+			"ply": i,
+			"move_number": (i / 2) + 1,
+			"is_white": (i % 2 == 0),
+			"san": m.san,
+			"uci": m.uci,
+			"quality": m.quality,
+			"loss_cp": m.centipawn_loss
+		})
+	game["moves"] = moves_arr
+	game["pgn_text"] = live.export_pgn()
+	game["result"] = live.pgn_headers.get("Result", game.get("result", "*"))
 
 ## T2.1 — Recharge les annotations de la position affichée.
 func _load_annotations_for_ply() -> void:
 	if GameController == null or chess_board == null:
 		return
 	if GameController.current_game_id == "":
+		# « Nouvelle partie » doit aussi retirer les annotations de l'échiquier.
+		chess_board.set_user_annotations({})
 		return
-	var dm = get_node_or_null("/root/DatabaseManager")
-	if dm == null:
-		return
-	var game: Dictionary = dm.get_game(GameController.current_game_id)
+	var game := _get_cached_game(GameController.current_game_id)
 	var ann: Dictionary = game.get("annotations", {})
 	var data = ann.get(str(GameController.current_ply_index), {})
 	chess_board.set_user_annotations(data if data is Dictionary else {})
@@ -971,6 +1038,7 @@ func _build_import_menu() -> void:
 	import_menu.add_item("✨  Nouvelle partie (Reset)", 4)
 	import_menu.add_separator("Affichage")
 	import_menu.add_item("🎯  Aides de coups (ON/OFF)", 5)
+	import_menu.add_item("🧽  Effacer les annotations", 9)
 	import_menu.id_pressed.connect(_on_import_menu_id_pressed)
 	add_child(import_menu)
 
@@ -985,6 +1053,14 @@ func _on_import_menu_id_pressed(id: int) -> void:
 		6: _open_modal(LibraryModal.new())
 		7: _on_btn_import_fen_pressed()
 		8: _export_pgn(true)
+		9: _on_btn_clear_annotations_pressed()
+
+## T2.1 — Efface les annotations de la position courante (persisté via le cache).
+func _on_btn_clear_annotations_pressed() -> void:
+	if chess_board == null:
+		return
+	chess_board.clear_user_annotations()
+	_show_toast("Annotations effacées")
 
 func _export_pgn(annotated: bool = false) -> void:
 	if GameController == null or GameController.game == null:
@@ -1000,18 +1076,39 @@ func _export_pgn(annotated: bool = false) -> void:
 ## T2.5 — Import rapide d'une position FEN (presse-papiers ou saisie via l'éditeur).
 func _on_btn_import_fen_pressed() -> void:
 	var clip := DisplayServer.clipboard_get().strip_edges()
-	if _looks_like_fen(clip):
+	if _is_valid_fen(clip):
 		GameController.load_fen(clip)
 		_trigger_live_eval()
 		_show_toast("Position FEN chargée depuis le presse-papiers")
 		return
 	_open_modal(OCREditorModal.new())
 
-func _looks_like_fen(text: String) -> bool:
-	if text.count("/") != 7:
+## Validation stricte avant tout chargement depuis le presse-papiers : 8 rangées de
+## 8 cases, pièces connues, trait w/b. Évite de charger une position corrompue.
+func _is_valid_fen(text: String) -> bool:
+	if text.length() < 15 or text.length() > 120:
 		return false
 	var parts := text.split(" ", false)
-	return parts.size() >= 1 and parts[0].length() >= 8
+	if parts.size() < 2:
+		return false
+	var rows := parts[0].split("/")
+	if rows.size() != 8:
+		return false
+	for row in rows:
+		var count := 0
+		for c in row:
+			if c.is_valid_int():
+				var d := c.to_int()
+				if d < 1 or d > 8:
+					return false
+				count += d
+			elif c.to_upper() in ["P", "N", "B", "R", "Q", "K"]:
+				count += 1
+			else:
+				return false
+		if count != 8:
+			return false
+	return parts[1] == "w" or parts[1] == "b"
 
 func _on_btn_new_game_pressed() -> void:
 	if GameController.game and not GameController.game.move_history.is_empty():
@@ -1029,6 +1126,11 @@ func _on_btn_new_game_pressed() -> void:
 func _do_reset_game() -> void:
 	if analyzer and analyzer.is_analyzing:
 		analyzer.cancel_analysis()
+	# Annule une éventuelle sauvegarde d'annotations en attente (nouvelle partie).
+	if _annotation_save_timer:
+		_annotation_save_timer.stop()
+	_annot_game_cache_id = ""
+	_annot_game_cache.clear()
 	GameController.reset_to_initial()
 	advantage_graph.set_evaluations([])
 	advantage_graph.update_stored_analyses([])
@@ -1344,6 +1446,9 @@ func _on_btn_analyze_game_pressed() -> void:
 		)
 
 func _on_analysis_finished(report: Dictionary) -> void:
+	# Force le rafraîchissement du panneau MultiPV au retour du Live.
+	_engine_lines_last_depth = -1
+	_engine_lines_last_count = -1
 	if analysis_thread and analysis_thread.is_started():
 		analysis_thread.wait_to_finish()
 

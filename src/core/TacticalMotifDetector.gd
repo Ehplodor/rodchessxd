@@ -6,7 +6,7 @@ extends RefCounted
 
 ## Retourne une liste de motifs (français) parmi : Prise, Promotion, Échec, Mat,
 ## Mat du couloir, Attaque à la découverte, Fourchette, Fourchette royale, Pièce non protégée.
-static func detect(fen_before: String, played_uci: String, _pv: Array = []) -> Array:
+static func detect(fen_before: String, played_uci: String) -> Array:
 	var motifs: Array = []
 	if fen_before == "" or played_uci == "":
 		return motifs
@@ -21,7 +21,9 @@ static func detect(fen_before: String, played_uci: String, _pv: Array = []) -> A
 	if mover == ChessPiece.PieceColor.NONE:
 		mover = game.active_color
 	var opponent: int = ChessPiece.PieceColor.BLACK if mover == ChessPiece.PieceColor.WHITE else ChessPiece.PieceColor.WHITE
-	var moved_piece := {"type": played.piece, "color": mover}
+	# Correction T1.4 : une promotion change le type réel de la pièce déplacée.
+	var moved_type: int = played.promotion if played.promotion != ChessPiece.Type.NONE else played.piece
+	var moved_piece := {"type": moved_type, "color": mover}
 	var dst: int = played.to_sq
 
 	game.make_move(played)
@@ -80,7 +82,8 @@ static func _is_back_rank_mate(game: ChessGame, king_sq: int, played: ChessMove)
 		return false
 	var rank := int(king_sq / 8)
 	var king_color := int(game.board[king_sq].get("color", ChessPiece.PieceColor.NONE))
-	var home_rank := 0 if king_color == ChessPiece.PieceColor.BLACK else 7
+	# Index de plateau : rangée 1 = 0, rangée 8 = 7 (cf. ChessGame.load_fen).
+	var home_rank := 7 if king_color == ChessPiece.PieceColor.BLACK else 0
 	if rank != home_rank:
 		return false
 	return played.piece == ChessPiece.Type.ROOK or played.piece == ChessPiece.Type.QUEEN
