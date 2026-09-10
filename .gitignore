@@ -70,3 +70,6 @@ bin/maia-1900.pb.gz
 /uci_worker_bridge.js
 # Export PWA local (workflow GitHub Actions)
 /dist/
+
+# ---------- Fichiers de log locaux ----------
+*.log
