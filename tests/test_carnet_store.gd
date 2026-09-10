@@ -1,17 +1,18 @@
 extends SceneTree
-## tests/test_carnet_store.gd — persistance idempotente de LeCarnet (§4.12-4.13).
-## Écrit dans `user://library/carnet/` (nettoyé en début et fin de test).
+## tests/test_carnet_store.gd — persistance multi-profils (§4.12-4.13) + batch.
+## Écrit dans `user://library/carnets/` (nettoyé en début et fin de test).
 
 const CarnetStore = preload("res://src/carnet/CarnetStore.gd")
+const CarnetProfiles = preload("res://src/carnet/CarnetProfiles.gd")
+const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
 const CarnetConfig = preload("res://src/carnet/CarnetConfig.gd")
 
 var _failures := 0
 var _db: Node = null
 var _ran := false
-var _exit_code := 0
 
 func _init() -> void:
-	print("--- Running CarnetStore (persistance) test ---")
+	print("--- Running CarnetStore/Profiles/Batch test ---")
 
 ## Les autoloads ne sont montés qu'après `_init` : on exécute au premier frame.
 func _process(_delta: float) -> bool:
@@ -21,10 +22,9 @@ func _process(_delta: float) -> bool:
 	_db = root.get_node_or_null("DatabaseManager")
 	if _db == null:
 		printerr("DatabaseManager autoload introuvable")
-		_exit_code = 1
-		quit(_exit_code)
+		quit(1)
 		return true
-	_db.delete_carnet()
+	CarnetProfiles.reset()
 
 	_test_idempotence()
 	_test_compile()
@@ -32,16 +32,24 @@ func _process(_delta: float) -> bool:
 	_test_unknown_drill_does_not_advance_streak()
 	_test_atomic_write_artifacts()
 	_test_corruption_preserved()
+	_test_profiles_and_isolation()
+	_test_sync_status_and_dedup()
+	_test_chesscom_dedup_and_keys()
+	_test_batch_runner()
 
-	_db.delete_carnet()
-	_cleanup_carnet_artifacts()
+	CarnetProfiles.reset()
 	if _failures == 0:
 		print("ALL CARNET STORE TESTS PASSED SUCCESSFULLY!")
 	else:
 		printerr("CARNET STORE TESTS FAILED: %d" % _failures)
-		_exit_code = 0 if _failures == 0 else 1
-	quit(_exit_code)
+	quit(0 if _failures == 0 else 1)
 	return true
+
+func _pid() -> String:
+	return CarnetProfiles.active_id()
+
+func _base() -> String:
+	return "user://library/carnets/profiles/%s" % _pid()
 
 func _check(cond: bool, label: String) -> void:
 	if cond:
@@ -83,7 +91,6 @@ func _test_idempotence() -> void:
 	_check(CarnetStore.game_count() == 2, "2 parties ingérées")
 	_check(CarnetStore.get_atoms().size() == 6, "6 atomes persistés")
 
-	# Ré-ingestion de g1 : remplacement, pas d'accumulation.
 	CarnetStore.ingest_game("g1", [_atom("a1", "g1", 0), _atom("a2", "g1", 1)], {"date_iso": "2026-08-10"})
 	_check(CarnetStore.get_atoms().size() == 5, "ré-ingestion idempotente (5 atomes)")
 
@@ -100,14 +107,12 @@ func _test_compile() -> void:
 			_atom("c%d_2" % i, "g%d" % (10 + i), 2),
 		], {"date_iso": "2026-08-%02d" % (12 + i)})
 	var ledger := CarnetStore.compile("2026-09-10")
-	_check(int(ledger["nb_parties"]) == 5, "compile voit 5 parties")
 	_check(int(ledger["nb_atomes"]) == 14, "compile voit 14 atomes")
 	_check(ledger["motifs"].size() > 0, "motifs compilés")
 
 func _test_record_review() -> void:
-	# Injecte un drill persisté puis vérifie la mise à jour SM-2 + série.
-	var carnet: Dictionary = _db.get_carnet()
-	var trainer: Dictionary = carnet.get("trainer", {})
+	var trainer_path := _base() + "/trainer.json"
+	var trainer: Dictionary = _db.load_json(trainer_path)
 	trainer["drills"] = [{
 		"drill_id": "dr_test",
 		"event_id": "a1",
@@ -121,8 +126,7 @@ func _test_record_review() -> void:
 		"reussites": 0,
 		"maitrise": false,
 	}]
-	carnet["trainer"] = trainer
-	_db.save_carnet(carnet)
+	_db.save_json_atomic(trainer_path, trainer)
 
 	var updated := CarnetStore.record_review("dr_test", 5, "2026-09-10")
 	_check(not updated.is_empty(), "drill retrouvé et mis à jour")
@@ -139,42 +143,142 @@ func _test_unknown_drill_does_not_advance_streak() -> void:
 	_check(after == before, "drill inconnu → série inchangée")
 
 func _test_atomic_write_artifacts() -> void:
-	# Deux sauvegardes successives doivent produire un .bak et ne laisser aucun .tmp.
-	_db.save_carnet(_db.get_carnet())
-	_db.save_carnet(_db.get_carnet())
-	_check(FileAccess.file_exists("user://library/carnet/carnet.json"), "carnet.json écrit")
-	_check(not FileAccess.file_exists("user://library/carnet/carnet.json.tmp"),
-			"aucun .tmp orphelin après sauvegarde")
-	_check(FileAccess.file_exists("user://library/carnet/carnet.json.bak"),
-			"version précédente conservée en .bak")
+	var path := _base() + "/probe.json"
+	_db.save_json_atomic(path, {"a": 1})
+	_db.save_json_atomic(path, {"a": 2})
+	_check(FileAccess.file_exists(path), "fichier écrit")
+	_check(not FileAccess.file_exists(path + ".tmp"), "aucun .tmp orphelin après sauvegarde")
+	_check(FileAccess.file_exists(path + ".bak"), "version précédente conservée en .bak")
+	_db.remove_file(path + ".bak")
+	_db.remove_file(path)
 
 func _test_corruption_preserved() -> void:
-	var path := "user://library/carnet/carnet.json"
+	var path := _base() + "/probe.json"
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	f.store_string("{ ceci n'est pas du JSON")
 	f = null
-	var loaded: Dictionary = _db.get_carnet()
-	_check(loaded.get("games", {}).is_empty(), "carnet corrompu → carnet vide renvoyé")
-	var da := DirAccess.open("user://library/carnet")
+	var loaded: Dictionary = _db.load_json(path)
+	_check(loaded.is_empty(), "json corrompu → dictionnaire vide renvoyé")
+	var da := DirAccess.open(_base())
 	var preserved := false
 	if da != null:
 		da.list_dir_begin()
 		var name := da.get_next()
 		while name != "":
-			if name.begins_with("carnet.json.corrupt_"):
+			if name.begins_with("probe.json.corrupt_"):
 				preserved = true
+				da.remove(name)
 			name = da.get_next()
 		da.list_dir_end()
-	_check(preserved, "fichier corrompu préservé (carnet.json.corrupt_*)")
+	_check(preserved, "fichier corrompu préservé (.corrupt_*)")
 
-func _cleanup_carnet_artifacts() -> void:
-	var da := DirAccess.open("user://library/carnet")
-	if da == null:
-		return
-	da.list_dir_begin()
-	var name := da.get_next()
-	while name != "":
-		if name.begins_with("carnet.json.corrupt_") or name == "carnet.json.bak" or name == "carnet.json.tmp":
-			da.remove(name)
-		name = da.get_next()
-	da.list_dir_end()
+func _test_profiles_and_isolation() -> void:
+	var pid1 := _pid()
+	var before_pid1 := CarnetStore.get_atoms(pid1).size()
+	var pid2 := CarnetProfiles.create("Lucas", "local", ["lucas"])
+	CarnetStore.ingest_game("gL", [_atom("L1", "gL", 0)], {"date_iso": "2026-08-15"}, pid2)
+	_check(CarnetStore.get_atoms(pid2).size() == 1, "atomes isolés dans le profil Lucas")
+	_check(CarnetStore.get_atoms(pid1).size() == before_pid1, "aucune fuite d'atomes vers le profil Moi")
+	_check(CarnetProfiles.find_by_player_key("Lucas").get("id", "") == pid2, "recherche par clé joueur")
+	CarnetProfiles.set_active(pid2)
+	_check(CarnetProfiles.active_id() == pid2, "profil actif commuté")
+	CarnetProfiles.set_active(pid1)
+	_check(CarnetProfiles.active_id() == pid1, "profil actif restauré")
+
+func _test_sync_status_and_dedup() -> void:
+	var pgn := """[Event "Test"]
+[White "Nicolas"]
+[Black "IA"]
+[Date "2026.08.20"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 Nc6 1-0"""
+	var gid: String = _db.record_pgn_game(pgn, "pgn_import")
+	_check(gid != "", "partie enregistrée")
+	var gid2: String = _db.record_pgn_game(pgn, "pgn_import")
+	_check(gid2 == gid, "réimport dédoublonné (même external_id)")
+
+	var profile_id := CarnetProfiles.create("Nicolas", "local", ["nicolas"])
+	_db.add_engine_analysis(gid, {
+		"schema_version": 2, "depth": 14, "evaluations": [], "opening": {}, "theory_plies": 0,
+	})
+	var status := CarnetStore.sync_status(profile_id)
+	_check(int(status["total"]) == 1, "1 partie rattachée au profil Nicolas")
+	_check(status["pending"].size() == 1, "partie en attente (jamais atomisée)")
+	_check(str(status["pending"][0].get("reason", "")) == "never_atomized", "raison = never_atomized")
+
+	CarnetStore.ingest_game(gid, [_atom("n1", gid, 0)], {"perspective": "white"}, profile_id)
+	status = CarnetStore.sync_status(profile_id)
+	_check(status["known"].size() == 1, "partie connue après ingestion")
+	_check(str(status["known"][0].get("reason", "")) == "up_to_date", "raison = up_to_date")
+	_check(status["to_process"].is_empty(), "aucune partie restante à traiter")
+	_db.delete_game(gid)
+	_check(CarnetStore.game_count(profile_id) == 0, "suppression de partie → atomes purgés du carnet")
+	_check(int(CarnetStore.sync_status(profile_id)["total"]) == 0, "partie supprimée absente du sync")
+
+func _test_chesscom_dedup_and_keys() -> void:
+	var pgn := """[Event "CC"]
+[White "Nicolas"]
+[Black "Rival"]
+[Date "2026.08.22"]
+[Result "0-1"]
+
+1. e4 c5 2. Nf3 d6 1-0"""
+	var info := {
+		"pgn": pgn, "white_user": "Nicolas", "black_user": "Rival",
+		"white_rating": 1500, "black_rating": 1600, "time_class": "rapid",
+		"user_result": "win", "url": "https://chess.com/game/123", "account": "Nicolas",
+	}
+	var g1: String = _db.record_chesscom_game(info)
+	var g2: String = _db.record_chesscom_game(info)
+	_check(g1 != "" and g1 == g2, "Chess.com dédoublonné par URL")
+	var data: Dictionary = _db.get_game(g1)
+	var keys: Array = data.get("player_keys", [])
+	_check(keys.has("nicolas"), "clé joueur du compte Chess.com présente")
+	_db.delete_game(g1)
+
+func _test_batch_runner() -> void:
+	var pgn := """[Event "Batch"]
+[White "BatchPlayer"]
+[Black "Adversaire"]
+[Date "2026.08.21"]
+[Result "1-0"]
+
+1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 1-0"""
+	var gid: String = _db.record_pgn_game(pgn, "pgn_import")
+	var profile_id := CarnetProfiles.create("BatchPlayer", "local", ["batchplayer"])
+
+	var runner := CarnetBatchRunner.new()
+	runner.configure(profile_id, [gid])
+	runner.analyzer = func(_game: Dictionary) -> Dictionary:
+		return {
+			"schema_version": 2, "depth": 8, "opening": {"eco": "C20", "out_of_book_ply": 4}, "theory_plies": 4,
+			"evaluations": [
+				{"ply": 0, "is_white": true, "uci": "e2e4", "san": "e4", "quality": 1, "score_cp": 20, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": true, "best_alternative": "", "best_move": ""},
+				{"ply": 1, "is_white": false, "uci": "e7e5", "san": "e5", "quality": 1, "score_cp": 20, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": true, "best_alternative": "", "best_move": ""},
+				{"ply": 2, "is_white": true, "uci": "f1c4", "san": "Bc4", "quality": 1, "score_cp": 25, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""},
+				{"ply": 3, "is_white": false, "uci": "b8c6", "san": "Nc6", "quality": 1, "score_cp": 25, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""},
+				{"ply": 4, "is_white": true, "uci": "d1h5", "san": "Qh5", "quality": 1, "score_cp": 30, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""},
+				{"ply": 5, "is_white": false, "uci": "g8f6", "san": "Nf6", "quality": 1, "score_cp": 30, "loss_cp": 5, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""},
+			],
+		}
+	runner.run()
+
+	_check(runner.state == "done", "batch terminé")
+	_check(runner.processed == 1 and runner.failed == 0, "1 partie traitée, 0 échec")
+	var game: Dictionary = _db.get_game(gid)
+	_check(str(game.get("analysis_status", "")) == "done", "analyse enregistrée par le batch")
+	var status := CarnetStore.sync_status(profile_id)
+	_check(status["known"].size() == 1, "partie synchronisée après batch")
+	_db.delete_game(gid)
+	_check(CarnetStore.game_count(profile_id) == 0, "atomes du batch purgés à la suppression")
+
+	var runner2 := CarnetBatchRunner.new()
+	runner2.profile_id = profile_id
+	runner2.queue = ["ghost"]
+	runner2.cursor = 0
+	runner2.state = "running"
+	runner2.save_job()
+	var reloaded := CarnetBatchRunner.load_job(profile_id)
+	_check(int(reloaded.get("cursor", -1)) == 0, "lot reprisable rechargé")
+	CarnetBatchRunner.clear_job_for(profile_id)

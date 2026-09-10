@@ -76,7 +76,7 @@ static func _make_drill(atom: Dictionary, motif: Dictionary, origine: String, us
 	if position == "" or best == "":
 		return {}
 	var side := str(atom.get("couleur", ""))
-	var position_key := _sha1("%s|%s" % [position, side])
+	var position_key := HashUtil.sha1_hex("%s|%s" % [position, side])
 	if used_positions.has(position_key):
 		return {}
 	used_positions[position_key] = true
@@ -492,9 +492,3 @@ static func _day_index(date_iso: String) -> int:
 	if unix <= 0:
 		return -1
 	return int(unix / 86400.0)
-
-static func _sha1(text: String) -> String:
-	var ctx := HashingContext.new()
-	ctx.start(HashingContext.HASH_SHA1)
-	ctx.update(text.to_utf8_buffer())
-	return ctx.finish().hex_encode()

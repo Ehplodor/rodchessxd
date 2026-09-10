@@ -11,10 +11,9 @@ signal analysis_added(game_id: String, analysis_type: String)
 const BASE_DIR = "user://library"
 const GAMES_DIR = "user://library/games"
 const INDEX_FILE = "user://library/games_index.json"
-## LeCarnet (§4.12-4.13) : atomes, drills et état d'apprentissage, persistés séparément
-## des parties pour rester recalculables et idempotents.
-const CARNET_DIR = "user://library/carnet"
-const CARNET_FILE = "user://library/carnet/carnet.json"
+## LeCarnet (§4.12-4.13) : un dossier par profil joueur (atomes, sync, trainer).
+const CARNETS_DIR = "user://library/carnets"
+const PROFILES_DIR = "user://library/carnets/profiles"
 
 var games_index: Array[Dictionary] = []
 
@@ -29,8 +28,10 @@ func _ensure_directories() -> void:
 			da.make_dir("library")
 		if not da.dir_exists("library/games"):
 			da.make_dir("library/games")
-		if not da.dir_exists("library/carnet"):
-			da.make_dir("library/carnet")
+		if not da.dir_exists("library/carnets"):
+			da.make_dir("library/carnets")
+		if not da.dir_exists("library/carnets/profiles"):
+			da.make_dir("library/carnets/profiles")
 
 func _load_index() -> void:
 	games_index.clear()
@@ -111,7 +112,7 @@ func list_games(search_query: String = "", filter_source: String = "all") -> Arr
 		result.append(item)
 	return result
 
-## Supprime une partie et ses analyses associées
+## Supprime une partie, ses analyses et ses traces dans tous les carnets (§4.12).
 func delete_game(game_id: String) -> bool:
 	var path = "%s/%s.json" % [GAMES_DIR, game_id]
 	if FileAccess.file_exists(path):
@@ -122,9 +123,33 @@ func delete_game(game_id: String) -> bool:
 			games_index.remove_at(i)
 			break
 	
+	_purge_carnet_game(game_id)
 	_save_index()
 	game_deleted.emit(game_id)
 	return true
+
+## Retire les atomes et l'entrée de synchronisation d'une partie dans TOUS les profils.
+## Évite qu'un carnet continue de consommer une partie supprimée de la bibliothèque.
+func _purge_carnet_game(game_id: String) -> void:
+	if game_id == "":
+		return
+	var da := DirAccess.open(PROFILES_DIR)
+	if da == null:
+		return
+	da.list_dir_begin()
+	var entry := da.get_next()
+	while entry != "":
+		if entry != "." and entry != ".." and da.current_is_dir():
+			var base := "%s/%s" % [PROFILES_DIR, entry]
+			remove_file("%s/atoms/%s.json" % [base, game_id])
+			var sync := load_json("%s/sync.json" % base)
+			var entries = sync.get("entries", null)
+			if entries is Dictionary and entries.has(game_id):
+				entries.erase(game_id)
+				sync["entries"] = entries
+				save_json_atomic("%s/sync.json" % base, sync)
+		entry = da.get_next()
+	da.list_dir_end()
 
 ## Ajoute une analyse moteur (Stockfish, etc.) sans écraser les précédentes
 func add_engine_analysis(game_id: String, analysis_data: Dictionary) -> void:
@@ -143,6 +168,10 @@ func add_engine_analysis(game_id: String, analysis_data: Dictionary) -> void:
 	analysis_data["date_str"] = Time.get_datetime_string_from_system(false, true)
 
 	game_data["engine_analyses"].append(analysis_data)
+	# Statut/version au niveau partie : sert au calcul de fraîcheur du Carnet (§4.12).
+	game_data["analysis_status"] = "done"
+	game_data["analysis_version"] = int(analysis_data.get("schema_version", analysis_data.get("depth", 0)))
+	game_data["last_analysis_at"] = now
 	save_game(game_data)
 	analysis_added.emit(game_id, "engine")
 
@@ -166,8 +195,11 @@ func add_coach_analysis(game_id: String, coach_data: Dictionary) -> void:
 	save_game(game_data)
 	analysis_added.emit(game_id, "coach")
 
-## Crée ou met à jour une partie importée via PGN
-func record_pgn_game(pgn_text: String, source: String = "pgn_import") -> String:
+## Crée ou met à jour une partie importée via PGN.
+## `external_id` : identifiant stable de la partie (URL Chess.com, uuid, etc.) ; s'il est
+## vide, il est dérivé du contenu (joueurs/date/résultat/coups) pour dédoublonner les
+## réimports. `dedupe = false` force la création d'une nouvelle entrée (jeu libre).
+func record_pgn_game(pgn_text: String, source: String = "pgn_import", external_id: String = "", dedupe: bool = true) -> String:
 	var dummy_game = ChessGame.new()
 	var success = dummy_game.load_pgn(pgn_text)
 	if not success:
@@ -181,6 +213,13 @@ func record_pgn_game(pgn_text: String, source: String = "pgn_import") -> String:
 	var res = dummy_game.pgn_headers.get("Result", "*")
 	var event_val = dummy_game.pgn_headers.get("Event", "Partie Importée")
 	var eco = dummy_game.pgn_headers.get("ECO", "")
+
+	if external_id == "":
+		external_id = _compute_external_id(dummy_game)
+	if dedupe:
+		var existing := find_game_by_external_id(external_id)
+		if existing != "":
+			return existing
 
 	var moves_arr: Array[Dictionary] = []
 	for i in range(dummy_game.move_history.size()):
@@ -204,6 +243,10 @@ func record_pgn_game(pgn_text: String, source: String = "pgn_import") -> String:
 		"result": res,
 		"eco": eco,
 		"source": source,
+		"external_id": external_id,
+		"player_keys": _player_keys_for(w_name, b_name),
+		"analysis_status": "none",
+		"analysis_version": 0,
 		"initial_fen": ChessGame.INITIAL_FEN,
 		"pgn_text": pgn_text,
 		"moves": moves_arr,
@@ -221,8 +264,9 @@ func record_chesscom_game(game_info: Dictionary) -> String:
 	var b_rat = game_info.get("black_rating", 0)
 	var cadence = game_info.get("time_class", "partie")
 	var res = game_info.get("user_result", "draw")
+	var external_id = str(game_info.get("url", game_info.get("uuid", "")))
 
-	var game_id = record_pgn_game(pgn, "chess_com")
+	var game_id = record_pgn_game(pgn, "chess_com", external_id, true)
 	if game_id != "":
 		var data = get_game(game_id)
 		data["title"] = "⚪ %s (%d) vs ⚫ %s (%d)" % [w_user, w_rat, b_user, b_rat]
@@ -232,6 +276,11 @@ func record_chesscom_game(game_info: Dictionary) -> String:
 		data["black_elo"] = b_rat
 		data["event"] = "Chess.com (%s)" % cadence.capitalize()
 		data["result_label"] = res
+		var keys: Array = data.get("player_keys", [])
+		for extra in _player_keys_for(w_user, b_user, str(game_info.get("account", ""))):
+			if not keys.has(extra):
+				keys.append(extra)
+		data["player_keys"] = keys
 		save_game(data)
 	return game_id
 
@@ -265,6 +314,10 @@ func record_active_game(game: ChessGame, title_override: String = "", source: St
 		"date": Time.get_date_string_from_system(),
 		"result": game.pgn_headers.get("Result", "*"),
 		"source": source,
+		"external_id": _compute_external_id(game),
+		"player_keys": _player_keys_for(w_name, b_name),
+		"analysis_status": "none",
+		"analysis_version": 0,
 		"initial_fen": ChessGame.INITIAL_FEN,
 		"pgn_text": pgn,
 		"moves": moves_arr,
@@ -296,6 +349,10 @@ func _update_index_entry(game_data: Dictionary) -> void:
 		"date": game_data.get("date", ""),
 		"result": game_data.get("result", "*"),
 		"source": game_data.get("source", "pgn_import"),
+		"external_id": game_data.get("external_id", ""),
+		"player_keys": game_data.get("player_keys", []),
+		"analysis_status": game_data.get("analysis_status", "none"),
+		"analysis_version": game_data.get("analysis_version", 0),
 		"moves_count": game_data.get("moves", []).size(),
 		"engine_analyses_count": game_data.get("engine_analyses", []).size(),
 		"coach_analyses_count": game_data.get("coach_analyses", []).size(),
@@ -312,99 +369,126 @@ func _update_index_entry(game_data: Dictionary) -> void:
 	if not found:
 		games_index.append(summary)
 
-# --- LECARNET (§4.12-4.13) ---
+# --- IDENTITÉ DES PARTIES & INDEXATION (§ imports / LeCarnet) ---
 
-## Sauvegarde l'état complet du Carnet (atomes par partie, drills, apprentissage).
-## Écriture atomique : fichier temporaire puis renommage, en conservant l'ancienne
-## version en `.bak`. Le renommage n'est pas fiable sur tous les systèmes de fichiers
-## (WASM/IDBFS) : en cas d'échec, on retombe sur une écriture directe pour ne jamais
-## laisser le carnet uniquement dans un `.tmp` orphelin.
-func save_carnet(carnet_data: Dictionary) -> void:
-	_ensure_directories()
-	var text := JSON.stringify(carnet_data, "  ")
-	var tmp_path = CARNET_FILE + ".tmp"
-	var f = FileAccess.open(tmp_path, FileAccess.WRITE)
+## Identifiant stable dérivé du contenu (joueurs/date/résultat/coups) : dédoublonne les
+## réimports quand la source ne fournit pas d'identifiant externe.
+func _compute_external_id(game: ChessGame) -> String:
+	var moves := PackedStringArray()
+	for m in game.move_history:
+		moves.append(m.uci)
+	var key := "%s|%s|%s|%s|%s" % [
+		str(game.pgn_headers.get("White", "")),
+		str(game.pgn_headers.get("Black", "")),
+		str(game.pgn_headers.get("Date", "")),
+		str(game.pgn_headers.get("Result", "*")),
+		",".join(moves),
+	]
+	return HashUtil.sha1_hex(key)
+
+func find_game_by_external_id(external_id: String) -> String:
+	if external_id == "":
+		return ""
+	for item in games_index:
+		if str(item.get("external_id", "")) == external_id:
+			return str(item.get("id", ""))
+	return ""
+
+## Clés joueur normalisées d'une partie (blancs, noirs, compte source optionnel).
+func _player_keys_for(white_name: String, black_name: String, account: String = "") -> Array:
+	var keys: Array = []
+	for raw in [white_name, black_name, account]:
+		var k := normalize_player_key(str(raw))
+		if k != "" and not keys.has(k):
+			keys.append(k)
+	return keys
+
+## Normalise un nom pour le rattachement aux profils ; renvoie "" pour les placeholders.
+static func normalize_player_key(name: String) -> String:
+	var k := name.strip_edges().to_lower()
+	while k.contains("  "):
+		k = k.replace("  ", " ")
+	var placeholders := ["", "?", "joueur blanc", "joueur noir", "joueur 1", "joueur 2",
+			"blancs", "noirs", "player 1", "player 2", "player 3", "player 4"]
+	return "" if k in placeholders else k
+
+# --- UTILITAIRES JSON ATOMIQUES (réutilisés par LeCarnet multi-profils) ---
+
+func file_exists(path: String) -> bool:
+	return FileAccess.file_exists(path)
+
+func remove_file(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+
+static func ensure_dir_for(path: String) -> void:
+	var base := path.get_base_dir()
+	if base != "" and not DirAccess.dir_exists_absolute(base):
+		DirAccess.make_dir_recursive_absolute(base)
+
+## Écriture atomique : `.tmp` puis renommage, avec rotation en `.bak` et repli en écriture
+## directe si le FS ne supporte pas le rename écrasant (WASM/IDBFS).
+func save_json_atomic(path: String, data: Dictionary) -> void:
+	ensure_dir_for(path)
+	var text := JSON.stringify(data, "  ")
+	var tmp := path + ".tmp"
+	var f = FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
-		_direct_write_carnet(text)
+		_direct_write(path, text)
 		return
 	f.store_string(text)
 	f.flush()
 	f = null
+	if FileAccess.file_exists(path + ".bak"):
+		DirAccess.remove_absolute(path + ".bak")
+	if FileAccess.file_exists(path):
+		DirAccess.rename_absolute(path, path + ".bak")
+	var err: int = DirAccess.rename_absolute(tmp, path)
+	if err != OK or not FileAccess.file_exists(path):
+		if FileAccess.file_exists(tmp):
+			DirAccess.remove_absolute(tmp)
+		_direct_write(path, text)
 
-	var da = DirAccess.open(CARNET_DIR)
-	if da == null:
-		_direct_write_carnet(text)
-		return
-
-	# Rotation de l'ancienne version (au mieux : un échec ne doit pas bloquer la sauvegarde).
-	if da.file_exists("carnet.json.bak"):
-		da.remove("carnet.json.bak")
-	if da.file_exists("carnet.json"):
-		da.rename("carnet.json", "carnet.json.bak")
-
-	var err: int = da.rename("carnet.json.tmp", "carnet.json")
-	if err != OK or not da.file_exists("carnet.json"):
-		# Repli : certains FS (Web/IDBFS) ne supportent pas le rename écrasant.
-		if da.file_exists("carnet.json.tmp"):
-			da.remove("carnet.json.tmp")
-		_direct_write_carnet(text)
-
-## Écriture directe de secours (sans renommage), utilisée si le FS ne coopère pas.
-func _direct_write_carnet(text: String) -> void:
-	var f = FileAccess.open(CARNET_FILE, FileAccess.WRITE)
+func _direct_write(path: String, text: String) -> void:
+	ensure_dir_for(path)
+	var f = FileAccess.open(path, FileAccess.WRITE)
 	if f != null:
 		f.store_string(text)
 		f.flush()
 
-## Charge l'état du Carnet. Retourne un carnet vide et valide s'il n'existe pas.
-## Si le fichier est illisible/corrompu, il est préservé (`carnet.json.corrupt_*`)
-## avant de repartir d'un carnet vide : aucune donnée n'est écrasée silencieusement.
-func get_carnet() -> Dictionary:
-	var empty = {"schema_version": 1, "games": {}, "trainer": {}}
-	if not FileAccess.file_exists(CARNET_FILE):
-		return empty
-	var f = FileAccess.open(CARNET_FILE, FileAccess.READ)
+## Charge un JSON. Renvoie {} s'il est absent ; préserve un fichier corrompu
+## (`<path>.corrupt_*`) au lieu de l'écraser silencieusement.
+func load_json(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+	var f = FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		return empty
-	var text = f.get_as_text()
+		return {}
+	var text := f.get_as_text()
 	f = null
-	var parsed = JSON.parse_string(text) if text.strip_edges() != "" else null
-	if parsed is Dictionary:
-		if not parsed.has("games"):
-			parsed["games"] = {}
-		if not parsed.has("trainer"):
-			parsed["trainer"] = {}
-		return parsed
-	_preserve_corrupt_carnet()
-	return empty
+	var json := JSON.new()
+	if json.parse(text) == OK and json.data is Dictionary:
+		return json.data
+	_preserve_corrupt_file(path)
+	return {}
 
-## Renomme le carnet corrompu pour permettre une récupération manuelle ultérieure.
-## Si le renommage échoue (Web/IDBFS), on copie le contenu dans un fichier `.corrupt_*`
-## puis on supprime l'original, afin de toujours préserver les données brutes.
-func _preserve_corrupt_carnet() -> void:
-	var da = DirAccess.open(CARNET_DIR)
-	if da == null or not da.file_exists("carnet.json"):
-		return
+func _preserve_corrupt_file(path: String) -> void:
 	var stamp = Time.get_datetime_string_from_system(false, true) \
 			.replace(":", "-").replace(" ", "_")
-	var target = "carnet.json.corrupt_%s" % stamp
-	var err: int = da.rename("carnet.json", target)
-	if err == OK and da.file_exists(target):
+	var target := "%s.corrupt_%s" % [path, stamp]
+	var err: int = DirAccess.rename_absolute(path, target)
+	if err == OK and FileAccess.file_exists(target):
 		return
-	var src = FileAccess.open(CARNET_FILE, FileAccess.READ)
+	var src = FileAccess.open(path, FileAccess.READ)
 	if src == null:
 		return
-	var content = src.get_as_text()
+	var content := src.get_as_text()
 	src = null
-	var dst = FileAccess.open(CARNET_DIR + "/" + target, FileAccess.WRITE)
+	var dst = FileAccess.open(target, FileAccess.WRITE)
 	if dst == null:
 		return
 	dst.store_string(content)
 	dst.flush()
 	dst = null
-	if da.file_exists(target):
-		da.remove("carnet.json")
-
-func delete_carnet() -> void:
-	if FileAccess.file_exists(CARNET_FILE):
-		DirAccess.remove_absolute(CARNET_FILE)
+	if FileAccess.file_exists(target):
+		DirAccess.remove_absolute(path)

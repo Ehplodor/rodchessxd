@@ -31,10 +31,7 @@ const POLARITE_CURIEUSE := CarnetConfig.POLARITE_CURIEUSE
 
 ## Identité stable d'un atome (§4.3) : idempotence et dédoublonnage.
 static func event_id_for(game_id: String, ply: int, couleur: String) -> String:
-	var ctx := HashingContext.new()
-	ctx.start(HashingContext.HASH_SHA1)
-	ctx.update(("%s:%d:%s" % [game_id, ply, couleur]).to_utf8_buffer())
-	return ctx.finish().hex_encode()
+	return HashUtil.sha1_hex("%s:%d:%s" % [game_id, ply, couleur])
 
 ## Annote UN coup. Retourne {} si le coup n'est pas notable (la grande majorité des
 ## coups), sinon un atome sérialisable (§4.13).

@@ -112,3 +112,9 @@ const JOKER_PAR_SEMAINE := 1
 # ── Divers ──────────────────────────────────────────────────────────────────────
 ## Sentinelle « pas de 2e ligne connue » (cohérente avec MoveQualityService).
 const NO_SECOND_LINE := -999999
+
+## Version de l'algorithme d'atomisation (Étage 1). À incrémenter pour forcer la
+## reconstruction des atomes d'un carnet après un changement de détection/scoring.
+const ATOM_VERSION := 1
+## Version du schéma des fichiers de profil (sync/atoms/trainer).
+const CARNET_SCHEMA_VERSION := 1
