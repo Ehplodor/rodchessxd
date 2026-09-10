@@ -11,6 +11,10 @@ signal analysis_added(game_id: String, analysis_type: String)
 const BASE_DIR = "user://library"
 const GAMES_DIR = "user://library/games"
 const INDEX_FILE = "user://library/games_index.json"
+## LeCarnet (§4.12-4.13) : atomes, drills et état d'apprentissage, persistés séparément
+## des parties pour rester recalculables et idempotents.
+const CARNET_DIR = "user://library/carnet"
+const CARNET_FILE = "user://library/carnet/carnet.json"
 
 var games_index: Array[Dictionary] = []
 
@@ -25,6 +29,8 @@ func _ensure_directories() -> void:
 			da.make_dir("library")
 		if not da.dir_exists("library/games"):
 			da.make_dir("library/games")
+		if not da.dir_exists("library/carnet"):
+			da.make_dir("library/carnet")
 
 func _load_index() -> void:
 	games_index.clear()
@@ -305,3 +311,61 @@ func _update_index_entry(game_data: Dictionary) -> void:
 
 	if not found:
 		games_index.append(summary)
+
+# --- LECARNET (§4.12-4.13) ---
+
+## Sauvegarde l'état complet du Carnet (atomes par partie, drills, apprentissage).
+## Écriture atomique : fichier temporaire puis renommage, en conservant l'ancienne
+## version en `.bak`, afin qu'une interruption n'efface jamais tout le carnet.
+func save_carnet(carnet_data: Dictionary) -> void:
+	_ensure_directories()
+	var tmp_path = CARNET_FILE + ".tmp"
+	var f = FileAccess.open(tmp_path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(carnet_data, "  "))
+	f.flush()
+	f = null
+	var da = DirAccess.open(CARNET_DIR)
+	if da == null:
+		return
+	if da.file_exists("carnet.json.bak"):
+		da.remove("carnet.json.bak")
+	if da.file_exists("carnet.json"):
+		da.rename("carnet.json", "carnet.json.bak")
+	da.rename("carnet.json.tmp", "carnet.json")
+
+## Charge l'état du Carnet. Retourne un carnet vide et valide s'il n'existe pas.
+## Si le fichier est illisible/corrompu, il est préservé (`carnet.json.corrupt_*`)
+## avant de repartir d'un carnet vide : aucune donnée n'est écrasée silencieusement.
+func get_carnet() -> Dictionary:
+	var empty = {"schema_version": 1, "games": {}, "trainer": {}}
+	if not FileAccess.file_exists(CARNET_FILE):
+		return empty
+	var f = FileAccess.open(CARNET_FILE, FileAccess.READ)
+	if f == null:
+		return empty
+	var text = f.get_as_text()
+	f = null
+	var parsed = JSON.parse_string(text) if text.strip_edges() != "" else null
+	if parsed is Dictionary:
+		if not parsed.has("games"):
+			parsed["games"] = {}
+		if not parsed.has("trainer"):
+			parsed["trainer"] = {}
+		return parsed
+	_preserve_corrupt_carnet()
+	return empty
+
+## Renomme le carnet corrompu pour permettre une récupération manuelle ultérieure.
+func _preserve_corrupt_carnet() -> void:
+	var da = DirAccess.open(CARNET_DIR)
+	if da == null or not da.file_exists("carnet.json"):
+		return
+	var stamp = Time.get_datetime_string_from_system(false, true) \
+			.replace(":", "-").replace(" ", "_")
+	da.rename("carnet.json", "carnet.json.corrupt_%s" % stamp)
+
+func delete_carnet() -> void:
+	if FileAccess.file_exists(CARNET_FILE):
+		DirAccess.remove_absolute(CARNET_FILE)
