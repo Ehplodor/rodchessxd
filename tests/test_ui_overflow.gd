@@ -30,6 +30,10 @@ func _process(_delta: float) -> bool:
 	if btn != null:
 		_check(btn.has_theme_stylebox_override("normal"), "bouton Carnet stylé comme les autres")
 
+	# Les boutons-icônes (emoji) ne doivent jamais être tronqués, sinon leur libellé disparaît.
+	var flip = main.get_node_or_null("VBox/TopBar/BtnFlip")
+	_check(flip != null and not flip.clip_text, "bouton-icône de la barre non tronqué (libellé préservé)")
+
 	# Ouverture du Carnet : z-order au-dessus de l'échiquier + pas de débordement.
 	main._open_carnet_overlay()
 	if main.carnet_overlay != null:

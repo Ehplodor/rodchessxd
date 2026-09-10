@@ -336,6 +336,17 @@ func _apply_overflow_guards() -> void:
 		var node := get_node_or_null(path)
 		if node is Control:
 			(node as Control).clip_contents = true
+	# Compacité de la barre du haut : 6 boutons + titre + badge doivent tenir à 360 px.
+	var topbar := get_node_or_null("VBox/TopBar")
+	if topbar is HBoxContainer:
+		(topbar as HBoxContainer).add_theme_constant_override("separation", 4)
+	var title_margin := get_node_or_null("VBox/TopBar/MarginContainer")
+	if title_margin is MarginContainer:
+		(title_margin as MarginContainer).add_theme_constant_override("margin_left", 0)
+		(title_margin as MarginContainer).add_theme_constant_override("margin_right", 0)
+	var eval_badge := get_node_or_null("VBox/TopBar/EvalBadge")
+	if eval_badge is Control:
+		(eval_badge as Control).custom_minimum_size = Vector2(44, 36)
 	for path in ["VBox/TopBar/MarginContainer/TitleBox/AppTitle",
 			"VBox/TopBar/MarginContainer/TitleBox/VersionLabel",
 			"AnalyseOverlay/Layout/Header/Title", "CoachOverlay/Layout/Header/Title"]:
@@ -350,11 +361,21 @@ func _apply_overflow_guards() -> void:
 		if bar == null:
 			continue
 		for child in bar.get_children():
-			if child is Button:
+			# Ne jamais activer clip_text/ellipsis sur les boutons-icônes (emoji) :
+			# cela retire la largeur minimale et fait disparaître le libellé. On ne
+			# tronque que les boutons à texte alphabétique (Analyser, Fermer, …).
+			if child is Button and _has_ascii_letter(child.text):
 				child.clip_text = true
 				child.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 				child.custom_minimum_size.x = minf(child.custom_minimum_size.x, float(DesignTokens.TOUCH_MIN))
 	_harden_dropdowns(self)
+
+static func _has_ascii_letter(text: String) -> bool:
+	for i in range(text.length()):
+		var c := text.unicode_at(i)
+		if (c >= 65 and c <= 90) or (c >= 97 and c <= 122):
+			return true
+	return false
 
 func _harden_dropdowns(node: Node) -> void:
 	for child in node.get_children():
@@ -1034,9 +1055,8 @@ func _setup_carnet_overlay() -> void:
 	btn.name = "BtnCarnet"
 	btn.text = "📓"
 	btn.tooltip_text = "LeCarnet"
-	btn.clip_text = true
 	DesignTokens.style_button(btn, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
-	btn.custom_minimum_size.x = float(DesignTokens.TOUCH_MIN)
+	btn.custom_minimum_size.x = 44.0
 	btn.pressed.connect(_open_carnet_overlay)
 	top_bar.add_child(btn)
 
