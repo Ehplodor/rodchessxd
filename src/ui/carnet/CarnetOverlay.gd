@@ -547,6 +547,7 @@ func _on_create_profile() -> void:
 		presenter.refresh_sync()
 		modal.queue_free()
 	)
+	add_child(modal)
 
 func _on_profile_context_menu(profile_id: String, global_pos: Vector2) -> void:
 	if _profile_context_menu == null:
@@ -580,6 +581,7 @@ func _on_edit_profile(profile_id: String) -> void:
 		presenter.refresh_sync()
 		modal.queue_free()
 	)
+	add_child(modal)
 
 func _on_manage_keys(profile_id: String) -> void:
 	_on_edit_profile(profile_id)
