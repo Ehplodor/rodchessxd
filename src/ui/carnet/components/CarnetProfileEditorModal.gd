@@ -80,7 +80,6 @@ func _setup_ui() -> void:
 	_keys_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_keys_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_keys_edit.custom_minimum_size.y = 120.0
-	_keys_edit.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	DesignTokens.touch_scroll(_keys_edit)
 	_keys_edit.text_changed.connect(_rebuild_keys_list)
 	vbox.add_child(_keys_edit)
