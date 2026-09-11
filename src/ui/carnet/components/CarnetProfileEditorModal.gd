@@ -59,10 +59,10 @@ func _setup_ui() -> void:
 	_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_name_edit.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
 	_name_edit.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
-	vbox.add_child(Label.new()._setup("Nom du profil", DesignTokens.FONT_CAPTION, DesignTokens.TEXT_SECONDARY))
+	vbox.add_child(_setup("Nom du profil", DesignTokens.FONT_CAPTION, DesignTokens.TEXT_SECONDARY))
 	vbox.add_child(_name_edit)
 
-	vbox.add_child(Label.new()._setup("Clés joueur (une par ligne)", DesignTokens.FONT_CAPTION, DesignTokens.TEXT_SECONDARY))
+	vbox.add_child(_setup("Clés joueur (une par ligne)", DesignTokens.FONT_CAPTION, DesignTokens.TEXT_SECONDARY))
 
 	var keys_scroll = ScrollContainer.new()
 	keys_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
