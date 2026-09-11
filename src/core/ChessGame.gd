@@ -979,4 +979,3 @@ static func format_pv_natural_text(fen: String, pv_moves: Array, max_moves: int 
 		sim_game.make_move(m)
 
 	return "\n".join(lines)
-
