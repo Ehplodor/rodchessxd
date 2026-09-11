@@ -4,6 +4,7 @@ extends Node
 
 signal games_fetched(games: Array[Dictionary])
 signal fetch_error(error_message: String, diagnostic: Dictionary)
+signal progress_fetched(current: int, total: int, count: int)
 
 const RESULT_NAMES: Dictionary = {
 	HTTPRequest.RESULT_SUCCESS: "RESULT_SUCCESS",
@@ -27,6 +28,14 @@ var current_username: String = ""
 var target_max_games: int = 50
 var _current_request_url: String = ""
 
+var _multi_fetch_mode := false
+var _multi_fetch_archives: Array = []
+var _multi_fetch_current_index := 0
+var _multi_fetch_all_games: Array[Dictionary] = []
+var _multi_fetch_max_games := 500
+var _multi_fetch_max_months := 12
+var _multi_fetch_cancelled := false
+
 func _ready() -> void:
 	_ensure_http_client()
 
@@ -35,6 +44,9 @@ func _ensure_http_client() -> void:
 		http_client = HTTPRequest.new()
 		add_child(http_client)
 		http_client.request_completed.connect(_on_request_completed)
+
+func cancel() -> void:
+	_multi_fetch_cancelled = true
 
 ## Algorithme de diagnostic structuré d'erreur réseau pour Chess.com
 static func diagnose_request_error(result: int, response_code: int, url: String, username: String = "", is_android_override: Variant = null) -> Dictionary:
@@ -46,7 +58,6 @@ static func diagnose_request_error(result: int, response_code: int, url: String,
 	var probable_cause := ""
 	var recommendations: Array[String] = []
 	
-	# Branche 1 : Échec au niveau socket / transport (HTTP 0 ou CANT_CONNECT / CONNECTION_ERROR)
 	if response_code == 0 or result in [HTTPRequest.RESULT_CANT_CONNECT, HTTPRequest.RESULT_CONNECTION_ERROR]:
 		if result == HTTPRequest.RESULT_TLS_HANDSHAKE_ERROR:
 			title = "Échec de sécurité SSL/TLS (Certificat rejeté)"
@@ -69,7 +80,6 @@ static func diagnose_request_error(result: int, response_code: int, url: String,
 			recommendations.append("Vérifiez la qualité et la stabilité de votre réseau Internet.")
 			recommendations.append("Réessayez dans quelques secondes.")
 		else:
-			# RESULT_CANT_CONNECT ou autre code avec HTTP 0
 			if on_android:
 				title = "Connexion refusée par le système Android (Code HTTP 0)"
 				summary = "Le système a refusé l'ouverture de socket réseau vers Chess.com."
@@ -174,7 +184,6 @@ func fetch_player_games(username: String, max_games: int = 50) -> void:
 		fetch_error.emit("Veuillez saisir un pseudo Chess.com valide.", diag)
 		return
 
-	# Étape 1 : Récupérer la liste des archives mensuelles du joueur
 	var archives_url = "https://api.chess.com/pub/player/%s/games/archives" % current_username
 	_current_request_url = archives_url
 	var headers = ["User-Agent: RodChessXD-ChessAnalysisApp/1.0"]
@@ -184,14 +193,190 @@ func fetch_player_games(username: String, max_games: int = 50) -> void:
 		var diag = diagnose_request_error(HTTPRequest.RESULT_CANT_CONNECT, 0, archives_url, current_username)
 		fetch_error.emit(diag["summary"], diag)
 
+## Récupère toutes les parties d'un joueur sur plusieurs mois, avec pagination et rate-limit.
+func fetch_all_player_games(username: String, max_months: int = 12, max_games: int = 500) -> void:
+	if not is_inside_tree():
+		await tree_entered
+	if not is_node_ready():
+		await ready
+
+	_ensure_http_client()
+	_multi_fetch_cancelled = false
+	_multi_fetch_mode = true
+	_multi_fetch_max_months = max_months
+	_multi_fetch_max_games = max_games
+	_multi_fetch_archives = []
+	_multi_fetch_current_index = 0
+	_multi_fetch_all_games = []
+
+	current_username = username.strip_edges().to_lower()
+
+	if current_username == "":
+		var diag = {
+			"summary": "Pseudo vide.",
+			"title": "Pseudo manquant",
+			"result_code": HTTPRequest.RESULT_REQUEST_FAILED,
+			"result_name": "RESULT_REQUEST_FAILED",
+			"response_code": 0,
+			"url": "",
+			"username": "",
+			"os_name": OS.get_name(),
+			"is_android": OS.has_feature("android"),
+			"probable_cause": "Aucun pseudo Chess.com n'a été saisi dans le champ de recherche.",
+			"recommendations": ["Veuillez saisir un pseudo de joueur Chess.com valide (ex: hikaru, magnuscarlsen)."],
+			"formatted_report": "Erreur : Veuillez saisir un pseudo Chess.com valide."
+		}
+		fetch_error.emit("Veuillez saisir un pseudo Chess.com valide.", diag)
+		_multi_fetch_mode = false
+		return
+
+	var archives_url = "https://api.chess.com/pub/player/%s/games/archives" % current_username
+	_current_request_url = archives_url
+	var headers = ["User-Agent: RodChessXD-ChessAnalysisApp/1.0"]
+	
+	var err = http_client.request(archives_url, headers)
+	if err != OK:
+		var diag = diagnose_request_error(HTTPRequest.RESULT_CANT_CONNECT, 0, archives_url, current_username)
+		fetch_error.emit(diag["summary"], diag)
+		_multi_fetch_mode = false
+
+func _request_next_archive() -> void:
+	if _multi_fetch_cancelled:
+		_multi_fetch_mode = false
+		games_fetched.emit(_multi_fetch_all_games)
+		return
+
+	var total_months := mini(_multi_fetch_max_months, _multi_fetch_archives.size())
+	if _multi_fetch_current_index >= total_months:
+		_multi_fetch_mode = false
+		games_fetched.emit(_multi_fetch_all_games)
+		return
+
+	if _multi_fetch_all_games.size() >= _multi_fetch_max_games:
+		_multi_fetch_mode = false
+		games_fetched.emit(_multi_fetch_all_games)
+		return
+
+	var archive_url = _multi_fetch_archives[_multi_fetch_current_index]
+	_current_request_url = archive_url
+	var headers = ["User-Agent: RodChessXD-ChessAnalysisApp/1.0"]
+	var err = http_client.request(archive_url, headers)
+	if err != OK:
+		var diag = diagnose_request_error(HTTPRequest.RESULT_CANT_CONNECT, 0, archive_url, current_username)
+		fetch_error.emit(diag["summary"], diag)
+		_multi_fetch_current_index += 1
+		progress_fetched.emit(_multi_fetch_current_index, total_months, _multi_fetch_all_games.size())
+		_request_next_archive()
+
+func _parse_month_games(json: Dictionary, max_games: int = 50) -> Array[Dictionary]:
+	var raw_games = json["games"]
+	var parsed_games: Array[Dictionary] = []
+
+	for i in range(raw_games.size() - 1, -1, -1):
+		var g = raw_games[i]
+		var pgn = g.get("pgn", "")
+		if pgn == "":
+			continue
+
+		var white_info = g.get("white", {})
+		var black_info = g.get("black", {})
+		
+		var white_user = white_info.get("username", "Inconnu")
+		var black_user = black_info.get("username", "Inconnu")
+		var white_rating = int(white_info.get("rating", 0))
+		var black_rating = int(black_info.get("rating", 0))
+		var white_result = str(white_info.get("result", ""))
+		var black_result = str(black_info.get("result", ""))
+
+		var time_class = str(g.get("time_class", "inconnu"))
+		var time_control = str(g.get("time_control", ""))
+		var end_time = int(g.get("end_time", 0))
+		
+		var is_current_white = (white_user.to_lower() == current_username)
+		var is_current_black = (black_user.to_lower() == current_username)
+
+		var user_result = "draw"
+		if white_result in ["agreed", "repetition", "stalemate", "timevsinsufficient", "insufficient", "50move"] or black_result in ["agreed", "repetition", "stalemate", "timevsinsufficient", "insufficient", "50move"]:
+			user_result = "draw"
+		elif is_current_white:
+			user_result = "win" if white_result == "win" else "loss"
+		elif is_current_black:
+			user_result = "win" if black_result == "win" else "loss"
+		else:
+			user_result = "win" if white_result == "win" else ("loss" if black_result == "win" else "draw")
+
+		var score = "½-½"
+		if white_result == "win":
+			score = "1-0"
+		elif black_result == "win":
+			score = "0-1"
+
+		var termination_reason = ""
+		var losing_result = black_result if white_result == "win" else white_result
+		match losing_result:
+			"checkmated": termination_reason = "Mat"
+			"resigned": termination_reason = "Abandon"
+			"timeout": termination_reason = "Au temps"
+			"stalemate": termination_reason = "Pat"
+			"repetition": termination_reason = "Répétition"
+			"agreed": termination_reason = "Accord"
+			"insufficient": termination_reason = "Matériel"
+			"timevsinsufficient": termination_reason = "Temps vs Matériel"
+			"50move": termination_reason = "50 coups"
+			"abandoned": termination_reason = "Abandonné"
+			_: termination_reason = losing_result.capitalize() if losing_result != "" else ""
+
+		parsed_games.append({
+			"url": g.get("url", ""),
+			"pgn": pgn,
+			"white_user": white_user,
+			"black_user": black_user,
+			"white_rating": white_rating,
+			"black_rating": black_rating,
+			"time_class": time_class,
+			"time_control": time_control,
+			"end_time": end_time,
+			"user_result": user_result,
+			"score": score,
+			"termination_reason": termination_reason,
+			"is_user_white": is_current_white,
+			"is_user_black": is_current_black,
+			"white_result": white_result,
+			"black_result": black_result,
+			"rules": g.get("rules", "chess")
+		})
+
+		if parsed_games.size() >= max_games:
+			break
+
+	return parsed_games
+
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code == 404:
 		var diag = diagnose_request_error(result, response_code, _current_request_url, current_username)
 		fetch_error.emit(diag["summary"], diag)
+		if _multi_fetch_mode:
+			_multi_fetch_current_index += 1
+			var total_months := mini(_multi_fetch_max_months, _multi_fetch_archives.size())
+			progress_fetched.emit(_multi_fetch_current_index, total_months, _multi_fetch_all_games.size())
+			if _multi_fetch_cancelled or _multi_fetch_current_index >= total_months:
+				_multi_fetch_mode = false
+				games_fetched.emit(_multi_fetch_all_games)
+			else:
+				get_tree().create_timer(2.0).timeout.connect(func(): _request_next_archive(), Object.CONNECT_ONE_SHOT)
 		return
 	elif result != HTTPRequest.RESULT_SUCCESS or response_code != 200:
 		var diag = diagnose_request_error(result, response_code, _current_request_url, current_username)
 		fetch_error.emit(diag["summary"], diag)
+		if _multi_fetch_mode:
+			_multi_fetch_current_index += 1
+			var total_months := mini(_multi_fetch_max_months, _multi_fetch_archives.size())
+			progress_fetched.emit(_multi_fetch_current_index, total_months, _multi_fetch_all_games.size())
+			if _multi_fetch_cancelled or _multi_fetch_current_index >= total_months:
+				_multi_fetch_mode = false
+				games_fetched.emit(_multi_fetch_all_games)
+			else:
+				get_tree().create_timer(2.0).timeout.connect(func(): _request_next_archive(), Object.CONNECT_ONE_SHOT)
 		return
 
 	var text = body.get_string_from_utf8()
@@ -202,9 +387,17 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 		diag["summary"] = "Données JSON corrompues ou incomplètes reçues de Chess.com."
 		diag["probable_cause"] = "Le serveur a répondu, mais le contenu n'a pas pu être décodé en JSON valide."
 		fetch_error.emit(diag["summary"], diag)
+		if _multi_fetch_mode:
+			_multi_fetch_current_index += 1
+			var total_months := mini(_multi_fetch_max_months, _multi_fetch_archives.size())
+			progress_fetched.emit(_multi_fetch_current_index, total_months, _multi_fetch_all_games.size())
+			if _multi_fetch_cancelled or _multi_fetch_current_index >= total_months:
+				_multi_fetch_mode = false
+				games_fetched.emit(_multi_fetch_all_games)
+			else:
+				get_tree().create_timer(2.0).timeout.connect(func(): _request_next_archive(), Object.CONNECT_ONE_SHOT)
 		return
 
-	# Cas 1 : Réponse de la liste des archives
 	if json.has("archives"):
 		var archives = json["archives"]
 		if archives.is_empty():
@@ -214,99 +407,43 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 			diag["probable_cause"] = "Le joueur existe sur Chess.com mais ne possède aucune archive mensuelle de parties enregistrée."
 			diag["recommendations"] = ["Vérifiez que ce joueur a joué des parties publiques sur Chess.com."]
 			fetch_error.emit(diag["summary"], diag)
+			if _multi_fetch_mode:
+				_multi_fetch_mode = false
+				games_fetched.emit([])
 			return
 
-		# Prendre l'archive la plus récente (dernier mois joué)
-		var latest_archive_url = archives[archives.size() - 1]
-		_current_request_url = latest_archive_url
-		var headers = ["User-Agent: RodChessXD-ChessAnalysisApp/1.0"]
-		var err = http_client.request(latest_archive_url, headers)
-		if err != OK:
-			var diag = diagnose_request_error(HTTPRequest.RESULT_CANT_CONNECT, 0, latest_archive_url, current_username)
-			fetch_error.emit("Erreur lors de la récupération des parties du dernier mois.", diag)
+		if _multi_fetch_mode:
+			_multi_fetch_archives = archives
+			_multi_fetch_current_index = 0
+			_multi_fetch_all_games = []
+			_request_next_archive()
+		else:
+			var latest_archive_url = archives[archives.size() - 1]
+			_current_request_url = latest_archive_url
+			var headers = ["User-Agent: RodChessXD-ChessAnalysisApp/1.0"]
+			var err = http_client.request(latest_archive_url, headers)
+			if err != OK:
+				var diag = diagnose_request_error(HTTPRequest.RESULT_CANT_CONNECT, 0, latest_archive_url, current_username)
+				fetch_error.emit("Erreur lors de la récupération des parties du dernier mois.", diag)
 		return
 
-	# Cas 2 : Réponse des parties d'un mois spécifique
 	if json.has("games"):
-		var raw_games = json["games"]
 		var parsed_games: Array[Dictionary] = []
+		if _multi_fetch_mode:
+			parsed_games = _parse_month_games(json, _multi_fetch_max_games)
+		else:
+			parsed_games = _parse_month_games(json, target_max_games)
 
-		# Trier du plus récent au plus ancien
-		for i in range(raw_games.size() - 1, -1, -1):
-			var g = raw_games[i]
-			var pgn = g.get("pgn", "")
-			if pgn == "":
-				continue
+		if _multi_fetch_mode:
+			_multi_fetch_all_games.append_array(parsed_games)
+			_multi_fetch_current_index += 1
+			var total_months := mini(_multi_fetch_max_months, _multi_fetch_archives.size())
+			progress_fetched.emit(_multi_fetch_current_index, total_months, _multi_fetch_all_games.size())
 
-			var white_info = g.get("white", {})
-			var black_info = g.get("black", {})
-			
-			var white_user = white_info.get("username", "Inconnu")
-			var black_user = black_info.get("username", "Inconnu")
-			var white_rating = int(white_info.get("rating", 0))
-			var black_rating = int(black_info.get("rating", 0))
-			var white_result = str(white_info.get("result", ""))
-			var black_result = str(black_info.get("result", ""))
-
-			var time_class = str(g.get("time_class", "inconnu"))
-			var time_control = str(g.get("time_control", ""))
-			var end_time = int(g.get("end_time", 0))
-			
-			var is_current_white = (white_user.to_lower() == current_username)
-			var is_current_black = (black_user.to_lower() == current_username)
-
-			var user_result = "draw"
-			if white_result in ["agreed", "repetition", "stalemate", "timevsinsufficient", "insufficient", "50move"] or black_result in ["agreed", "repetition", "stalemate", "timevsinsufficient", "insufficient", "50move"]:
-				user_result = "draw"
-			elif is_current_white:
-				user_result = "win" if white_result == "win" else "loss"
-			elif is_current_black:
-				user_result = "win" if black_result == "win" else "loss"
+			if _multi_fetch_cancelled or _multi_fetch_all_games.size() >= _multi_fetch_max_games or _multi_fetch_current_index >= total_months:
+				_multi_fetch_mode = false
+				games_fetched.emit(_multi_fetch_all_games)
 			else:
-				user_result = "win" if white_result == "win" else ("loss" if black_result == "win" else "draw")
-
-			var score = "½-½"
-			if white_result == "win":
-				score = "1-0"
-			elif black_result == "win":
-				score = "0-1"
-
-			var termination_reason = ""
-			var losing_result = black_result if white_result == "win" else white_result
-			match losing_result:
-				"checkmated": termination_reason = "Mat"
-				"resigned": termination_reason = "Abandon"
-				"timeout": termination_reason = "Au temps"
-				"stalemate": termination_reason = "Pat"
-				"repetition": termination_reason = "Répétition"
-				"agreed": termination_reason = "Accord"
-				"insufficient": termination_reason = "Matériel"
-				"timevsinsufficient": termination_reason = "Temps vs Matériel"
-				"50move": termination_reason = "50 coups"
-				"abandoned": termination_reason = "Abandonné"
-				_: termination_reason = losing_result.capitalize() if losing_result != "" else ""
-
-			parsed_games.append({
-				"url": g.get("url", ""),
-				"pgn": pgn,
-				"white_user": white_user,
-				"black_user": black_user,
-				"white_rating": white_rating,
-				"black_rating": black_rating,
-				"time_class": time_class,
-				"time_control": time_control,
-				"end_time": end_time,
-				"user_result": user_result,
-				"score": score,
-				"termination_reason": termination_reason,
-				"is_user_white": is_current_white,
-				"is_user_black": is_current_black,
-				"white_result": white_result,
-				"black_result": black_result,
-				"rules": g.get("rules", "chess")
-			})
-
-			if parsed_games.size() >= target_max_games:
-				break
-
-		games_fetched.emit(parsed_games)
+				get_tree().create_timer(2.0).timeout.connect(func(): _request_next_archive(), Object.CONNECT_ONE_SHOT)
+		else:
+			games_fetched.emit(parsed_games)

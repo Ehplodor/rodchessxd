@@ -77,6 +77,8 @@ static func ingest_game(game_id: String, atoms: Array, meta: Dictionary = {}, pr
 	_drop_game_drills(pid, game_id)
 
 ## Supprime une partie d'un profil : atomes, entrée de sync et drills associés.
+## L'entrée sync est marquée "removed" (et non effacée) pour exclure la partie
+## du rattachement automatique (`match_games`) sans casser la ré-importation globale.
 static func remove_game(game_id: String, profile_id: String = "") -> void:
 	var db := _db()
 	if db == null:
@@ -85,10 +87,27 @@ static func remove_game(game_id: String, profile_id: String = "") -> void:
 	db.remove_file(_atom_path(pid, game_id))
 	var sync := _load_sync(pid)
 	var entries: Dictionary = sync.get("entries", {})
-	entries.erase(game_id)
+	entries[game_id] = {"removed": true}
 	sync["entries"] = entries
 	db.save_json_atomic(_sync_path(pid), sync)
 	_drop_game_drills(pid, game_id)
+
+## Met à jour la perspective forcée d'une partie dans sync.json.
+## `perspective` ∈ ["", "white", "black"] (vide = auto).
+static func update_game_perspective(game_id: String, perspective: String, profile_id: String = "") -> void:
+	var db := _db()
+	if db == null or game_id == "":
+		return
+	var pid := _resolve(profile_id)
+	var sync := _load_sync(pid)
+	var entries: Dictionary = sync.get("entries", {})
+	if not entries.has(game_id):
+		entries[game_id] = {}
+	var entry: Dictionary = entries[game_id]
+	entry["perspective"] = perspective
+	entries[game_id] = entry
+	sync["entries"] = entries
+	db.save_json_atomic(_sync_path(pid), sync)
 
 static func _drop_game_drills(profile_id: String, game_id: String) -> void:
 	var trainer := _load_trainer(profile_id)

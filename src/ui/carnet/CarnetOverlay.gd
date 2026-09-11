@@ -11,6 +11,11 @@ extends Control
 
 signal closed
 
+const CarnetProfileEditorModal = preload("res://src/ui/carnet/components/CarnetProfileEditorModal.gd")
+const CarnetImportPgnModal = preload("res://src/ui/carnet/components/CarnetImportPgnModal.gd")
+const CarnetGameListItem = preload("res://src/ui/carnet/components/CarnetGameListItem.gd")
+const ChessComBulkImportModal = preload("res://src/ui/carnet/components/ChessComBulkImportModal.gd")
+
 const _TAB_CARNET := "carnet"
 const _TAB_ANALYSE := "analyse"
 const _TAB_SYNC := "sync"
@@ -26,6 +31,12 @@ var _content: VBoxContainer
 var _batch_label: Label
 var _batch_actions: HBoxContainer
 var _current_tab := _TAB_CARNET
+
+# Sync tab state
+var _games_list: VBoxContainer = null
+var _filter_group: ButtonGroup = null
+var _current_filter := "all"
+var _profile_context_menu: PopupMenu = null
 
 func _init() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -174,6 +185,9 @@ func _set_presenter(p: CarnetPresenter) -> void:
 	p.plan_changed.connect(_refresh_header)
 	p.batch_state.connect(func(_s): _update_batch_row())
 	p.batch_progress.connect(func(_d, _t, _g): _update_batch_row())
+	p.profile_updated.connect(_on_profile_updated)
+	p.game_list_changed.connect(_on_game_list_changed)
+	p.toast_requested.connect(_on_toast_requested)
 
 func _refresh_header() -> void:
 	if presenter == null:
@@ -192,7 +206,19 @@ func _rebuild_profiles() -> void:
 		var chip := CarnetProfileChip.new()
 		chip.set_profile(profile, str(profile.get("id", "")) == presenter.profile_id)
 		chip.profile_selected.connect(_on_profile_selected)
+		chip.context_menu_requested.connect(_on_profile_context_menu)
 		_profile_row.add_child(chip)
+
+	# Bouton "+" pour créer un profil
+	var btn_add := Button.new()
+	btn_add.text = "+"
+	btn_add.tooltip_text = "Créer un nouveau profil"
+	btn_add.custom_minimum_size = Vector2(DesignTokens.TOUCH_MIN, DesignTokens.TOUCH_MIN)
+	btn_add.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	DesignTokens.style_button(btn_add, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+	btn_add.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	btn_add.pressed.connect(_on_create_profile)
+	_profile_row.add_child(btn_add)
 
 func _on_profile_selected(id: String) -> void:
 	presenter.select_profile(id)
@@ -377,20 +403,38 @@ func _build_sync_tab() -> void:
 	summary.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	_content.add_child(summary)
 
-	var to_process: Array = presenter.sync.get("to_process", [])
-	for item in to_process.slice(0, 8):
-		_content.add_child(_hint("• %s (%s)" % [str(item.get("game_id", "")), CarnetPresenter.reason_label(str(item.get("reason", "")))]))
-	if to_process.size() > 8:
-		_content.add_child(_hint("… et %d autres" % (to_process.size() - 8)))
+	# Boutons d'action : Mettre à jour + Importer PGN + Importer Chess.com
+	var actions_row = HBoxContainer.new()
+	actions_row.add_theme_constant_override("separation", DesignTokens.SPACE_S)
+	_content.add_child(actions_row)
 
 	var run := Button.new()
 	run.text = "Mettre à jour le carnet"
-	run.disabled = to_process.is_empty()
+	run.disabled = presenter.sync.get("to_process", []).size() == 0
 	run.clip_text = true
 	run.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	run.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	DesignTokens.style_button(run, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
 	run.pressed.connect(func(): presenter.start_batch(); _update_batch_row())
-	_content.add_child(run)
+	actions_row.add_child(run)
+
+	var btn_import_pgn = Button.new()
+	btn_import_pgn.text = "📥 Importer PGN"
+	btn_import_pgn.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
+	btn_import_pgn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	DesignTokens.style_button(btn_import_pgn, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+	btn_import_pgn.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	btn_import_pgn.pressed.connect(_on_import_pgn)
+	actions_row.add_child(btn_import_pgn)
+
+	var btn_import_chesscom = Button.new()
+	btn_import_chesscom.text = "🌐 Importer Chess.com"
+	btn_import_chesscom.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
+	btn_import_chesscom.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	DesignTokens.style_button(btn_import_chesscom, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+	btn_import_chesscom.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	btn_import_chesscom.pressed.connect(_on_import_chesscom)
+	actions_row.add_child(btn_import_chesscom)
 
 	_batch_label = Label.new()
 	_batch_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -400,6 +444,47 @@ func _build_sync_tab() -> void:
 	_batch_actions.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
 	_content.add_child(_batch_actions)
 	_update_batch_row()
+
+	# Filtres pour la liste des parties
+	_content.add_child(_section_title("Parties du carnet"))
+	var filter_scroll = ScrollContainer.new()
+	filter_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	filter_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	filter_scroll.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
+	DesignTokens.touch_scroll(filter_scroll)
+	_content.add_child(filter_scroll)
+
+	_filter_group = ButtonGroup.new()
+	var filter_row = HBoxContainer.new()
+	filter_row.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	filter_scroll.add_child(filter_row)
+
+	var filters := [["all", "Toutes"], ["pending", "À traiter"], ["stale", "À jour"], ["up_to_date", "Périmées"]]
+	for f in filters:
+		var btn := Button.new()
+		btn.text = f[1]
+		btn.toggle_mode = true
+		btn.button_group = _filter_group
+		btn.clip_text = true
+		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		btn.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
+		DesignTokens.style_button(btn, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
+		btn.pressed.connect(_on_filter_pressed.bind(f[0]))
+		filter_row.add_child(btn)
+
+	# Liste des parties
+	var games_scroll = ScrollContainer.new()
+	games_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	games_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	DesignTokens.touch_scroll(games_scroll)
+	_content.add_child(games_scroll)
+
+	_games_list = VBoxContainer.new()
+	_games_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_games_list.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	games_scroll.add_child(_games_list)
+
+	_refresh_games_list()
 
 func _update_batch_row() -> void:
 	if _batch_label == null:
@@ -451,3 +536,157 @@ static func _clear_node(node: Node) -> void:
 	for child in node.get_children():
 		node.remove_child(child)
 		child.queue_free()
+
+# ── Nouveaux handlers Sync ─────────────────────────────────────────────────────────
+
+func _on_create_profile() -> void:
+	var modal = CarnetProfileEditorModal.new()
+	modal.open_create(presenter)
+	modal.profile_saved.connect(func(profile_id, is_new):
+		presenter.refresh_profiles()
+		presenter.refresh_sync()
+		modal.queue_free()
+	)
+
+func _on_profile_context_menu(profile_id: String, global_pos: Vector2) -> void:
+	if _profile_context_menu == null:
+		_profile_context_menu = PopupMenu.new()
+		add_child(_profile_context_menu)
+		_profile_context_menu.id_pressed.connect(_on_profile_context_menu_action)
+	_profile_context_menu.clear()
+	var profile := CarnetProfiles.get_profile(profile_id)
+	var is_default := str(profile.get("id", "")) == CarnetProfiles.DEFAULT_PROFILE_ID
+	_profile_context_menu.add_item("Renommer", 0)
+	_profile_context_menu.set_item_metadata(0, profile_id)
+	_profile_context_menu.add_item("Gérer clés", 1)
+	_profile_context_menu.set_item_metadata(1, profile_id)
+	if not is_default:
+		_profile_context_menu.add_separator()
+		_profile_context_menu.add_item("Supprimer", 2)
+		_profile_context_menu.set_item_metadata(2, profile_id)
+	_profile_context_menu.popup(Rect2i(global_pos, Vector2i(1, 1)))
+
+func _on_profile_context_menu_action(id: int, profile_id: String) -> void:
+	match id:
+		0: _on_edit_profile(profile_id)
+		1: _on_manage_keys(profile_id)
+		2: _on_delete_profile(profile_id)
+
+func _on_edit_profile(profile_id: String) -> void:
+	var modal = CarnetProfileEditorModal.new()
+	modal.open_edit(presenter, profile_id)
+	modal.profile_saved.connect(func(pid, is_new):
+		presenter.refresh_profiles()
+		presenter.refresh_sync()
+		modal.queue_free()
+	)
+
+func _on_manage_keys(profile_id: String) -> void:
+	_on_edit_profile(profile_id)
+
+func _on_delete_profile(profile_id: String) -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Supprimer le profil"
+	dialog.text = "Supprimer ce profil et toutes ses données ? Cette action est irréversible."
+	dialog.ok_button_text = "Supprimer"
+	dialog.add_theme_color_override("font_color", DesignTokens.DANGER)
+	dialog.confirmed.connect(func():
+		presenter.delete_profile(profile_id)
+		dialog.queue_free()
+	)
+	dialog.popup_centered()
+
+func _on_import_pgn() -> void:
+	var modal = CarnetImportPgnModal.new()
+	modal.open(presenter, presenter.profile_id)
+	modal.import_completed.connect(func(game_id, new_keys):
+		presenter.refresh_sync()
+		presenter.refresh_carnet()
+		presenter.refresh_plan()
+		_refresh_games_list()
+		modal.queue_free()
+	)
+
+func _on_import_chesscom() -> void:
+	var modal = ChessComBulkImportModal.new()
+	add_child(modal)
+	modal.open(presenter)
+	modal.import_completed.connect(func(_profile_name, _game_count):
+		presenter.refresh_profiles()
+		presenter.refresh_sync()
+		presenter.refresh_carnet()
+		presenter.refresh_plan()
+		_refresh_games_list()
+		modal.queue_free()
+	)
+
+func _on_filter_pressed(filter_id: String) -> void:
+	_current_filter = filter_id
+	_refresh_games_list()
+
+func _refresh_games_list() -> void:
+	if _games_list == null:
+		return
+	for child in _games_list.get_children():
+		child.queue_free()
+
+	var games := presenter.get_profile_games(presenter.profile_id)
+	var filtered: Array = []
+	for game in games:
+		var status := str(game.get("status", "up_to_date"))
+		if _current_filter == "all":
+			filtered.append(game)
+		elif _current_filter == "pending" and status == "pending":
+			filtered.append(game)
+		elif _current_filter == "stale" and status == "stale":
+			filtered.append(game)
+		elif _current_filter == "up_to_date" and status == "up_to_date":
+			filtered.append(game)
+
+	if filtered.is_empty():
+		_games_list.add_child(_hint("Aucune partie pour ce filtre."))
+		return
+
+	for game in filtered:
+		var item = CarnetGameListItem.new()
+		item.set_game(game)
+		item.reanalyze_requested.connect(_on_game_reanalyze)
+		item.perspective_cycle_requested.connect(_on_game_perspective_cycle)
+		item.remove_requested.connect(_on_game_remove)
+		_games_list.add_child(item)
+
+func _on_game_reanalyze(game_id: String) -> void:
+	presenter.reanalyze_game(game_id, presenter.profile_id)
+	_update_batch_row()
+
+func _on_game_perspective_cycle(game_id: String) -> void:
+	presenter.cycle_game_perspective(game_id)
+	presenter.refresh_sync()
+	_refresh_games_list()
+
+func _on_game_remove(game_id: String) -> void:
+	var dialog = ConfirmationDialog.new()
+	dialog.title = "Retirer la partie du carnet"
+	dialog.text = "Cette partie sera retirée du carnet (atomes, drills, sync). La partie reste dans la base globale."
+	dialog.ok_button_text = "Retirer"
+	dialog.add_theme_color_override("font_color", DesignTokens.DANGER)
+	dialog.confirmed.connect(func():
+		presenter.remove_game_from_profile(game_id, presenter.profile_id)
+		_refresh_games_list()
+		dialog.queue_free()
+	)
+	dialog.popup_centered()
+
+func _on_profile_updated(profile_id: String) -> void:
+	_refresh_header()
+	_refresh_games_list()
+
+func _on_game_list_changed() -> void:
+	_refresh_games_list()
+
+func _on_toast_requested(msg: String, is_success: bool) -> void:
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("Main"):
+		var main = tree.root.get_node("Main")
+		if main.has_method("_show_toast"):
+			main._show_toast(msg, is_success)

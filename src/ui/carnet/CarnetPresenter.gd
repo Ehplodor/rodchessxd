@@ -16,6 +16,10 @@ signal batch_state(state: String)
 signal session_changed
 signal session_finished(summary: Dictionary)
 signal error(message: String)
+signal profile_updated(profile_id: String)
+signal game_list_changed
+signal toast_requested(msg: String, is_success: bool)
+signal bulk_import_progress(phase: String, current: int, total: int)
 
 ## Profil actif et données de contexte.
 var profile_id := ""
@@ -28,6 +32,10 @@ var session: Dictionary = {}
 
 var _analyzer: Callable = Callable()
 var _engine_free: Callable = Callable()
+var _chesscom_service: ChessComService = null
+var _chesscom_profile_name: String = ""
+var _chesscom_batch_depth: int = 14
+var _chesscom_batch_mode: String = "dynamic"
 
 # ── Profils (L1) ─────────────────────────────────────────────────────────────────
 
@@ -67,6 +75,119 @@ func add_player_key(key: String) -> void:
 		return
 	CarnetProfiles.add_player_key(profile_id, key)
 	refresh_profiles()
+
+func rename_profile(profile_id: String, new_name: String) -> void:
+	if new_name.strip_edges() == "":
+		return
+	CarnetProfiles.update(profile_id, {"name": new_name.strip_edges()})
+	profile_updated.emit(profile_id)
+	refresh_profiles()
+
+func remove_player_key(profile_id: String, key: String) -> void:
+	var profile := CarnetProfiles.get_profile(profile_id)
+	if profile.is_empty():
+		return
+	var keys: Array = profile.get("player_keys", [])
+	keys = keys.filter(func(k): return str(k) != key)
+	CarnetProfiles.update(profile_id, {"player_keys": keys})
+	profile_updated.emit(profile_id)
+	refresh_profiles()
+	refresh_sync()
+
+func get_profile_games(profile_id: String) -> Array:
+	_ensure_profile()
+	var profile := CarnetProfiles.get_profile(profile_id)
+	if profile.is_empty():
+		return []
+	var matches := CarnetProfiles.match_games(profile)
+	var sync := CarnetStore.sync_status(profile_id)
+	var entries: Dictionary = CarnetStore._load_sync(profile_id).get("entries", {})
+
+	var status_lookup: Dictionary = {}
+	for item in sync.get("known", []):
+		status_lookup[str(item.get("game_id", ""))] = {"reason": str(item.get("reason", "up_to_date")), "status": "up_to_date"}
+	for item in sync.get("pending", []):
+		status_lookup[str(item.get("game_id", ""))] = {"reason": str(item.get("reason", "never_atomized")), "status": "pending"}
+	for item in sync.get("stale", []):
+		status_lookup[str(item.get("game_id", ""))] = {"reason": str(item.get("reason", "")), "status": "stale"}
+
+	var out: Array = []
+	for match in matches:
+		var gid := str(match.get("game_id", ""))
+		var entry: Dictionary = entries.get(gid, {})
+		var perspective := str(entry.get("perspective", ""))
+		var info: Dictionary = status_lookup.get(gid, {"reason": "never_atomized", "status": "pending"})
+		out.append({
+			"game_id": gid,
+			"perspective": perspective,
+			"title": str(match.get("title", "")),
+			"white_name": str(match.get("white_name", "")),
+			"black_name": str(match.get("black_name", "")),
+			"date": str(match.get("date", "")),
+			"status": str(info.get("status", "pending")),
+			"reason": str(info.get("reason", "never_atomized")),
+		})
+	return out
+
+func reanalyze_game(game_id: String, profile_id: String, options: Dictionary = {}) -> void:
+	_ensure_profile()
+	start_batch([game_id], options)
+
+func remove_game_from_profile(game_id: String, profile_id: String) -> void:
+	CarnetStore.remove_game(game_id, profile_id)
+	sync_changed.emit()
+	carnet_changed.emit()
+	plan_changed.emit()
+	game_list_changed.emit()
+
+func import_pgn_to_profile(pgn_text: String, profile_id: String) -> Dictionary:
+	var db := _db()
+	if db == null:
+		return {"game_id": "", "matched_keys": [], "new_keys": []}
+	var game_id := str(db.record_pgn_game(pgn_text, "pgn_import", "", true))
+	if game_id == "":
+		return {"game_id": "", "matched_keys": [], "new_keys": []}
+	var profile := CarnetProfiles.get_profile(profile_id)
+	var keys: Array = profile.get("player_keys", [])
+	var white_name := ""
+	var black_name := ""
+	var game: Dictionary = db.get_game(game_id)
+	if not game.is_empty():
+		white_name = str(game.get("white_name", "")).strip_edges().to_lower()
+		black_name = str(game.get("black_name", "")).strip_edges().to_lower()
+	var matched_keys: Array = []
+	var new_keys: Array = []
+	for name in [white_name, black_name]:
+		if name != "":
+			var norm := DatabaseManagerClass.normalize_player_key(name)
+			if norm in keys:
+				matched_keys.append(norm)
+			else:
+				new_keys.append(norm)
+	return {"game_id": game_id, "matched_keys": matched_keys, "new_keys": new_keys}
+
+func cycle_game_perspective(game_id: String) -> void:
+	_ensure_profile()
+	var sync := CarnetStore._load_sync(profile_id)
+	var entries: Dictionary = sync.get("entries", {})
+	var entry: Dictionary = entries.get(game_id, {})
+	var current := str(entry.get("perspective", ""))
+	var next_perspective := ""
+	match current:
+		"": next_perspective = "white"
+		"white": next_perspective = "black"
+		"black": next_perspective = ""
+	CarnetStore.update_game_perspective(game_id, next_perspective, profile_id)
+	sync_changed.emit()
+	carnet_changed.emit()
+	plan_changed.emit()
+	game_list_changed.emit()
+
+func _db() -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree and tree.root:
+		return tree.root.get_node_or_null("DatabaseManager")
+	return null
 
 # ── Synchronisation & carnets (L2/L3) ────────────────────────────────────────────
 
@@ -149,6 +270,100 @@ func cancel_batch() -> void:
 
 func is_batching() -> bool:
 	return batch != null and batch.state == "running"
+
+# ── Import bulk Chess.com (Phase F) ──────────────────────────────────────────────
+
+func cancel_bulk_import() -> void:
+	if _chesscom_service != null and is_instance_valid(_chesscom_service):
+		_chesscom_service.cancel()
+	cancel_batch()
+	_cleanup_chesscom_service()
+
+func bulk_import_chesscom(username: String, profile_name: String = "", options: Dictionary = {}) -> void:
+	if _chesscom_service != null and is_instance_valid(_chesscom_service):
+		_cleanup_chesscom_service()
+
+	var max_months := int(options.get("max_months", 12))
+	var max_games := int(options.get("max_games", 500))
+	_chesscom_batch_depth = int(options.get("depth", 14))
+	_chesscom_batch_mode = str(options.get("mode", "dynamic"))
+
+	var name := profile_name.strip_edges()
+	if name == "":
+		name = "Chess.com • %s" % username.strip_edges()
+	_chesscom_profile_name = name
+
+	var pid := create_profile(name, "chess_com", [username.strip_edges()])
+	if pid == "":
+		error.emit("Impossible de créer le carnet Chess.com.")
+		return
+
+	var tree := Engine.get_main_loop() as SceneTree
+	if not tree or not tree.root:
+		error.emit("Scène introuvable pour initialiser le service Chess.com.")
+		return
+
+	_chesscom_service = ChessComService.new()
+	tree.root.add_child(_chesscom_service)
+
+	_chesscom_service.games_fetched.connect(_on_chesscom_games_fetched)
+	_chesscom_service.fetch_error.connect(_on_chesscom_fetch_error)
+	_chesscom_service.progress_fetched.connect(_on_chesscom_progress)
+
+	bulk_import_progress.emit("fetching", 0, max_months)
+	_chesscom_service.fetch_all_player_games(username, max_months, max_games)
+
+func _on_chesscom_games_fetched(games: Array[Dictionary]) -> void:
+	if _chesscom_service == null:
+		return
+
+	bulk_import_progress.emit("importing", 0, games.size())
+
+	var db := _db()
+	if db == null:
+		error.emit("Base de données indisponible.")
+		_cleanup_chesscom_service()
+		return
+
+	var game_ids: Array = []
+	for i in range(games.size()):
+		var g := games[i]
+		var gid: String = db.record_chesscom_game(g)
+		if gid != "":
+			game_ids.append(gid)
+		bulk_import_progress.emit("importing", i + 1, games.size())
+
+	_cleanup_chesscom_service()
+
+	if game_ids.is_empty():
+		toast_requested.emit("Aucune partie importée pour le carnet '%s'." % _chesscom_profile_name, false)
+		return
+
+	bulk_import_progress.emit("analyzing", 0, game_ids.size())
+
+	var batch_options := {
+		"depth": _chesscom_batch_depth,
+		"mode": _chesscom_batch_mode,
+		"newest_first": true
+	}
+	start_batch(game_ids, batch_options)
+
+	toast_requested.emit("Carnet '%s' créé avec %d parties — analyse en cours..." % [_chesscom_profile_name, game_ids.size()], true)
+
+func _on_chesscom_fetch_error(err_msg: String, _diag: Dictionary) -> void:
+	error.emit(err_msg)
+	_cleanup_chesscom_service()
+
+func _on_chesscom_progress(current: int, total: int, _count: int) -> void:
+	bulk_import_progress.emit("fetching", current, total)
+
+func _cleanup_chesscom_service() -> void:
+	if _chesscom_service != null and is_instance_valid(_chesscom_service):
+		_chesscom_service.cancel()
+		if _chesscom_service.get_parent():
+			_chesscom_service.get_parent().remove_child(_chesscom_service)
+		_chesscom_service.queue_free()
+		_chesscom_service = null
 
 # ── Session de drills (L3) ───────────────────────────────────────────────────────
 

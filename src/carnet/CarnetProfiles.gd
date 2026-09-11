@@ -146,6 +146,8 @@ static func match_games(profile: Dictionary) -> Array:
 	var keys: Array = profile.get("player_keys", [])
 	if keys.is_empty():
 		return []
+	var sync := CarnetStore._load_sync(str(profile.get("id", "")))
+	var entries: Dictionary = sync.get("entries", {})
 	var out: Array = []
 	for summary in db.games_index:
 		if not (summary is Dictionary):
@@ -161,11 +163,22 @@ static func match_games(profile: Dictionary) -> Array:
 		var white := DatabaseManagerClass.normalize_player_key(str(summary.get("white_name", "")))
 		var black := DatabaseManagerClass.normalize_player_key(str(summary.get("black_name", "")))
 		var perspective := ""
-		if keys.has(white):
+		var gid := str(summary.get("id", ""))
+		if entries.has(gid):
+			if bool(entries[gid].get("removed", false)):
+				continue
+			var forced := str(entries[gid].get("perspective", ""))
+			if forced != "":
+				perspective = forced
+			elif keys.has(white):
+				perspective = "white"
+			elif keys.has(black):
+				perspective = "black"
+		elif keys.has(white):
 			perspective = "white"
 		elif keys.has(black):
 			perspective = "black"
-		out.append({"game_id": str(summary.get("id", "")), "perspective": perspective})
+		out.append({"game_id": gid, "perspective": perspective})
 	out.sort_custom(func(a, b): return str(a["game_id"]) < str(b["game_id"]))
 	return out
 
