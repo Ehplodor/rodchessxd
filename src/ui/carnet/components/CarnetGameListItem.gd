@@ -93,6 +93,7 @@ func set_game(game_data: Dictionary) -> void:
 
 	var actions_box = HBoxContainer.new()
 	actions_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	actions_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	add_child(actions_box)
 
 	var btn_reanalyze = Button.new()

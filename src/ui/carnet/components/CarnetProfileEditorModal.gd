@@ -251,6 +251,7 @@ func _on_delete() -> void:
 		profile_saved.emit(_profile_id, false)
 		queue_free()
 	)
+	add_child(dialog)
 	dialog.popup_centered()
 
 func _setup(text: String, font_size: int, color: Color) -> Label:

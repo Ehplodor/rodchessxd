@@ -235,6 +235,9 @@ func _clear_content() -> void:
 	for child in _content.get_children():
 		_content.remove_child(child)
 		child.queue_free()
+	_games_list = null
+	_batch_label = null
+	_batch_actions = null
 
 func _rebuild_content() -> void:
 	_clear_content()
@@ -596,10 +599,12 @@ func _on_delete_profile(profile_id: String) -> void:
 		presenter.delete_profile(profile_id)
 		dialog.queue_free()
 	)
+	add_child(dialog)
 	dialog.popup_centered()
 
 func _on_import_pgn() -> void:
 	var modal = CarnetImportPgnModal.new()
+	add_child(modal)
 	modal.open(presenter, presenter.profile_id)
 	modal.import_completed.connect(func(game_id, new_keys):
 		presenter.refresh_sync()

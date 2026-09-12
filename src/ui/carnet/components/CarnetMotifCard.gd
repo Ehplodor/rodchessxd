@@ -43,7 +43,9 @@ func set_motif(motif: Dictionary, tendance: String = "") -> void:
 	_title.text = str(motif.get("libelle", "%s / %s" % [motif.get("famille", ""), motif.get("cle", "")]))
 	_bar.value = float(motif.get("score", 0.0))
 	var polarite := str(motif.get("polarite", ""))
-	_bar.add_theme_color_override("font_color", _polarite_color(polarite))
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = _polarite_color(polarite)
+	_bar.add_theme_stylebox_override("fill", fill)
 	var trend := tendance if tendance != "" else str(motif.get("tendance", ""))
 	_tendance_label(trend)
 

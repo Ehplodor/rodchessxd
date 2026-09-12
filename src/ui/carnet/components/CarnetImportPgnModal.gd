@@ -33,7 +33,6 @@ func _setup_ui() -> void:
 	title = "Importer PGN dans le carnet"
 
 	_pgn_modal = PGNModal.new()
-	_pgn_modal.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_pgn_modal.exclusive = false
 	vbox.add_child(_pgn_modal)
 
