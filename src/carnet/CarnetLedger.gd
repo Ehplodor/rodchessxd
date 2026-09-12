@@ -39,7 +39,7 @@ static func compile(atoms: Array, options: Dictionary = {}) -> Dictionary:
 	for m in motifs:
 		var established: bool = bool(m["etabli"])
 		if not established:
-			if int(m["n"]) <= 2:
+			if G < 5 or int(m["n"]) <= 2:
 				emergeants.append(m)
 			continue
 		if bool(m.get("general", false)):

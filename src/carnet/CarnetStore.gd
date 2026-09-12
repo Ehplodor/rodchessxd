@@ -62,8 +62,10 @@ static func ingest_game(game_id: String, atoms: Array, meta: Dictionary = {}, pr
 	var analysis_version: int = int(meta.get("analysis_version", game.get("analysis_version", 0)))
 	var sync := _load_sync(pid)
 	var entries: Dictionary = sync.get("entries", {})
+	var existing_entry: Dictionary = entries.get(game_id, {})
+	var forced_perspective: String = str(meta.get("forced_perspective", existing_entry.get("perspective", "")))
 	entries[game_id] = {
-		"perspective": str(meta.get("perspective", "")),
+		"perspective": forced_perspective,
 		"date_iso": DateUtil.normalize(str(meta.get("date_iso", game.get("date", "")))),
 		"analysis_version": analysis_version,
 		"atom_version": CarnetConfig.ATOM_VERSION,
@@ -121,19 +123,25 @@ static func recalculate_game(game_id: String, profile_id: String = "", options: 
 		return {"ok": false, "error": "game_not_found"}
 
 	var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
-	if analyses.is_empty():
+	var analysis: Dictionary = {}
+	for i in range(analyses.size() - 1, -1, -1):
+		var a = analyses[i]
+		if a is Dictionary and (a.get("evaluations", []) as Array).size() > 0:
+			analysis = a
+			break
+	if analysis.is_empty():
 		return {"ok": false, "error": "no_engine_analysis"}
 
-	var analysis: Dictionary = analyses[-1]
 	var profile: Dictionary = CarnetProfiles.get_profile(pid)
 	var keys: Array = profile.get("player_keys", [])
 
 	# Résolution de la perspective : préférence forcée dans sync.json d'abord, puis matching des noms
 	var sync: Dictionary = _load_sync(pid)
 	var entries: Dictionary = sync.get("entries", {})
-	var perspective := ""
+	var forced_perspective := ""
 	if entries.has(game_id):
-		perspective = str(entries[game_id].get("perspective", ""))
+		forced_perspective = str(entries[game_id].get("perspective", ""))
+	var perspective := forced_perspective
 	if perspective == "":
 		var white := DatabaseManagerClass.normalize_player_key(str(game.get("white_name", "")))
 		var black := DatabaseManagerClass.normalize_player_key(str(game.get("black_name", "")))
@@ -150,6 +158,7 @@ static func recalculate_game(game_id: String, profile_id: String = "", options: 
 	ingest_game(game_id, atoms, {
 		"date_iso": str(game.get("date", "")),
 		"perspective": perspective,
+		"forced_perspective": forced_perspective,
 		"analysis_version": int(game.get("analysis_version", 0)),
 	}, pid)
 
@@ -183,30 +192,79 @@ static func recalculate_profile(profile_id: String = "", options: Dictionary = {
 	var total_atoms: int = 0
 	var skipped_no_analysis: int = 0
 
+	# Chargement unique en mémoire pour amortir les I/O et les syncs FS (notamment sur Web)
+	var sync := _load_sync(pid)
+	var entries: Dictionary = sync.get("entries", {})
+	var trainer := _load_trainer(pid)
+	var drills: Array = trainer.get("drills", []) if trainer.get("drills", []) is Array else []
+	var now := int(Time.get_unix_time_from_system())
+
 	for match in matches:
 		var gid := str(match.get("game_id", ""))
 		var game: Dictionary = db.get_game(gid)
 		if game.is_empty():
 			continue
 		var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
-		if analyses.is_empty():
+		var analysis: Dictionary = {}
+		for i in range(analyses.size() - 1, -1, -1):
+			var a = analyses[i]
+			if a is Dictionary and (a.get("evaluations", []) as Array).size() > 0:
+				analysis = a
+				break
+		if analysis.is_empty():
 			skipped_no_analysis += 1
 			continue
-		var analysis: Dictionary = analyses[-1]
+
 		var perspective := str(match.get("perspective", ""))
 		var atoms := CarnetEvents.annotate_game(game, analysis, {
 			"couleur_joueur": perspective,
 			"mode_analyse": bool(options.get("mode_analyse", false)),
 		})
 
-		ingest_game(gid, atoms, {
-			"date_iso": str(game.get("date", "")),
+		# Écriture atomique du fichier d'atomes spécifique
+		db.save_json_atomic(_atom_path(pid, gid), {
+			"schema_version": CarnetConfig.CARNET_SCHEMA_VERSION,
+			"game_id": gid,
 			"perspective": perspective,
-			"analysis_version": int(game.get("analysis_version", 0)),
-		}, pid)
+			"atoms": atoms,
+		})
+
+		var analysis_version: int = int(game.get("analysis_version", 0))
+		var existing_entry: Dictionary = entries.get(gid, {})
+		var forced_perspective: String = str(existing_entry.get("perspective", ""))
+		entries[gid] = {
+			"perspective": forced_perspective,
+			"date_iso": DateUtil.normalize(str(game.get("date", ""))),
+			"analysis_version": analysis_version,
+			"atom_version": CarnetConfig.ATOM_VERSION,
+			"atoms_count": atoms.size(),
+			"synced_at": now,
+		}
+
+		# Purge des exercices non révisés pour cette partie en mémoire
+		var kept_drills: Array = []
+		for drill in drills:
+			if drill is Dictionary:
+				if str(drill.get("game_id", "")) == gid:
+					var srs: Dictionary = drill.get("srs", {}) if drill.get("srs", {}) is Dictionary else {}
+					var rep := int(srs.get("repetitions", drill.get("repetitions", 0)))
+					var ivl := int(srs.get("intervalle", drill.get("intervalle", drill.get("interval", 0))))
+					if rep > 0 or ivl > 0:
+						kept_drills.append(drill)
+				else:
+					kept_drills.append(drill)
+		drills = kept_drills
 
 		processed_games += 1
 		total_atoms += atoms.size()
+
+	# Sauvegarde globale unique en fin de lot
+	sync["entries"] = entries
+	sync["schema_version"] = CarnetConfig.CARNET_SCHEMA_VERSION
+	db.save_json_atomic(_sync_path(pid), sync)
+
+	trainer["drills"] = drills
+	_save_trainer(pid, trainer)
 
 	var ledger := compile("", -1, pid)
 	var plan := refresh_plan("", {}, pid)

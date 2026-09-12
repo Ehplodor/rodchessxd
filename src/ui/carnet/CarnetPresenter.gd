@@ -168,9 +168,11 @@ func reanalyze_game(game_id: String, target_profile_id: String = "", options: Di
 	if db != null:
 		var game: Dictionary = db.get_game(game_id)
 		var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
-		# Si la partie a déjà une analyse moteur dans la bibliothèque et que l'on ne force pas l'analyse moteur,
+		var latest_analysis: Dictionary = analyses[-1] if not analyses.is_empty() else {}
+		var has_valid_analysis: bool = not latest_analysis.is_empty() and (latest_analysis.get("evaluations", []) as Array).size() > 0
+		# Si la partie a déjà une analyse moteur valide dans la bibliothèque et que l'on ne force pas l'analyse moteur,
 		# recalculer directement de façon algorithmique (instantané) !
-		if not analyses.is_empty() and not bool(options.get("force_analysis", false)):
+		if has_valid_analysis and not bool(options.get("force_analysis", false)):
 			recalculate_game(game_id, pid)
 			return
 	start_batch([game_id], options)

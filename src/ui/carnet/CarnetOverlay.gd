@@ -1208,7 +1208,19 @@ func _refresh_games_list() -> void:
 		print("[Carnet] first item visible=", first.visible, " size=", first.size, " custom_minimum=", first.custom_minimum_size)
 
 func _on_game_reanalyze(game_id: String) -> void:
+	if presenter == null:
+		return
+	var db = presenter._db()
+	var has_valid_analysis := false
+	if db != null:
+		var game: Dictionary = db.get_game(game_id)
+		var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
+		if not analyses.is_empty() and (analyses[-1].get("evaluations", []) as Array).size() > 0:
+			has_valid_analysis = true
+
 	presenter.reanalyze_game(game_id, presenter.profile_id)
+	if has_valid_analysis:
+		_on_toast_requested("Partie recalculée depuis la bibliothèque.", true)
 	_update_batch_row()
 
 func _on_game_perspective_cycle(game_id: String) -> void:

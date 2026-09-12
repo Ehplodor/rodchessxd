@@ -8,6 +8,14 @@ func _init() -> void:
 	var dm = root.get_node_or_null("DatabaseManager")
 	assert(dm != null, "DatabaseManager doit être chargé en autoload")
 
+	# Nettoyage préventif d'anciens artefacts de test
+	for p in CarnetProfiles.list():
+		if str(p.get("name", "")) == "JoueurTest":
+			CarnetProfiles.delete(str(p.get("id", "")))
+	var stale_gid = dm.find_game_by_external_id("Championnat Unification:JoueurTest:Adversaire:2026.09.12")
+	if stale_gid != "":
+		dm.delete_game(stale_gid)
+
 	# 1. Créer un profil de test dédié avec une player_key
 	var test_profile_id := CarnetProfiles.create("JoueurTest", "local", ["joueurtest", "alpha"])
 	assert(test_profile_id != "", "Le profil doit être créé")
@@ -65,7 +73,15 @@ func _init() -> void:
 	assert(recalc_res.get("perspective") == "white", "Perspective JoueurTest = white détectée")
 	print("✓ Recalcul unitaire validé (%d atomes extraits)" % recalc_res.get("atoms_count", 0))
 
-	# 4. Tester l'apprentissage : Générer un plan et noter un exercice en SM-2
+	# 4. Vérifier la préservation de la perspective Auto ("") dans sync.json après recalcul
+	CarnetStore.update_game_perspective(gid, "", test_profile_id)
+	CarnetStore.recalculate_game(gid, test_profile_id)
+	var sync_check := CarnetStore._load_sync(test_profile_id)
+	var forced_p := str(sync_check.get("entries", {}).get(gid, {}).get("perspective", "NON_VIDE"))
+	assert(forced_p == "", "La perspective Auto ('') doit être scrupuleusement préservée dans sync.json")
+	print("✓ Préservation de la perspective Auto ('') validée sans écrasement !")
+
+	# 5. Tester l'apprentissage : Générer un plan et noter un exercice en SM-2
 	var test_atom := {
 		"event_id": "atom_test_1",
 		"game_id": gid,
@@ -100,7 +116,19 @@ func _init() -> void:
 	assert(int(after_review.get("serie", 0)) == 1, "Série à 1")
 	print("✓ Révision SM-2 enregistrée pour l'exercice : %s" % reviewed_drill_id)
 
-	# 5. Tester la RECONSTITUTION TOTALE À FROID (Cold Start / Zero-State)
+	# 6. Tester la non-perte des motifs émergents avec n >= 3 sur profil récent (G < 5)
+	var atom_n3_a := test_atom.duplicate()
+	atom_n3_a["event_id"] = "atom_emergent_a"
+	var atom_n3_b := test_atom.duplicate()
+	atom_n3_b["event_id"] = "atom_emergent_b"
+	var atom_n3_c := test_atom.duplicate()
+	atom_n3_c["event_id"] = "atom_emergent_c"
+	CarnetStore.ingest_game(gid, [atom_n3_a, atom_n3_b, atom_n3_c], {"perspective": "white", "date_iso": "2026-09-12"}, test_profile_id)
+	var ledger_n3 := CarnetStore.compile("2026-09-12", -1, test_profile_id)
+	assert(ledger_n3.get("emergeants", []).size() >= 1, "Les motifs répétés n>=3 sur G<5 doivent être conservés dans emergeants")
+	print("✓ Rétention des motifs émergents n>=3 validée sur profil débutant !")
+
+	# 7. Tester la RECONSTITUTION TOTALE À FROID (Cold Start / Zero-State)
 	# On simule un cache d'atomes vidé ou supprimé sur disque
 	var atoms_dir := CarnetStore._atoms_dir(test_profile_id)
 	var da := DirAccess.open(atoms_dir)
@@ -119,7 +147,7 @@ func _init() -> void:
 	assert(global_res.get("processed_games") == 1, "1 partie traitée depuis la Bibliothèque")
 	print("✓ Reconstitution totale à froid validée avec succès !")
 
-	# 6. Vérifier la préservation de la mémoire humaine après recalcul global
+	# 8. Vérifier la préservation de la mémoire humaine après recalcul global
 	var restored_trainer := CarnetStore.get_trainer_state(test_profile_id)
 	var preserved := false
 	for d in restored_trainer.get("drills", []):
