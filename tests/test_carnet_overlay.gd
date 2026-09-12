@@ -141,7 +141,7 @@ func _find_buttons_in(node: Node) -> Dictionary:
 	for child in node.get_children():
 		if child is Button:
 			var btn_text := str(child.text)
-			if btn_text == "📥 Importer PGN":
+			if btn_text == "📥 PGN":
 				out["import_pgn"] = true
 			if btn_text == "🌐 Chess.com":
 				out["import_chesscom"] = true

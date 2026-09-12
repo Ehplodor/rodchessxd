@@ -111,19 +111,27 @@ func get_profile_games(profile_id: String) -> Array:
 	for item in sync.get("stale", []):
 		status_lookup[str(item.get("game_id", ""))] = {"reason": str(item.get("reason", "")), "status": "stale"}
 
+	var db := _db()
+	var index_by_id := {}
+	if db != null:
+		for summary in db.games_index:
+			if summary is Dictionary:
+				index_by_id[str(summary.get("id", ""))] = summary
+
 	var out: Array = []
 	for match in matches:
 		var gid := str(match.get("game_id", ""))
 		var entry: Dictionary = entries.get(gid, {})
 		var perspective := str(entry.get("perspective", ""))
 		var info: Dictionary = status_lookup.get(gid, {"reason": "never_atomized", "status": "pending"})
+		var summary: Dictionary = index_by_id.get(gid, {})
 		out.append({
 			"game_id": gid,
 			"perspective": perspective,
-			"title": str(match.get("title", "")),
-			"white_name": str(match.get("white_name", "")),
-			"black_name": str(match.get("black_name", "")),
-			"date": str(match.get("date", "")),
+			"title": str(summary.get("title", match.get("title", ""))),
+			"white_name": str(summary.get("white_name", "")),
+			"black_name": str(summary.get("black_name", "")),
+			"date": str(summary.get("date", "")),
 			"status": str(info.get("status", "pending")),
 			"reason": str(info.get("reason", "never_atomized")),
 		})

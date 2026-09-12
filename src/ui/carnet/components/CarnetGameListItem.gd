@@ -36,6 +36,7 @@ func set_game(game_data: Dictionary) -> void:
 	title_lbl.clip_text = true
 	title_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	title_lbl.custom_minimum_size.y = float(DesignTokens.TOUCH_DENSE)
 	add_child(title_lbl)
 
 	var date_str = str(game_data.get("date", ""))
@@ -45,7 +46,8 @@ func set_game(game_data: Dictionary) -> void:
 	date_lbl.text = date_str
 	date_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	date_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	date_lbl.custom_minimum_size.x = 80.0
+	date_lbl.custom_minimum_size.x = 60.0
+	date_lbl.custom_minimum_size.y = float(DesignTokens.TOUCH_DENSE)
 	add_child(date_lbl)
 
 	var perspective := str(game_data.get("perspective", ""))
@@ -61,7 +63,7 @@ func set_game(game_data: Dictionary) -> void:
 	var perspective_btn = Button.new()
 	perspective_btn.text = perspective_text
 	perspective_btn.tooltip_text = "Perspective: %s (clic pour changer)" % (_perspective_label(perspective))
-	perspective_btn.custom_minimum_size = Vector2(DesignTokens.TOUCH_MIN, DesignTokens.TOUCH_MIN)
+	perspective_btn.custom_minimum_size = Vector2(DesignTokens.TOUCH_DENSE, DesignTokens.TOUCH_DENSE)
 	perspective_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	perspective_btn.add_theme_color_override("font_color", perspective_color)
 	perspective_btn.flat = true
@@ -84,22 +86,19 @@ func set_game(game_data: Dictionary) -> void:
 	var status_btn = Button.new()
 	status_btn.text = status_text
 	status_btn.tooltip_text = "Statut: %s (%s)" % [status, CarnetPresenter.reason_label(str(game_data.get("reason", "")))]
-	status_btn.custom_minimum_size = Vector2(DesignTokens.TOUCH_MIN, DesignTokens.TOUCH_MIN)
+	status_btn.custom_minimum_size = Vector2(DesignTokens.TOUCH_DENSE, DesignTokens.TOUCH_DENSE)
 	status_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	status_btn.add_theme_color_override("font_color", status_color)
-	status_btn.flat = true
-	status_btn.disabled = true
 	add_child(status_btn)
 
 	var actions_box = HBoxContainer.new()
 	actions_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
-	actions_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	add_child(actions_box)
 
 	var btn_reanalyze = Button.new()
 	btn_reanalyze.text = "⟳"
 	btn_reanalyze.tooltip_text = "Réanalyser cette partie"
-	btn_reanalyze.custom_minimum_size = Vector2(DesignTokens.TOUCH_MIN, DesignTokens.TOUCH_MIN)
+	btn_reanalyze.custom_minimum_size = Vector2(DesignTokens.TOUCH_DENSE, DesignTokens.TOUCH_DENSE)
 	btn_reanalyze.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_reanalyze.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	btn_reanalyze.flat = true
@@ -109,7 +108,7 @@ func set_game(game_data: Dictionary) -> void:
 	var btn_perspective = Button.new()
 	btn_perspective.text = "↻"
 	btn_perspective.tooltip_text = "Forcer perspective (cycle auto/blanc/noir)"
-	btn_perspective.custom_minimum_size = Vector2(DesignTokens.TOUCH_MIN, DesignTokens.TOUCH_MIN)
+	btn_perspective.custom_minimum_size = Vector2(DesignTokens.TOUCH_DENSE, DesignTokens.TOUCH_DENSE)
 	btn_perspective.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_perspective.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	btn_perspective.flat = true
@@ -119,7 +118,7 @@ func set_game(game_data: Dictionary) -> void:
 	var btn_remove = Button.new()
 	btn_remove.text = "🗑"
 	btn_remove.tooltip_text = "Retirer du carnet"
-	btn_remove.custom_minimum_size = Vector2(DesignTokens.TOUCH_MIN, DesignTokens.TOUCH_MIN)
+	btn_remove.custom_minimum_size = Vector2(DesignTokens.TOUCH_DENSE, DesignTokens.TOUCH_DENSE)
 	btn_remove.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_remove.add_theme_color_override("font_color", DesignTokens.DANGER)
 	btn_remove.flat = true

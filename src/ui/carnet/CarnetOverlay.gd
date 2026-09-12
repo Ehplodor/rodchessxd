@@ -125,6 +125,7 @@ func _build_shell() -> void:
 	root_box.add_child(scroll)
 	_content = VBoxContainer.new()
 	_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_content.add_theme_constant_override("separation", DesignTokens.SPACE_S)
 	scroll.add_child(_content)
 
@@ -245,14 +246,19 @@ func _rebuild_content() -> void:
 		return
 	if presenter.session.is_empty():
 		if _current_tab == _TAB_CARNET:
+			print("[Carnet] rebuild: carnet tab")
 			_build_carnet_tab()
 		elif _current_tab == _TAB_ANALYSE:
+			print("[Carnet] rebuild: analyse tab")
 			_build_analyse_tab()
 		else:
+			print("[Carnet] rebuild: sync tab")
 			_build_sync_tab()
 	elif presenter.is_session_done():
+		print("[Carnet] rebuild: summary")
 		_build_summary()
 	else:
+		print("[Carnet] rebuild: session")
 		_build_session()
 
 func _build_summary() -> void:
@@ -406,12 +412,12 @@ func _build_sync_tab() -> void:
 	summary.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	_content.add_child(summary)
 
-	# Boutons d'action : Mettre à jour + Importer PGN + Importer Chess.com
-	var actions_row = HBoxContainer.new()
-	actions_row.add_theme_constant_override("separation", DesignTokens.SPACE_S)
-	_content.add_child(actions_row)
+	# Actions Sync : ligne 1 = Mettre à jour ; ligne 2 = imports
+	var actions_col = VBoxContainer.new()
+	actions_col.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	_content.add_child(actions_col)
 
-	var run := Button.new()
+	var run = Button.new()
 	run.text = "Mettre à jour"
 	run.disabled = presenter.sync.get("to_process", []).size() == 0
 	run.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -422,10 +428,14 @@ func _build_sync_tab() -> void:
 	DesignTokens.style_button(run, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
 	run.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	run.pressed.connect(func(): presenter.start_batch(); _update_batch_row())
-	actions_row.add_child(run)
+	actions_col.add_child(run)
+
+	var imports_row = HBoxContainer.new()
+	imports_row.add_theme_constant_override("separation", DesignTokens.SPACE_S)
+	actions_col.add_child(imports_row)
 
 	var btn_import_pgn = Button.new()
-	btn_import_pgn.text = "📥 Importer PGN"
+	btn_import_pgn.text = "📥 PGN"
 	btn_import_pgn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_import_pgn.clip_text = true
 	btn_import_pgn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -434,7 +444,7 @@ func _build_sync_tab() -> void:
 	DesignTokens.style_button(btn_import_pgn, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
 	btn_import_pgn.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	btn_import_pgn.pressed.connect(_on_import_pgn)
-	actions_row.add_child(btn_import_pgn)
+	imports_row.add_child(btn_import_pgn)
 
 	var btn_import_chesscom = Button.new()
 	btn_import_chesscom.text = "🌐 Chess.com"
@@ -446,7 +456,7 @@ func _build_sync_tab() -> void:
 	DesignTokens.style_button(btn_import_chesscom, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
 	btn_import_chesscom.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	btn_import_chesscom.pressed.connect(_on_import_chesscom)
-	actions_row.add_child(btn_import_chesscom)
+	imports_row.add_child(btn_import_chesscom)
 
 	_batch_label = Label.new()
 	_batch_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -460,7 +470,8 @@ func _build_sync_tab() -> void:
 	# Filtres pour la liste des parties
 	_content.add_child(_section_title("Parties du carnet"))
 	var filter_scroll = ScrollContainer.new()
-	filter_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	filter_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	filter_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	filter_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	filter_scroll.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
 	DesignTokens.touch_scroll(filter_scroll)
@@ -469,6 +480,7 @@ func _build_sync_tab() -> void:
 	_filter_group = ButtonGroup.new()
 	var filter_row = HBoxContainer.new()
 	filter_row.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	filter_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	filter_scroll.add_child(filter_row)
 
 	var filters := [["all", "Toutes"], ["pending", "À traiter"], ["stale", "À jour"], ["up_to_date", "Périmées"]]
@@ -477,26 +489,33 @@ func _build_sync_tab() -> void:
 		btn.text = f[1]
 		btn.toggle_mode = true
 		btn.button_group = _filter_group
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.clip_text = true
 		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		btn.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
+		btn.custom_minimum_size.y = float(DesignTokens.TOUCH_DENSE)
+		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		DesignTokens.style_button(btn, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
 		btn.pressed.connect(_on_filter_pressed.bind(f[0]))
 		filter_row.add_child(btn)
 
 	# Liste des parties
 	var games_scroll = ScrollContainer.new()
+	games_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	games_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	games_scroll.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN * 3)
 	games_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	DesignTokens.touch_scroll(games_scroll)
 	_content.add_child(games_scroll)
 
 	_games_list = VBoxContainer.new()
 	_games_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_games_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_games_list.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
 	games_scroll.add_child(_games_list)
+	print("[Carnet] _build_sync_tab: games_scroll added to _content, _games_list added to games_scroll")
 
 	_refresh_games_list()
+	print("[Carnet] _build_sync_tab: _refresh_games_list called")
 
 func _update_batch_row() -> void:
 	if _batch_label == null:
@@ -553,13 +572,13 @@ static func _clear_node(node: Node) -> void:
 
 func _on_create_profile() -> void:
 	var modal = CarnetProfileEditorModal.new()
+	add_child(modal)
 	modal.open_create(presenter)
 	modal.profile_saved.connect(func(profile_id, is_new):
 		presenter.refresh_profiles()
 		presenter.refresh_sync()
 		modal.queue_free()
 	)
-	add_child(modal)
 
 func _on_profile_context_menu(profile_id: String, global_pos: Vector2) -> void:
 	if _profile_context_menu == null:
@@ -643,11 +662,29 @@ func _on_filter_pressed(filter_id: String) -> void:
 
 func _refresh_games_list() -> void:
 	if _games_list == null:
+		print("[Carnet] _refresh_games_list: _games_list is null")
 		return
 	for child in _games_list.get_children():
 		child.queue_free()
 
-	var games := presenter.get_profile_games(presenter.profile_id)
+	var profile_id := presenter.profile_id if presenter != null else ""
+	print("[Carnet] _refresh_games_list: presenter=", presenter != null, " profile_id=", profile_id)
+	var games: Array = []
+	if presenter != null:
+		var profile := CarnetProfiles.get_profile(profile_id)
+		var keys: Array = profile.get("player_keys", []) if not profile.is_empty() else []
+		var matches := CarnetProfiles.match_games(profile) if not profile.is_empty() else []
+		var sync := CarnetStore.sync_status(profile_id)
+		var entries: Dictionary = CarnetStore._load_sync(profile_id).get("entries", {}) if not profile.is_empty() else {}
+		var hint := "Profil=%s | keys=%d | matches=%d | entries=%d | total_sync=%d" % [profile_id, keys.size(), matches.size(), entries.size(), sync.get("total", 0)]
+		_games_list.add_child(_hint(hint))
+		print("[Carnet] " + hint)
+		games = presenter.get_profile_games(profile_id)
+		print("[Carnet] get_profile_games returned ", games.size(), " games")
+	else:
+		_games_list.add_child(_hint("presenter=null"))
+		print("[Carnet] _refresh_games_list: presenter is null")
+
 	var filtered: Array = []
 	for game in games:
 		var status := str(game.get("status", "up_to_date"))
@@ -660,6 +697,7 @@ func _refresh_games_list() -> void:
 		elif _current_filter == "up_to_date" and status == "up_to_date":
 			filtered.append(game)
 
+	print("[Carnet] filtered=", filtered.size(), " current_filter=", _current_filter)
 	if filtered.is_empty():
 		_games_list.add_child(_hint("Aucune partie pour ce filtre."))
 		return
@@ -671,6 +709,15 @@ func _refresh_games_list() -> void:
 		item.perspective_cycle_requested.connect(_on_game_perspective_cycle)
 		item.remove_requested.connect(_on_game_remove)
 		_games_list.add_child(item)
+
+	print("[Carnet] _games_list enfants après ajout: ", _games_list.get_child_count())
+	print("[Carnet] _games_list visible=", _games_list.visible, " size=", _games_list.size, " custom_minimum=", _games_list.custom_minimum_size)
+	var scroll_parent = _games_list.get_parent()
+	if scroll_parent != null:
+		print("[Carnet] scroll_parent visible=", scroll_parent.visible, " size=", scroll_parent.size, " custom_minimum=", scroll_parent.custom_minimum_size)
+	if _games_list.get_child_count() > 1:
+		var first = _games_list.get_child(1)
+		print("[Carnet] first item visible=", first.visible, " size=", first.size, " custom_minimum=", first.custom_minimum_size)
 
 func _on_game_reanalyze(game_id: String) -> void:
 	presenter.reanalyze_game(game_id, presenter.profile_id)

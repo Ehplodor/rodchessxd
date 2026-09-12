@@ -166,7 +166,7 @@ func _get_settings_manager() -> Node:
 		return tree.root.get_node_or_null("SettingsManager")
 	return null
 
-func _update_profile_name() -> void:
+func _update_profile_name(_value: Variant = null) -> void:
 	var user := _username_edit.text.strip_edges()
 	if user != "" and _profile_name_edit.text.strip_edges() == "":
 		_profile_name_edit.text = "Chess.com • %s" % user
