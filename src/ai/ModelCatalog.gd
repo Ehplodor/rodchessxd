@@ -331,6 +331,9 @@ func save_catalog() -> void:
 			"models": models
 		}
 		file.store_string(JSON.stringify(payload, "\t"))
+		file.flush()
+		file = null
+		DatabaseManagerClass.sync_filesystem()
 
 ## Calcule le coût estimé pour 1 coup et pour 1 000 coups
 func get_cost_estimate(model_dict: Dictionary) -> Dictionary:

@@ -21,6 +21,15 @@ func _ready() -> void:
 	_ensure_directories()
 	_load_index()
 
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST \
+			or what == NOTIFICATION_APPLICATION_PAUSED \
+			or what == NOTIFICATION_APPLICATION_FOCUS_OUT \
+			or what == NOTIFICATION_PREDELETE:
+		if not games_index.is_empty():
+			_save_index()
+		sync_to_storage()
+
 func _ensure_directories() -> void:
 	var da = DirAccess.open("user://")
 	if da:
@@ -35,22 +44,64 @@ func _ensure_directories() -> void:
 
 func _load_index() -> void:
 	games_index.clear()
+	var loaded_ok := false
 	if FileAccess.file_exists(INDEX_FILE):
 		var f = FileAccess.open(INDEX_FILE, FileAccess.READ)
 		if f:
 			var txt = f.get_as_text()
+			f = null
 			var json = JSON.parse_string(txt)
 			if json is Array:
 				for item in json:
 					if item is Dictionary:
 						games_index.append(item)
+				loaded_ok = true
+
+	# Récupération automatique 1 : si l'index principal est corrompu ou vide, tenter le .bak
+	if (not loaded_ok or games_index.is_empty()) and FileAccess.file_exists(INDEX_FILE + ".bak"):
+		var f_bak = FileAccess.open(INDEX_FILE + ".bak", FileAccess.READ)
+		if f_bak:
+			var txt_bak = f_bak.get_as_text()
+			f_bak = null
+			var json_bak = JSON.parse_string(txt_bak)
+			if json_bak is Array and not json_bak.is_empty():
+				games_index.clear()
+				for item in json_bak:
+					if item is Dictionary:
+						games_index.append(item)
+				loaded_ok = true
+				print("DatabaseManager: Index principal restauré depuis %s.bak (%d parties)." % [INDEX_FILE, games_index.size()])
+				_save_index()
+
+	# Récupération automatique 2 : si aucun index n'a pu être chargé mais que des fichiers de parties existent, reconstruire l'index
+	if not loaded_ok or games_index.is_empty():
+		_rebuild_index_from_disk()
+
 	_sort_index_by_date()
+
+func _rebuild_index_from_disk() -> void:
+	var da = DirAccess.open(GAMES_DIR)
+	if not da:
+		return
+	da.list_dir_begin()
+	var fname = da.get_next()
+	var count = 0
+	while fname != "":
+		if not da.current_is_dir() and fname.ends_with(".json"):
+			var gid = fname.get_basename()
+			var game_data = get_game(gid)
+			if not game_data.is_empty():
+				_update_index_entry(game_data)
+				count += 1
+		fname = da.get_next()
+	da.list_dir_end()
+	if count > 0:
+		print("DatabaseManager: Index des parties reconstruit depuis le disque (%d parties trouvées)." % count)
+		_save_index()
 
 func _save_index() -> void:
 	_sort_index_by_date()
-	var f = FileAccess.open(INDEX_FILE, FileAccess.WRITE)
-	if f:
-		f.store_string(JSON.stringify(games_index, "  "))
+	save_json_atomic(INDEX_FILE, games_index)
 
 func _sort_index_by_date() -> void:
 	games_index.sort_custom(func(a, b):
@@ -68,11 +119,9 @@ func save_game(game_data: Dictionary) -> String:
 	var now = int(Time.get_unix_time_from_system())
 	game_data["last_modified"] = now
 
-	# Écriture du fichier individuel
+	# Écriture atomique du fichier individuel
 	var path = "%s/%s.json" % [GAMES_DIR, game_id]
-	var f = FileAccess.open(path, FileAccess.WRITE)
-	if f:
-		f.store_string(JSON.stringify(game_data, "  "))
+	save_json_atomic(path, game_data)
 
 	# Mise à jour de l'index
 	_update_index_entry(game_data)
@@ -414,12 +463,21 @@ static func normalize_player_key(name: String) -> String:
 
 # --- UTILITAIRES JSON ATOMIQUES (réutilisés par LeCarnet multi-profils) ---
 
+## Synchronise le système de fichiers virtuel vers le stockage persistant de l'hôte (IndexedDB sur Web / WASM).
+static func sync_filesystem() -> void:
+	if OS.has_feature("web") and ClassDB.class_exists("JavaScriptBridge"):
+		JavaScriptBridge.force_fs_sync()
+
+func sync_to_storage() -> void:
+	sync_filesystem()
+
 func file_exists(path: String) -> bool:
 	return FileAccess.file_exists(path)
 
 func remove_file(path: String) -> void:
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
+		sync_filesystem()
 
 static func ensure_dir_for(path: String) -> void:
 	var base := path.get_base_dir()
@@ -428,13 +486,15 @@ static func ensure_dir_for(path: String) -> void:
 
 ## Écriture atomique : `.tmp` puis renommage, avec rotation en `.bak` et repli en écriture
 ## directe si le FS ne supporte pas le rename écrasant (WASM/IDBFS).
-func save_json_atomic(path: String, data: Dictionary) -> void:
+## Prend en charge Dictionary et Array (Variant).
+func save_json_atomic(path: String, data: Variant) -> void:
 	ensure_dir_for(path)
 	var text := JSON.stringify(data, "  ")
 	var tmp := path + ".tmp"
 	var f = FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		_direct_write(path, text)
+		sync_filesystem()
 		return
 	f.store_string(text)
 	f.flush()
@@ -448,6 +508,7 @@ func save_json_atomic(path: String, data: Dictionary) -> void:
 		if FileAccess.file_exists(tmp):
 			DirAccess.remove_absolute(tmp)
 		_direct_write(path, text)
+	sync_filesystem()
 
 func _direct_write(path: String, text: String) -> void:
 	ensure_dir_for(path)
@@ -455,6 +516,7 @@ func _direct_write(path: String, text: String) -> void:
 	if f != null:
 		f.store_string(text)
 		f.flush()
+		f = null
 
 ## Charge un JSON. Renvoie {} s'il est absent ; préserve un fichier corrompu
 ## (`<path>.corrupt_*`) au lieu de l'écraser silencieusement.

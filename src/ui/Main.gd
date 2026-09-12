@@ -155,6 +155,10 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_IN \
 			and (OS.has_feature("android") or OS.has_feature("ios")):
 		_apply_safe_insets()
+	elif what == NOTIFICATION_APPLICATION_PAUSED:
+		var dm = get_node_or_null("/root/DatabaseManager")
+		if dm and dm.has_method("sync_to_storage"):
+			dm.sync_to_storage()
 	elif what == NOTIFICATION_RESIZED:
 		_check_and_update_layout()
 
