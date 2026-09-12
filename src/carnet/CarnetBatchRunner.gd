@@ -138,23 +138,35 @@ func step() -> Dictionary:
 
 	var game: Dictionary = db.get_game(gid)
 	if game.is_empty():
+		print("[Carnet] [Mise à jour Lot] [%d/%d] Partie %s introuvable dans la base." % [cursor + 1, queue.size(), gid])
 		_record_failure(gid, "partie introuvable")
 		return {"ok": false, "game_id": gid, "error": "partie introuvable"}
 
+	var white_name := str(game.get("white_name", "?"))
+	var black_name := str(game.get("black_name", "?"))
+	print("[Carnet] [Mise à jour Lot] [%d/%d] Début traitement partie %s (%s vs %s)" % [
+		cursor + 1, queue.size(), gid, white_name, black_name
+	])
+
 	# Phase 1 — analyse moteur (uniquement si nécessaire).
 	if _needs_analysis(gid, game):
+		print("[Carnet]   -> Analyse moteur Stockfish requise...")
 		if not analyzer.is_valid():
+			print("[Carnet]   -> Échec : aucun analyseur moteur fourni.")
 			_record_failure(gid, "aucun analyseur fourni")
 			return {"ok": false, "game_id": gid, "error": "analyzer_missing"}
 		var report = analyzer.call(game)
 		if not (report is Dictionary) or report.is_empty() or report.has("error"):
 			var msg := "échec d'analyse" if not (report is Dictionary) else str(report.get("error", "échec d'analyse"))
+			print("[Carnet]   -> Échec analyse moteur partie %s : %s" % [gid, msg])
 			_record_failure(gid, msg)
 			return {"ok": false, "game_id": gid, "error": msg}
 		db.add_engine_analysis(gid, report)
 		game = db.get_game(gid)
+		print("[Carnet]   -> Analyse moteur enregistrée avec succès.")
 
 	# Phase 2 — atomisation (déterministe, sans moteur).
+	print("[Carnet]   -> Extraction algorithmique des atomes...")
 	var analysis := _latest_analysis(game)
 	var perspective := str(options.get("perspectives", {}).get(gid, ""))
 	var atoms := CarnetEvents.annotate_game(game, analysis, {
@@ -166,6 +178,7 @@ func step() -> Dictionary:
 		"perspective": perspective,
 		"analysis_version": int(game.get("analysis_version", 0)),
 	}, profile_id)
+	print("[Carnet]   -> Partie %s synchronisée (%d atomes créés)." % [gid, atoms.size()])
 
 	cursor += 1
 	processed += 1
@@ -215,6 +228,7 @@ func _finalize() -> Dictionary:
 	state = "done"
 	clear_job()
 	finished.emit(processed, failed)
+	print("[Carnet] [Mise à jour Lot] Terminé : %d partie(s) traitée(s), %d échec(s)." % [processed, failed])
 	return {"state": "done", "done": true, "processed": processed, "failed": failed}
 
 # ── Persistance / reprise ────────────────────────────────────────────────────────
@@ -252,7 +266,7 @@ func clear_job() -> void:
 
 ## Analyseur moteur par défaut (desktop) : reconstruit la partie et lance `GameAnalyzer`.
 ## Le PGN peut être absent (jeu libre/OCR) : on rejoue alors la liste de coups stockée.
-static func default_analyzer(depth: int = 14, mode: String = "dynamic") -> Callable:
+static func default_analyzer(depth: int = 14, mode: String = "dynamic", on_ply: Callable = Callable()) -> Callable:
 	return func(game: Dictionary) -> Dictionary:
 		var cg = ChessGame.new()
 		var pgn := str(game.get("pgn_text", ""))
@@ -268,4 +282,13 @@ static func default_analyzer(depth: int = 14, mode: String = "dynamic") -> Calla
 		if cg.move_history.is_empty():
 			return {"error": "partie_vide"}
 		var analyzer := GameAnalyzer.new()
-		return analyzer.start_game_analysis(cg, depth, {"mode": mode})
+		analyzer.progress_updated.connect(func(ply: int, total: int):
+			var pct := (float(ply) / maxi(1, total)) * 100.0
+			print("[Carnet]   [Moteur Stockfish] Coup %d/%d (%.0f%%)" % [ply, total, pct])
+			if on_ply.is_valid():
+				on_ply.call(ply, total)
+		)
+		var report := analyzer.start_game_analysis(cg, depth, {"mode": mode})
+		var evals: Array = report.get("evaluations", []) if report.get("evaluations", []) is Array else []
+		print("[Carnet]   [Moteur Stockfish] Évaluations terminées (%d coups analysés)." % evals.size())
+		return report

@@ -13,6 +13,7 @@ signal carnet_changed
 signal plan_changed
 signal batch_progress(done: int, total: int, game_id: String)
 signal batch_state(state: String)
+signal recalculate_progress(done: int, total: int, game_id: String, details: Dictionary)
 signal session_changed
 signal session_finished(summary: Dictionary)
 signal error(message: String)
@@ -122,14 +123,15 @@ func remove_player_key(profile_id: String, key: String) -> void:
 	refresh_carnet()
 	refresh_plan()
 
-func get_profile_games(profile_id: String) -> Array:
+func get_profile_games(target_profile_id: String = "") -> Array:
 	_ensure_profile()
-	var profile := CarnetProfiles.get_profile(profile_id)
+	var pid := target_profile_id if target_profile_id != "" else profile_id
+	var profile := CarnetProfiles.get_profile(pid)
 	if profile.is_empty():
 		return []
 	var matches := CarnetProfiles.match_games(profile)
-	var sync := CarnetStore.sync_status(profile_id)
-	var entries: Dictionary = CarnetStore._load_sync(profile_id).get("entries", {})
+	var sync := CarnetStore.sync_status(pid)
+	var entries: Dictionary = CarnetStore._load_sync(pid).get("entries", {})
 
 	var status_lookup: Dictionary = {}
 	for item in sync.get("known", []):
@@ -189,6 +191,26 @@ func recalculate_profile(target_profile_id: String = "") -> Dictionary:
 	_ensure_profile()
 	var pid := target_profile_id if target_profile_id != "" else profile_id
 	var res := CarnetStore.recalculate_profile(pid)
+	if res.get("ok", false):
+		refresh_sync()
+		refresh_carnet()
+		refresh_plan()
+		game_list_changed.emit()
+	return res
+
+## Recalcul algorithmique complet et asynchrone du carnet (avec émission de progression et sans freeze)
+func recalculate_profile_async(target_profile_id: String = "", on_progress: Callable = Callable()) -> Dictionary:
+	_ensure_profile()
+	var pid := target_profile_id if target_profile_id != "" else profile_id
+	var res = await CarnetStore.recalculate_profile_async(pid, {}, func(done: int, total: int, gid: String, gdata: Dictionary, atoms_cnt: int):
+		var details := {
+			"game": gdata,
+			"atoms_count": atoms_cnt
+		}
+		recalculate_progress.emit(done, total, gid, details)
+		if on_progress.is_valid():
+			on_progress.call(done, total, gid, gdata, atoms_cnt)
+	)
 	if res.get("ok", false):
 		refresh_sync()
 		refresh_carnet()
@@ -778,35 +800,35 @@ func get_drill_continuation(drill: Dictionary) -> Dictionary:
 	var depth := 10
 	var engine_name := "Stockfish 18"
 
-	# 1. Tenter d'interroger EngineManager si disponible
-	var eng: Node = null
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree and tree.root and tree.root.has_node("EngineManager"):
-		eng = tree.root.get_node("EngineManager")
+	# 1. Utiliser en priorité la PV pédagogique mémorisée du drill si disponible
+	var drill_pv = drill.get("pv", [])
+	if drill_pv is Array and not drill_pv.is_empty():
+		pv_moves = drill_pv
+	else:
+		# 2. Tenter d'interroger EngineManager si disponible
+		var eng: Node = null
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree and tree.root and tree.root.has_node("EngineManager"):
+			eng = tree.root.get_node("EngineManager")
 
-	if eng != null and eng.has_method("is_engine_available") and eng.is_engine_available():
-		if eng.has_method("get_engine_profile"):
-			var prof: String = eng.get_engine_profile()
-			if prof == "maia_lc0":
-				engine_name = "Maia / lc0"
-			else:
-				engine_name = "Stockfish 18"
-		if eng.has_method("evaluate_position_sync"):
-			var eval_res: Dictionary = eng.evaluate_position_sync(fen, 10, 800, 350)
-			if not eval_res.has("error"):
-				var cand_pv: Array = eval_res.get("pv_line", [])
-				if not cand_pv.is_empty():
-					pv_moves = cand_pv
-				score_cp = int(eval_res.get("score_cp", 0))
-				mate_in = int(eval_res.get("mate_in", 0))
-				depth = int(eval_res.get("depth", 10))
+		if eng != null and eng.has_method("is_engine_available") and eng.is_engine_available():
+			if eng.has_method("get_engine_profile"):
+				var prof: String = eng.get_engine_profile()
+				if prof == "maia_lc0":
+					engine_name = "Maia / lc0"
+				else:
+					engine_name = "Stockfish 18"
+			if eng.has_method("evaluate_position_sync"):
+				var eval_res: Dictionary = eng.evaluate_position_sync(fen, 10, 800, 350)
+				if not eval_res.has("error"):
+					var cand_pv: Array = eval_res.get("pv_line", [])
+					if not cand_pv.is_empty():
+						pv_moves = cand_pv
+					score_cp = int(eval_res.get("score_cp", 0))
+					mate_in = int(eval_res.get("mate_in", 0))
+					depth = int(eval_res.get("depth", 10))
 
-	# 2. Repli élégant si le moteur n'a pas répondu ou est indisponible
-	if pv_moves.is_empty():
-		var drill_pv = drill.get("pv", [])
-		if drill_pv is Array and not drill_pv.is_empty():
-			pv_moves = drill_pv
-		else:
+		if pv_moves.is_empty():
 			var best_uci: String = str(drill.get("reponse_uci", ""))
 			if best_uci != "":
 				pv_moves = [best_uci]

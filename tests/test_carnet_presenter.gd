@@ -39,6 +39,7 @@ func _process(_delta: float) -> bool:
 	_test_import_pgn(presenter)
 	_test_stockfish_continuation(presenter)
 	_test_default_profile_keys(presenter)
+	await _test_recalculate_profile_async(presenter)
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -403,5 +404,42 @@ func _test_default_profile_keys(presenter: CarnetPresenter) -> void:
 	p_def = CarnetProfiles.get_profile(CarnetProfiles.DEFAULT_PROFILE_ID)
 	keys = p_def.get("player_keys", [])
 	_check(keys.has("super_joueur_moi"), "la nouvelle clé 'super_joueur_moi' est bien persistée sur le carnet 'Moi'")
+	modal.queue_free()
+
+func _test_recalculate_profile_async(presenter: CarnetPresenter) -> void:
+	var pgn := """[Event "AsyncEvent"]
+[White "AsyncPlayer"]
+[Black "Opponent"]
+[Date "2026.09.12"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 Nc6 1-0"""
+	var gid: String = _db.record_pgn_game(pgn, "pgn_import")
+	_db.add_engine_analysis(gid, {
+		"schema_version": 2, "depth": 8, "opening": {"eco": "C20", "out_of_book_ply": 2}, "theory_plies": 2,
+		"evaluations": [
+			{"ply": 0, "is_white": true, "uci": "e2e4", "san": "e4", "quality": 1, "score_cp": 20, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": true, "best_alternative": "", "best_move": ""},
+			{"ply": 1, "is_white": false, "uci": "e7e5", "san": "e5", "quality": 1, "score_cp": 20, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": true, "best_alternative": "", "best_move": ""}
+		]
+	})
+	var pid := presenter.create_profile("AsyncTestProfile", "local", ["asyncplayer"])
+
+	var progress_events := []
+	presenter.recalculate_progress.connect(func(done, total, game_id, details):
+		progress_events.append({"done": done, "total": total, "gid": game_id, "details": details})
+	)
+
+	var callback_events := []
+	var res = await presenter.recalculate_profile_async(pid, func(done, total, game_id, gdata, atoms_cnt):
+		callback_events.append({"done": done, "total": total, "gid": game_id, "atoms": atoms_cnt})
+	)
+
+	_check(res.get("ok", false), "recalculate_profile_async retourne ok=true")
+	_check(int(res.get("processed_games", 0)) >= 1, "au moins 1 partie traitée en async")
+	_check(progress_events.size() >= 1, "signal recalculate_progress émis au moins 1 fois")
+	_check(callback_events.size() >= 1, "rappel on_progress invoqué au moins 1 fois")
+
+	_db.delete_game(gid)
+	presenter.delete_profile(pid)
 
 

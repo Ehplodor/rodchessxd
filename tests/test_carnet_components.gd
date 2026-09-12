@@ -7,6 +7,7 @@ const CarnetSyncBadge = preload("res://src/ui/carnet/components/CarnetSyncBadge.
 const CarnetMotifCard = preload("res://src/ui/carnet/components/CarnetMotifCard.gd")
 const CarnetRadarPanel = preload("res://src/ui/carnet/components/CarnetRadarPanel.gd")
 const CarnetGameListItem = preload("res://src/ui/carnet/components/CarnetGameListItem.gd")
+const CarnetProgressModal = preload("res://src/ui/carnet/components/CarnetProgressModal.gd")
 
 var _failures := 0
 var _ran := false
@@ -23,6 +24,7 @@ func _process(_delta: float) -> bool:
 	_test_motif_card()
 	_test_radar_panel()
 	_test_game_list_item()
+	_test_progress_modal()
 	if _failures == 0:
 		print("ALL CARNET COMPONENT TESTS PASSED SUCCESSFULLY!")
 	else:
@@ -135,3 +137,35 @@ func _test_game_list_item() -> void:
 	_check(fired["perspective"], "signal perspective_cycle_requested émis avec game_id")
 	_check(fired["remove"], "signal remove_requested émis avec game_id")
 	item.queue_free()
+
+func _test_progress_modal() -> void:
+	var modal := CarnetProgressModal.new()
+	root.add_child(modal)
+	modal.open("Recalcul du carnet", 10, "Profil : Moi")
+	_check(modal.title == "Recalcul du carnet", "modal titre initialisé")
+	_check(modal._total == 10, "modal total initialisé à 10")
+	_check(is_equal_approx(modal._progress_bar.value, 0.0), "modal progress bar initiale à 0%")
+
+	modal.update_progress(5, 10, "Carlsen vs Nakamura", "Coup 24/48 • 3 atomes", "Atome tactique détecté")
+	_check(is_equal_approx(modal._progress_bar.value, 50.0), "modal progress bar mise à jour à 50%")
+	_check(modal._counter_lbl.text.contains("5 / 10"), "modal compteur contient 5 / 10")
+	_check(modal._game_info_lbl.text == "Carlsen vs Nakamura", "modal titre de partie affiché")
+	_check(modal._substep_lbl.text.contains("3 atomes"), "modal sous-étape affichée")
+	_check(modal._log_lbl.text.contains("Atome tactique"), "modal journal d'activité mis à jour")
+
+	var fired_events := {"completed": false, "cancelled": false}
+	modal.completed.connect(func(): fired_events["completed"] = true)
+	modal.finish("Recalcul terminé : 10 parties traitées")
+	_check(modal._is_done, "modal marquée terminée")
+	_check(is_equal_approx(modal._progress_bar.value, 100.0), "modal progress bar à 100%")
+	_check(modal._btn_close.visible, "bouton fermer visible à la fin")
+	_check(fired_events["completed"], "signal completed émis")
+
+	var cancel_modal := CarnetProgressModal.new()
+	root.add_child(cancel_modal)
+	cancel_modal.open("Test Annulation", 5)
+	cancel_modal.cancelled.connect(func(): fired_events["cancelled"] = true)
+	cancel_modal._on_cancel_pressed()
+	_check(fired_events["cancelled"], "signal cancelled émis lors de l'annulation")
+
+	modal.queue_free()

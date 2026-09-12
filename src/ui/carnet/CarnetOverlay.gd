@@ -957,7 +957,7 @@ func _build_sync_tab() -> void:
 	run.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	DesignTokens.style_button(run, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
 	run.add_theme_color_override("font_color", DesignTokens.ACCENT)
-	run.pressed.connect(func(): presenter.start_batch(); _update_batch_row())
+	run.pressed.connect(_on_run_batch)
 	actions_col.add_child(run)
 
 	var imports_row = HBoxContainer.new()
@@ -1272,12 +1272,72 @@ func _on_game_perspective_cycle(game_id: String) -> void:
 	presenter.refresh_sync()
 	_refresh_games_list()
 
+func _on_run_batch() -> void:
+	if presenter == null:
+		return
+	presenter.start_batch()
+	_update_batch_row()
+	if presenter.batch != null:
+		_show_batch_modal()
+
+func _show_batch_modal() -> void:
+	if presenter == null or presenter.batch == null:
+		return
+	var modal := CarnetProgressModal.new()
+	add_child(modal)
+	var total_q: int = presenter.batch.queue.size()
+	var prof_name := presenter.active_profile_name()
+	modal.open("Mise à jour du carnet", total_q, "Profil : %s" % prof_name)
+
+	var on_progress_conn := func(done: int, total: int, gid: String):
+		if is_instance_valid(modal):
+			var db := presenter._db()
+			var gdata: Dictionary = db.get_game(gid) if db != null else {}
+			var white := str(gdata.get("white_name", "?"))
+			var black := str(gdata.get("black_name", "?"))
+			var gtitle := "%s vs %s" % [white, black] if white != "?" else "Partie %s" % gid
+			modal.update_progress(done, total, gtitle, "Partie synchronisée")
+
+	var on_state_conn := func(state: String):
+		if is_instance_valid(modal):
+			if state == "done":
+				var p: int = presenter.batch.processed if presenter.batch != null else 0
+				var f: int = presenter.batch.failed if presenter.batch != null else 0
+				modal.finish("Mise à jour terminée !\n%d parties traitées • %d échec(s)." % [p, f])
+			elif state == "failed":
+				modal.finish("Erreur lors du traitement du lot.")
+
+	presenter.batch_progress.connect(on_progress_conn)
+	presenter.batch_state.connect(on_state_conn)
+	modal.cancelled.connect(func():
+		presenter.cancel_batch()
+		_update_batch_row()
+	)
+
 func _on_recalculate_profile() -> void:
 	if presenter == null:
 		return
-	var res := presenter.recalculate_profile()
-	var count = int(res.get("processed_games", 0))
-	var atoms = int(res.get("total_atoms", 0))
+
+	var modal := CarnetProgressModal.new()
+	add_child(modal)
+	var games := presenter.get_profile_games()
+	var prof_name := presenter.active_profile_name()
+	modal.open("Recalcul du carnet", games.size(), "Profil : %s" % prof_name)
+
+	var res = await presenter.recalculate_profile_async("", func(done: int, total: int, gid: String, gdata: Dictionary, atoms_cnt: int):
+		if is_instance_valid(modal):
+			var white := str(gdata.get("white_name", "?"))
+			var black := str(gdata.get("black_name", "?"))
+			var gtitle := "%s vs %s" % [white, black] if white != "?" else "Partie %s" % gid
+			var substep := "%d atome(s) pédagogique(s) extrait(s)" % atoms_cnt
+			modal.update_progress(done, total, gtitle, substep)
+	)
+
+	var count: int = int(res.get("processed_games", 0))
+	var atoms: int = int(res.get("total_atoms", 0))
+	if is_instance_valid(modal):
+		modal.finish("Recalcul terminé avec succès !\n%d parties traitées • %d atomes régénérés." % [count, atoms])
+
 	_on_toast_requested("Carnet recalculé : %d parties, %d atomes mis à jour." % [count, atoms], true)
 	_refresh_header()
 	_rebuild_content()

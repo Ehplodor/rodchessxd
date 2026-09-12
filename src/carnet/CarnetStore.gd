@@ -150,6 +150,12 @@ static func recalculate_game(game_id: String, profile_id: String = "", options: 
 		elif keys.has(black):
 			perspective = "black"
 
+	var white_name := str(game.get("white_name", "?"))
+	var black_name := str(game.get("black_name", "?"))
+	print("[Carnet] [Recalcul] Partie %s (%s vs %s) - Perspective: %s" % [
+		game_id, white_name, black_name, perspective if perspective != "" else "auto"
+	])
+
 	var atoms := CarnetEvents.annotate_game(game, analysis, {
 		"couleur_joueur": perspective,
 		"mode_analyse": bool(options.get("mode_analyse", false)),
@@ -164,6 +170,7 @@ static func recalculate_game(game_id: String, profile_id: String = "", options: 
 
 	var ledger := compile("", -1, pid)
 	var plan := refresh_plan("", {}, pid)
+	print("[Carnet] [Recalcul] Partie %s terminée avec succès (%d atomes créés)." % [game_id, atoms.size()])
 
 	return {
 		"ok": true,
@@ -192,6 +199,8 @@ static func recalculate_profile(profile_id: String = "", options: Dictionary = {
 	var total_atoms: int = 0
 	var skipped_no_analysis: int = 0
 
+	print("[Carnet] [Recalcul Profil '%s'] Début du recalcul synchrone (%d parties rattachées)..." % [pid, matches.size()])
+
 	# Chargement unique en mémoire pour amortir les I/O et les syncs FS (notamment sur Web)
 	var sync := _load_sync(pid)
 	var entries: Dictionary = sync.get("entries", {})
@@ -199,23 +208,32 @@ static func recalculate_profile(profile_id: String = "", options: Dictionary = {
 	var drills: Array = trainer.get("drills", []) if trainer.get("drills", []) is Array else []
 	var now := int(Time.get_unix_time_from_system())
 
-	for match in matches:
-		var gid := str(match.get("game_id", ""))
+	for i in range(matches.size()):
+		var game_match: Dictionary = matches[i]
+		var gid := str(game_match.get("game_id", ""))
 		var game: Dictionary = db.get_game(gid)
 		if game.is_empty():
 			continue
+
+		var white_name := str(game.get("white_name", "?"))
+		var black_name := str(game.get("black_name", "?"))
+		print("[Carnet] [Recalcul Profil] [%d/%d] Partie %s (%s vs %s)" % [
+			i + 1, matches.size(), gid, white_name, black_name
+		])
+
 		var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
 		var analysis: Dictionary = {}
-		for i in range(analyses.size() - 1, -1, -1):
-			var a = analyses[i]
+		for j in range(analyses.size() - 1, -1, -1):
+			var a = analyses[j]
 			if a is Dictionary and (a.get("evaluations", []) as Array).size() > 0:
 				analysis = a
 				break
 		if analysis.is_empty():
+			print("[Carnet]   -> Ignorée : aucune analyse moteur disponible.")
 			skipped_no_analysis += 1
 			continue
 
-		var perspective := str(match.get("perspective", ""))
+		var perspective := str(game_match.get("perspective", ""))
 		var atoms := CarnetEvents.annotate_game(game, analysis, {
 			"couleur_joueur": perspective,
 			"mode_analyse": bool(options.get("mode_analyse", false)),
@@ -269,10 +287,143 @@ static func recalculate_profile(profile_id: String = "", options: Dictionary = {
 	var ledger := compile("", -1, pid)
 	var plan := refresh_plan("", {}, pid)
 
+	print("[Carnet] [Recalcul Profil '%s'] Terminé : %d parties traitées, %d ignorées, %d atomes régénérés." % [
+		pid, processed_games, skipped_no_analysis, total_atoms
+	])
+
 	return {
 		"ok": true,
 		"profile_id": pid,
 		"matched_games": matches.size(),
+		"processed_games": processed_games,
+		"skipped_no_analysis": skipped_no_analysis,
+		"total_atoms": total_atoms,
+		"ledger": ledger,
+		"plan": plan
+	}
+
+## Recalcule l'intégralité d'un Carnet de façon asynchrone (non-bloquante avec await process_frame).
+## Permet à l'UI de rester totalement fluide, d'animer une modale de progression dynamique
+## et d'éviter tout gel de l'application sous Windows ou Web.
+static func recalculate_profile_async(profile_id: String = "", options: Dictionary = {}, on_progress: Callable = Callable()) -> Dictionary:
+	var db := _db()
+	if db == null:
+		return {"ok": false, "error": "database_unavailable"}
+	var pid := _resolve(profile_id)
+	var profile := CarnetProfiles.get_profile(pid)
+	if profile.is_empty():
+		return {"ok": false, "error": "profile_not_found"}
+
+	var matches := CarnetProfiles.match_games(profile)
+	var total_matches := matches.size()
+	var processed_games: int = 0
+	var total_atoms: int = 0
+	var skipped_no_analysis: int = 0
+
+	print("[Carnet] [Recalcul Profil '%s'] Début du recalcul asynchrone (%d parties rattachées)..." % [pid, total_matches])
+
+	var sync := _load_sync(pid)
+	var entries: Dictionary = sync.get("entries", {})
+	var trainer := _load_trainer(pid)
+	var drills: Array = trainer.get("drills", []) if trainer.get("drills", []) is Array else []
+	var now := int(Time.get_unix_time_from_system())
+	var tree := Engine.get_main_loop() as SceneTree
+
+	for i in range(total_matches):
+		var game_match: Dictionary = matches[i]
+		var gid := str(game_match.get("game_id", ""))
+		var game: Dictionary = db.get_game(gid)
+		if game.is_empty():
+			continue
+
+		var white_name := str(game.get("white_name", "?"))
+		var black_name := str(game.get("black_name", "?"))
+		print("[Carnet] [Recalcul Profil] [%d/%d] Partie %s (%s vs %s)" % [
+			i + 1, total_matches, gid, white_name, black_name
+		])
+
+		var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
+		var analysis: Dictionary = {}
+		for j in range(analyses.size() - 1, -1, -1):
+			var a = analyses[j]
+			if a is Dictionary and (a.get("evaluations", []) as Array).size() > 0:
+				analysis = a
+				break
+		if analysis.is_empty():
+			print("[Carnet]   -> Ignorée : aucune analyse moteur disponible.")
+			skipped_no_analysis += 1
+			if on_progress.is_valid():
+				on_progress.call(i + 1, total_matches, gid, game, 0)
+			if tree != null:
+				await tree.process_frame
+			continue
+
+		var perspective := str(game_match.get("perspective", ""))
+		var atoms := CarnetEvents.annotate_game(game, analysis, {
+			"couleur_joueur": perspective,
+			"mode_analyse": bool(options.get("mode_analyse", false)),
+		})
+
+		db.save_json_atomic(_atom_path(pid, gid), {
+			"schema_version": CarnetConfig.CARNET_SCHEMA_VERSION,
+			"game_id": gid,
+			"perspective": perspective,
+			"atoms": atoms,
+		})
+
+		var analysis_version: int = int(game.get("analysis_version", 0))
+		var existing_entry: Dictionary = entries.get(gid, {})
+		var forced_perspective: String = str(existing_entry.get("perspective", ""))
+		entries[gid] = {
+			"perspective": forced_perspective,
+			"date_iso": DateUtil.normalize(str(game.get("date", ""))),
+			"analysis_version": analysis_version,
+			"atom_version": CarnetConfig.ATOM_VERSION,
+			"atoms_count": atoms.size(),
+			"synced_at": now,
+		}
+
+		var kept_drills: Array = []
+		for drill in drills:
+			if drill is Dictionary:
+				if str(drill.get("game_id", "")) == gid:
+					var srs: Dictionary = drill.get("srs", {}) if drill.get("srs", {}) is Dictionary else {}
+					var rep := int(srs.get("repetitions", drill.get("repetitions", 0)))
+					var ivl := int(srs.get("intervalle", drill.get("intervalle", drill.get("interval", 0))))
+					if rep > 0 or ivl > 0:
+						kept_drills.append(drill)
+				else:
+					kept_drills.append(drill)
+		drills = kept_drills
+
+		processed_games += 1
+		total_atoms += atoms.size()
+
+		if on_progress.is_valid():
+			on_progress.call(i + 1, total_matches, gid, game, atoms.size())
+
+		# Relâchement du frame principal : Godot redessine l'UI et traite les événements OS !
+		if tree != null:
+			await tree.process_frame
+
+	sync["entries"] = entries
+	sync["schema_version"] = CarnetConfig.CARNET_SCHEMA_VERSION
+	db.save_json_atomic(_sync_path(pid), sync)
+
+	trainer["drills"] = drills
+	_save_trainer(pid, trainer)
+
+	var ledger := compile("", -1, pid)
+	var plan := refresh_plan("", {}, pid)
+
+	print("[Carnet] [Recalcul Profil '%s'] Terminé : %d parties traitées, %d ignorées, %d atomes régénérés." % [
+		pid, processed_games, skipped_no_analysis, total_atoms
+	])
+
+	return {
+		"ok": true,
+		"profile_id": pid,
+		"matched_games": total_matches,
 		"processed_games": processed_games,
 		"skipped_no_analysis": skipped_no_analysis,
 		"total_atoms": total_atoms,

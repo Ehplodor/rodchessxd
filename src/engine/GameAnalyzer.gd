@@ -243,6 +243,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		}
 		move_evaluations.append(move_record)
 
+		progress_updated.emit(i + 1, total_plies)
 		call_deferred("emit_signal", "progress_updated", i + 1, total_plies)
 		call_deferred("emit_signal", "ply_analyzed", i, move_record, {
 			"white_loss_sum": white_loss_sum,

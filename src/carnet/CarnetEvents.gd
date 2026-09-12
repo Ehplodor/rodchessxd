@@ -225,11 +225,25 @@ static func annotate_game(game_data: Dictionary, analysis: Dictionary, options: 
 		var atom := annotate(coup)
 		if not atom.is_empty():
 			out.append(atom)
+			var move_num := (i / 2) + 1
+			var side_icon := "⚪" if is_white else "⚫"
+			var move_san := str(rec.get("san", mv.get("san", uci)))
+			var cat := str(atom.get("categorie", "remarquable"))
+			var pol := str(atom.get("polarite", "neutre"))
+			var loss_pct := float(atom.get("perte_winpct", 0.0)) * 100.0
+			print("[Carnet]   -> Coup %d (%s %s) : Atome [%s | %s] perte: %.1f%%, IS: %.2f" % [
+				move_num, side_icon, move_san, cat, pol, loss_pct, float(atom.get("IS", 0.0))
+			])
+			var on_atom_cb: Callable = options.get("on_atom", Callable())
+			if on_atom_cb.is_valid():
+				on_atom_cb.call(atom)
 
 		prev_fen = fen_after
 		prev_score = int(rec.get("score_cp", prev_score))
 		prev_best = str(rec.get("best_move", ""))
 
+	var total_analyzed := mini(moves.size(), evals.size())
+	print("[Carnet]   -> %d atome(s) pédagogique(s) extrait(s) (sur %d coups analysés)." % [out.size(), total_analyzed])
 	return out
 
 # ── Classification / polarité ────────────────────────────────────────────────────
