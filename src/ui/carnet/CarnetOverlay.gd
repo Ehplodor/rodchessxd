@@ -414,10 +414,10 @@ func _build_sync_tab() -> void:
 	var run := Button.new()
 	run.text = "Mettre à jour le carnet"
 	run.disabled = presenter.sync.get("to_process", []).size() == 0
-	run.clip_text = true
-	run.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	run.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	run.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
+	run.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	DesignTokens.style_button(run, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+	run.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	run.pressed.connect(func(): presenter.start_batch(); _update_batch_row())
 	actions_row.add_child(run)
 
