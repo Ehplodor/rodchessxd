@@ -125,7 +125,7 @@ func _test_sync_tab_structure(overlay: CarnetOverlay) -> void:
 
 	var found := _find_buttons_in(overlay._content)
 	_check(found.has("import_pgn"), "bouton 'Importer PGN' présent dans Sync")
-	_check(found.has("import_chesscom"), "bouton 'Importer Chess.com' présent dans Sync (stub)")
+	_check(found.has("import_chesscom"), "bouton '🌐 Chess.com' présent dans Sync (stub)")
 
 	_check(overlay._games_list != null, "_games_list initialisé dans l'overlay")
 	_check(overlay._filter_group != null, "_filter_group initialisé dans l'overlay")
@@ -143,7 +143,7 @@ func _find_buttons_in(node: Node) -> Dictionary:
 			var btn_text := str(child.text)
 			if btn_text == "📥 Importer PGN":
 				out["import_pgn"] = true
-			if btn_text == "🌐 Importer Chess.com":
+			if btn_text == "🌐 Chess.com":
 				out["import_chesscom"] = true
 		var sub := _find_buttons_in(child)
 		if sub.has("import_pgn"):

@@ -412,8 +412,11 @@ func _build_sync_tab() -> void:
 	_content.add_child(actions_row)
 
 	var run := Button.new()
-	run.text = "Mettre à jour le carnet"
+	run.text = "Mettre à jour"
 	run.disabled = presenter.sync.get("to_process", []).size() == 0
+	run.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	run.clip_text = true
+	run.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	run.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
 	run.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	DesignTokens.style_button(run, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
@@ -423,6 +426,9 @@ func _build_sync_tab() -> void:
 
 	var btn_import_pgn = Button.new()
 	btn_import_pgn.text = "📥 Importer PGN"
+	btn_import_pgn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_import_pgn.clip_text = true
+	btn_import_pgn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	btn_import_pgn.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
 	btn_import_pgn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	DesignTokens.style_button(btn_import_pgn, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
@@ -431,7 +437,10 @@ func _build_sync_tab() -> void:
 	actions_row.add_child(btn_import_pgn)
 
 	var btn_import_chesscom = Button.new()
-	btn_import_chesscom.text = "🌐 Importer Chess.com"
+	btn_import_chesscom.text = "🌐 Chess.com"
+	btn_import_chesscom.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_import_chesscom.clip_text = true
+	btn_import_chesscom.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	btn_import_chesscom.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
 	btn_import_chesscom.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	DesignTokens.style_button(btn_import_chesscom, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
