@@ -106,7 +106,7 @@ func _do_import(pgn_text: String) -> void:
 		var first_key = str(new_keys[0]) if not new_keys.is_empty() else ""
 		var dialog = ConfirmationDialog.new()
 		dialog.title = "Ajouter aux clés du carnet ?"
-		dialog.text = "Joueur «%s» détecté. Ajouter aux clés du carnet ?" % first_key
+		dialog.dialog_text = "Joueur «%s» détecté. Ajouter aux clés du carnet ?" % first_key
 		dialog.ok_button_text = "Ajouter"
 		dialog.cancel_button_text = "Ignorer"
 		dialog.add_theme_color_override("font_color", DesignTokens.ACCENT)

@@ -593,7 +593,7 @@ func _on_manage_keys(profile_id: String) -> void:
 func _on_delete_profile(profile_id: String) -> void:
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "Supprimer le profil"
-	dialog.text = "Supprimer ce profil et toutes ses données ? Cette action est irréversible."
+	dialog.dialog_text = "Supprimer ce profil et toutes ses données ? Cette action est irréversible."
 	dialog.ok_button_text = "Supprimer"
 	dialog.add_theme_color_override("font_color", DesignTokens.DANGER)
 	dialog.confirmed.connect(func():
@@ -675,7 +675,7 @@ func _on_game_perspective_cycle(game_id: String) -> void:
 func _on_game_remove(game_id: String) -> void:
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "Retirer la partie du carnet"
-	dialog.text = "Cette partie sera retirée du carnet (atomes, drills, sync). La partie reste dans la base globale."
+	dialog.dialog_text = "Cette partie sera retirée du carnet (atomes, drills, sync). La partie reste dans la base globale."
 	dialog.ok_button_text = "Retirer"
 	dialog.add_theme_color_override("font_color", DesignTokens.DANGER)
 	dialog.confirmed.connect(func():
