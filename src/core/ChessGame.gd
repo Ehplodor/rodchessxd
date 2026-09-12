@@ -979,3 +979,34 @@ static func format_pv_natural_text(fen: String, pv_moves: Array, max_moves: int 
 		sim_game.make_move(m)
 
 	return "\n".join(lines)
+
+## Convertit une notation algébrique SAN internationale (K, Q, R, B, N) en notation française officielle (R, D, T, F, C).
+static func san_to_french(san: String) -> String:
+	if san == "" or san.begins_with("O-O"):
+		return san
+	var out := ""
+	var i := 0
+	var len_s := san.length()
+	while i < len_s:
+		var ch := san[i]
+		if i == 0 and ch in ["K", "Q", "R", "B", "N"]:
+			match ch:
+				"K": out += "R"
+				"Q": out += "D"
+				"R": out += "T"
+				"B": out += "F"
+				"N": out += "C"
+		elif ch == "=" and i + 1 < len_s:
+			out += "="
+			i += 1
+			var prom_ch := san[i]
+			match prom_ch:
+				"Q": out += "D"
+				"R": out += "T"
+				"B": out += "F"
+				"N": out += "C"
+				_: out += prom_ch
+		else:
+			out += ch
+		i += 1
+	return out

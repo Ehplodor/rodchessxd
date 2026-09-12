@@ -60,6 +60,26 @@ func _process(_delta: float) -> bool:
 		_check(offenders.is_empty(), "Séance d'entraînement ouverte : aucun débordement")
 		for o in offenders.slice(0, 10):
 			printerr("  OVERSIZE %.0f px : %s" % [o["w"], o["path"]])
+
+		# Réponse et affichage de la suite Stockfish
+		main.carnet_overlay.choose("c7c5")
+		offenders.clear()
+		_collect_offenders(main, width, offenders)
+		_check(offenders.is_empty(), "Feedback post-réponse avec suite Stockfish : aucun débordement")
+
+		# Déroulement de l'accordéon débutant
+		for c in main.carnet_overlay._content.get_children():
+			if c is PanelContainer:
+				for sub in c.find_children("", "Button", true, false):
+					if str(sub.text).find("Décoder la suite") != -1:
+						sub.pressed.emit()
+						break
+		offenders.clear()
+		_collect_offenders(main, width, offenders)
+		_check(offenders.is_empty(), "Accordéon débutant déroulé : aucun débordement")
+		for o in offenders.slice(0, 10):
+			printerr("  OVERSIZE %.0f px : %s" % [o["w"], o["path"]])
+
 		main.carnet_presenter.end_session()
 
 	main._close_carnet_overlay()

@@ -575,7 +575,7 @@ func _build_session() -> void:
 		_content.add_child(btn_row)
 		for option in options:
 			var btn := Button.new()
-			btn.text = str(option.get("san", option.get("uci", "")))
+			btn.text = CarnetPresenter.uci_to_san_fr(str(drill.get("position", "")), str(option.get("uci", "")))
 			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			btn.clip_text = true
 			btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -584,7 +584,7 @@ func _build_session() -> void:
 			btn.pressed.connect(func(): choose(str(option.get("uci", ""))))
 			btn_row.add_child(btn)
 
-	# 5. Feedback post-réponse
+	# 5. Feedback post-réponse & Analyse Stockfish
 	if not result.is_empty():
 		var feedback_card := PanelContainer.new()
 		var fb_box := VBoxContainer.new()
@@ -614,11 +614,17 @@ func _build_session() -> void:
 			fb_title.text = "✅ Bien vu ! Coup optimal trouvé."
 			fb_title.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 		else:
-			var played_san := CarnetPresenter.uci_to_san(str(drill.get("position", "")), str(result.get("played", "")))
-			var exp_san := CarnetPresenter.uci_to_san(str(drill.get("position", "")), str(result.get("expected", "")))
+			var played_san := CarnetPresenter.uci_to_san_fr(str(drill.get("position", "")), str(result.get("played", "")))
+			var exp_san := CarnetPresenter.uci_to_san_fr(str(drill.get("position", "")), str(result.get("expected", "")))
 			fb_title.text = "❌ Dans votre partie, vous aviez joué %s. Le meilleur coup était %s." % [played_san, exp_san]
 			fb_title.add_theme_color_override("font_color", DesignTokens.DANGER)
 		fb_box.add_child(fb_title)
+		_content.add_child(feedback_card)
+
+		# Carte d'analyse Stockfish (meilleure suite SAN + explications déroulables débutant)
+		var cont_card := _build_continuation_card(drill)
+		if cont_card != null:
+			_content.add_child(cont_card)
 
 		var fb_hint := Label.new()
 		fb_hint.text = "Évaluez votre aisance pour calibrer la prochaine répétition :"
@@ -626,10 +632,161 @@ func _build_session() -> void:
 		fb_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		fb_hint.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		fb_hint.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-		fb_box.add_child(fb_hint)
-
-		_content.add_child(feedback_card)
+		_content.add_child(fb_hint)
 		_content.add_child(_grade_row())
+
+func _build_continuation_card(drill: Dictionary) -> Control:
+	var cont := presenter.get_drill_continuation(drill)
+	if cont.is_empty() or str(cont.get("san_line", "")) == "":
+		return null
+
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", DesignTokens.card())
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.add_child(vbox)
+
+	# 1. En-tête avec badge moteur
+	var header_hbox := HBoxContainer.new()
+	header_hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(header_hbox)
+
+	var title_lbl := Label.new()
+	title_lbl.text = "♟️ Meilleure suite"
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	header_hbox.add_child(title_lbl)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_hbox.add_child(spacer)
+
+	var engine_lbl := Label.new()
+	engine_lbl.text = str(cont.get("engine_label", "Stockfish 18"))
+	engine_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	engine_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	header_hbox.add_child(engine_lbl)
+
+	# 2. Ligne SAN standard (pour les joueurs sachant lire la notation échiquéenne)
+	var san_panel := PanelContainer.new()
+	var san_style := StyleBoxFlat.new()
+	san_style.bg_color = Color(DesignTokens.BG_BASE.r, DesignTokens.BG_BASE.g, DesignTokens.BG_BASE.b, 0.7)
+	san_style.set_border_width_all(1)
+	san_style.border_color = DesignTokens.BORDER
+	san_style.corner_radius_top_left = 6
+	san_style.corner_radius_top_right = 6
+	san_style.corner_radius_bottom_left = 6
+	san_style.corner_radius_bottom_right = 6
+	san_style.content_margin_left = 8
+	san_style.content_margin_right = 8
+	san_style.content_margin_top = 6
+	san_style.content_margin_bottom = 6
+	san_panel.add_theme_stylebox_override("panel", san_style)
+	san_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var san_lbl := Label.new()
+	san_lbl.text = str(cont.get("san_line", ""))
+	san_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	san_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	san_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	san_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	san_panel.add_child(san_lbl)
+	vbox.add_child(san_panel)
+
+	# 3. Accordéon pour débutants (déroulable, masqué par défaut pour entraîner la lecture)
+	var steps: Array = cont.get("steps", [])
+	if not steps.is_empty():
+		var toggle_btn := Button.new()
+		toggle_btn.text = "▶ 💡 Décoder la suite coup par coup (débutant)"
+		toggle_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		toggle_btn.clip_text = true
+		toggle_btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		DesignTokens.style_button(toggle_btn, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
+		vbox.add_child(toggle_btn)
+
+		var steps_box := VBoxContainer.new()
+		steps_box.visible = false
+		steps_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		steps_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+		vbox.add_child(steps_box)
+
+		toggle_btn.pressed.connect(func():
+			steps_box.visible = not steps_box.visible
+			if steps_box.visible:
+				toggle_btn.text = "▼ 💡 Masquer les explications coup par coup"
+			else:
+				toggle_btn.text = "▶ 💡 Décoder la suite coup par coup (débutant)"
+		)
+
+		for s in steps:
+			if not (s is Dictionary):
+				continue
+			var step_card := PanelContainer.new()
+			var sc_style := StyleBoxFlat.new()
+			sc_style.bg_color = Color(DesignTokens.SURFACE.r, DesignTokens.SURFACE.g, DesignTokens.SURFACE.b, 0.6)
+			sc_style.corner_radius_top_left = 6
+			sc_style.corner_radius_top_right = 6
+			sc_style.corner_radius_bottom_left = 6
+			sc_style.corner_radius_bottom_right = 6
+			sc_style.content_margin_left = 8
+			sc_style.content_margin_right = 8
+			sc_style.content_margin_top = 6
+			sc_style.content_margin_bottom = 6
+			step_card.add_theme_stylebox_override("panel", sc_style)
+			step_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+			var s_box := VBoxContainer.new()
+			s_box.add_theme_constant_override("separation", 2)
+			s_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			step_card.add_child(s_box)
+
+			var s_head := HBoxContainer.new()
+			s_head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			s_box.add_child(s_head)
+
+			var move_lbl := Label.new()
+			var san_intl: String = str(s.get("san", ""))
+			var san_fr: String = str(s.get("san_fr", ""))
+			if san_intl != "" and san_intl != san_fr:
+				move_lbl.text = "%s  (%s)" % [str(s.get("label", "")), san_intl]
+			else:
+				move_lbl.text = str(s.get("label", ""))
+			move_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+			move_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+			s_head.add_child(move_lbl)
+
+			var s_sp := Control.new()
+			s_sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			s_head.add_child(s_sp)
+
+			var act_lbl := Label.new()
+			var act_str := str(s.get("action", ""))
+			act_lbl.text = "[%s]" % act_str
+			act_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+			if act_str.find("mat") != -1:
+				act_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+			elif act_str.find("Échec") != -1:
+				act_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
+			elif act_str.find("Prise") != -1 or act_str.find("Promotion") != -1:
+				act_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+			else:
+				act_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+			s_head.add_child(act_lbl)
+
+			var desc_lbl := Label.new()
+			desc_lbl.text = str(s.get("desc", ""))
+			desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			desc_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			desc_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+			desc_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+			s_box.add_child(desc_lbl)
+
+			steps_box.add_child(step_card)
+
+	return card
 
 func _grade_row() -> GridContainer:
 	var grid := GridContainer.new()

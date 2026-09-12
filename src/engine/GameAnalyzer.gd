@@ -238,7 +238,8 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 			"depth": eff_d,
 			"ci_margin": eval_ci,
 			"ci_lower": score_after - eval_ci,
-			"ci_upper": score_after + eval_ci
+			"ci_upper": score_after + eval_ci,
+			"pv_line": pv_before.duplicate() if pv_before is Array else []
 		}
 		move_evaluations.append(move_record)
 
@@ -484,7 +485,8 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 			"depth": depth_reached,
 			"ci_margin": eval_ci,
 			"ci_lower": score_after - eval_ci,
-			"ci_upper": score_after + eval_ci
+			"ci_upper": score_after + eval_ci,
+			"pv_line": pv_before.duplicate() if pv_before is Array else []
 		}
 		move_evaluations.append(move_record)
 

@@ -684,6 +684,168 @@ static func uci_to_san(fen: String, uci: String) -> String:
 	var move := game.find_move(uci)
 	return move.san if move != null else uci
 
+## Convertit un coup UCI en SAN avec initiales françaises officielles (D, C, F, T, R).
+static func uci_to_san_fr(fen: String, uci: String) -> String:
+	var san := uci_to_san(fen, uci)
+	return ChessGame.san_to_french(san)
+
+## Calcule ou extrait la meilleure suite (variante principale PV) du drill avec Stockfish,
+## formatée en notation échiquéenne standard (SAN) et décodée en langage naturel pas-à-pas pour les débutants.
+func get_drill_continuation(drill: Dictionary) -> Dictionary:
+	if drill.is_empty():
+		return {}
+	if drill.has("_continuation") and drill["_continuation"] is Dictionary:
+		return drill["_continuation"]
+
+	var fen: String = str(drill.get("position", ""))
+	if fen == "":
+		return {}
+
+	var pv_moves: Array = []
+	var score_cp := 0
+	var mate_in := 0
+	var depth := 10
+	var engine_name := "Stockfish 18"
+
+	# 1. Tenter d'interroger EngineManager si disponible
+	var eng: Node = null
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		eng = tree.root.get_node("EngineManager")
+
+	if eng != null and eng.has_method("is_engine_available") and eng.is_engine_available():
+		if eng.has_method("get_engine_profile"):
+			var prof: String = eng.get_engine_profile()
+			if prof == "maia_lc0":
+				engine_name = "Maia / lc0"
+			else:
+				engine_name = "Stockfish 18"
+		if eng.has_method("evaluate_position_sync"):
+			var eval_res: Dictionary = eng.evaluate_position_sync(fen, 10, 800, 350)
+			if not eval_res.has("error"):
+				var cand_pv: Array = eval_res.get("pv_line", [])
+				if not cand_pv.is_empty():
+					pv_moves = cand_pv
+				score_cp = int(eval_res.get("score_cp", 0))
+				mate_in = int(eval_res.get("mate_in", 0))
+				depth = int(eval_res.get("depth", 10))
+
+	# 2. Repli élégant si le moteur n'a pas répondu ou est indisponible
+	if pv_moves.is_empty():
+		var drill_pv = drill.get("pv", [])
+		if drill_pv is Array and not drill_pv.is_empty():
+			pv_moves = drill_pv
+		else:
+			var best_uci: String = str(drill.get("reponse_uci", ""))
+			if best_uci != "":
+				pv_moves = [best_uci]
+
+	# 3. Décodage séquentiel de la variante
+	var continuation := _decode_pv_continuation(fen, pv_moves, score_cp, mate_in, depth, engine_name)
+	drill["_continuation"] = continuation
+	return continuation
+
+static func _decode_pv_continuation(fen: String, pv_moves: Array, score_cp: int, mate_in: int, depth: int, engine_name: String) -> Dictionary:
+	if pv_moves.is_empty():
+		return {
+			"san_line": "",
+			"eval_str": "",
+			"engine_label": engine_name,
+			"steps": [],
+		}
+
+	var sim_game := ChessGame.new(fen)
+	var fen_parts := fen.split(" ")
+	var is_white_start := not (fen_parts.size() > 1 and fen_parts[1] == "b")
+	var fullmove := 1
+	if fen_parts.size() >= 6:
+		var parsed_m := int(fen_parts[5])
+		if parsed_m > 0:
+			fullmove = parsed_m
+
+	var san_tokens: PackedStringArray = []
+	var steps: Array[Dictionary] = []
+	var cur_move_num := fullmove
+	var is_white := is_white_start
+
+	# Limitation à 6 demi-coups pour une analyse digeste et focalisée
+	var count := mini(pv_moves.size(), 6)
+
+	for i in range(count):
+		var token := str(pv_moves[i]).strip_edges()
+		if token == "":
+			continue
+		var m = sim_game.find_move(token)
+		if m == null:
+			break
+
+		var m_san: String = m.san
+		var m_san_fr: String = ChessGame.san_to_french(m_san)
+		var icon := "⚪" if is_white else "⚫"
+
+		# Construction de la ligne SAN
+		var step_move_label := ""
+		if is_white:
+			san_tokens.append("%d. %s" % [cur_move_num, m_san_fr])
+			step_move_label = "%d. %s %s" % [cur_move_num, icon, m_san_fr]
+		else:
+			if i == 0:
+				san_tokens.append("%d... %s" % [cur_move_num, m_san_fr])
+			else:
+				san_tokens.append(m_san_fr)
+			step_move_label = "%d... %s %s" % [cur_move_num, icon, m_san_fr]
+			cur_move_num += 1
+
+		# Action badge pédagogique
+		var action_badge := "Déplacement"
+		if m.is_checkmate:
+			action_badge = "Échec et mat"
+		elif m.is_check:
+			action_badge = "Échec"
+		elif m.is_castling:
+			action_badge = "Roque"
+		elif m.promotion != ChessPiece.Type.NONE:
+			action_badge = "Promotion"
+		elif m.captured_piece != ChessPiece.Type.NONE or m.is_en_passant:
+			action_badge = "Prise"
+
+		var desc := sim_game.describe_move_natural(m)
+
+		steps.append({
+			"ply_index": i,
+			"move_num": cur_move_num if is_white else (cur_move_num - 1),
+			"is_white": is_white,
+			"icon": icon,
+			"san": m_san,
+			"san_fr": m_san_fr,
+			"label": step_move_label,
+			"action": action_badge,
+			"desc": desc,
+		})
+
+		sim_game.make_move(m)
+		is_white = not is_white
+
+	var eval_str := ""
+	if mate_in != 0:
+		eval_str = "Mat en %d" % mate_in if mate_in > 0 else "-Mat en %d" % abs(mate_in)
+	elif score_cp != 0 or pv_moves.size() > 1:
+		var pawns := float(score_cp) / 100.0
+		eval_str = ("+%.1f" % pawns) if pawns > 0.0 else ("%.1f" % pawns)
+
+	var san_line := " ".join(san_tokens)
+	if eval_str != "":
+		san_line += "  (%s)" % eval_str
+
+	var engine_lbl := "%s · Prof. %d" % [engine_name, depth]
+
+	return {
+		"san_line": san_line,
+		"eval_str": eval_str,
+		"engine_label": engine_lbl,
+		"steps": steps,
+	}
+
 # ── Interne ──────────────────────────────────────────────────────────────────────
 
 func _ensure_profile() -> void:

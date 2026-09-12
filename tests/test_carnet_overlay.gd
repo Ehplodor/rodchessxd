@@ -99,6 +99,29 @@ func _test_session(overlay: CarnetOverlay, presenter: CarnetPresenter) -> void:
 
 	var wrong: Dictionary = overlay.choose("a2a3")
 	_check(not bool(wrong.get("correct", true)), "mauvais choix signalé par l'overlay")
+
+	# Vérification du composant d'analyse Stockfish et de l'accordéon déroulable débutant
+	var toggle_btn: Button = null
+	var steps_box: VBoxContainer = null
+	for c in overlay._content.get_children():
+		if c is PanelContainer:
+			for sub in c.find_children("", "Button", true, false):
+				if str(sub.text).find("Décoder la suite") != -1:
+					toggle_btn = sub as Button
+					break
+			for sub in c.find_children("", "VBoxContainer", true, false):
+				if not sub.visible and sub.get_parent() is VBoxContainer:
+					steps_box = sub as VBoxContainer
+					break
+	_check(toggle_btn != null, "bouton accordéon débutant présent")
+	if toggle_btn != null and steps_box != null:
+		_check(not steps_box.visible, "explications débutant masquées par défaut")
+		toggle_btn.pressed.emit()
+		_check(steps_box.visible, "explications débutant déroulées après clic")
+		_check(toggle_btn.text.find("Masquer") != -1, "bouton basculé en 'Masquer'")
+		toggle_btn.pressed.emit()
+		_check(not steps_box.visible, "explications repliées après second clic")
+
 	_check(overlay.grade(1), "notation après réponse")
 
 	var right: Dictionary = overlay.choose("d2d4")

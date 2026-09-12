@@ -36,6 +36,7 @@ func _process(_delta: float) -> bool:
 	_test_game_list(presenter)
 	_test_game_signals(presenter)
 	_test_import_pgn(presenter)
+	_test_stockfish_continuation(presenter)
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -321,3 +322,39 @@ func _test_import_pgn(presenter: CarnetPresenter) -> void:
 	_check(presenter.sync.get("total", 0) >= 1, "partie rattachée au profil")
 
 	_db.delete_game(str(result.get("game_id", "")))
+
+# ── Tests Stockfish & Traduction Pédagogique Débutant ────────────────────────────
+
+func _test_stockfish_continuation(presenter: CarnetPresenter) -> void:
+	# 1. Conversion SAN vers français officiel (D, C, F, T, R)
+	_check(ChessGame.san_to_french("Nf3") == "Cf3", "SAN: Nf3 -> Cf3")
+	_check(ChessGame.san_to_french("Qxb7#") == "Dxb7#", "SAN: Qxb7# -> Dxb7#")
+	_check(ChessGame.san_to_french("Bxf7+") == "Fxf7+", "SAN: Bxf7+ -> Fxf7+")
+	_check(ChessGame.san_to_french("Rad1") == "Tad1", "SAN: Rad1 -> Tad1")
+	_check(ChessGame.san_to_french("O-O") == "O-O", "SAN: O-O inchangé")
+	_check(ChessGame.san_to_french("e8=Q") == "e8=D", "SAN: promotion e8=Q -> e8=D")
+
+	# 2. Conversion UCI vers SAN français via Presenter
+	var start_fen := "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+	_check(CarnetPresenter.uci_to_san_fr(start_fen, "g1f3") == "Cf3", "Presenter: g1f3 -> Cf3")
+	_check(CarnetPresenter.uci_to_san_fr(start_fen, "e2e4") == "e4", "Presenter: e2e4 -> e4")
+
+	# 3. Récupération de la meilleure suite Stockfish sur un drill
+	var drill := {
+		"drill_id": "dr_test_pv",
+		"position": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+		"reponse_uci": "f1b5",
+		"piege_uci": "d2d4",
+		"pv": ["f1b5", "a7a6", "b5a4"],
+	}
+	var cont := presenter.get_drill_continuation(drill)
+	_check(not cont.is_empty(), "continuation non vide")
+	_check(cont.has("san_line") and cont["san_line"] != "", "san_line générée")
+	_check(cont.has("steps") and (cont["steps"] as Array).size() >= 1, "steps pédagogiques générés")
+
+	var steps: Array = cont.get("steps", [])
+	var step1: Dictionary = steps[0]
+	_check(str(step1.get("san_fr", "")) == "Fb5", "step 1 san_fr = Fb5")
+	_check(str(step1.get("action", "")) != "", "step 1 a un badge d'action")
+	_check(str(step1.get("desc", "")).find("Fou") != -1, "step 1 description en langage naturel explicite")
+

@@ -213,7 +213,7 @@ static func annotate_game(game_data: Dictionary, analysis: Dictionary, options: 
 			"win_before": _f(rec.get("win_before", MoveQualityService.win_for(prev_score, is_white))),
 			"win_after": _f(rec.get("win_after", MoveQualityService.win_for(int(rec.get("score_cp", prev_score)), is_white))),
 			"meilleur_coup_uci": best_before,
-			"pv": [],
+			"pv": rec.get("pv_line", rec.get("pv", [])) if (rec.get("pv_line", rec.get("pv", [])) is Array) else [],
 			"fen_avant": fen_before,
 			"fen_apres": fen_after,
 			"phase": phase,
