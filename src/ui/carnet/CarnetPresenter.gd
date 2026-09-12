@@ -539,14 +539,13 @@ static func drill_type_label(type: String) -> String:
 
 static func grade_label(note: int) -> String:
 	match note:
-		1: return "Raté"
-		3: return "Difficile"
-		4: return "Bien"
-		5: return "Facile"
+		1: return "1 · 🔁 À revoir"
+		3: return "3 · ⚠️ Difficile"
+		4: return "4 · 👍 Bien vu"
+		5: return "5 · ⚡ Évident"
 	return "?"
 
 ## Options QCM d'un drill : le bon coup et le piège (coup réellement joué), en SAN.
-## Permet une session v1 utilisable sans plateau ; le runner « board » viendra ensuite.
 func drill_options(drill: Dictionary) -> Array:
 	var fen := str(drill.get("position", ""))
 	var best := str(drill.get("reponse_uci", ""))
@@ -557,6 +556,123 @@ func drill_options(drill: Dictionary) -> Array:
 	if trap != "" and trap != best:
 		opts.append({"uci": trap, "san": uci_to_san(fen, trap), "correct": false})
 	return opts
+
+## Extrait les métadonnées de la partie réelle associée au drill pour l'afficher en contexte.
+func drill_game_context(drill: Dictionary) -> Dictionary:
+	var gid := str(drill.get("game_id", ""))
+	var fen := str(drill.get("position", ""))
+	var fen_parts := fen.split(" ")
+	var side_to_move := "white" if fen_parts.size() > 1 and fen_parts[1] == "w" else "black"
+
+	if gid == "":
+		return {
+			"opponent": "Partie d'entraînement",
+			"side": side_to_move,
+			"date": "",
+			"ply": -1,
+			"coup_num": 0,
+			"last_move_uci": "",
+			"last_move_san": "",
+			"time_class": "",
+			"white_name": "",
+			"black_name": "",
+		}
+
+	var db := _db()
+	var game: Dictionary = db.get_game(gid) if db != null else {}
+	var moves: Array = game.get("moves", []) if game.get("moves", []) is Array else []
+	var ply := int(drill.get("ply", -1))
+	var trap := str(drill.get("piege_uci", ""))
+
+	if ply < 0 and trap != "":
+		for i in range(moves.size()):
+			var mv = moves[i]
+			if mv is Dictionary and str(mv.get("uci", "")) == trap:
+				ply = i
+				break
+
+	var last_move_uci := ""
+	var last_move_san := ""
+	if ply > 0 and ply <= moves.size():
+		var prev_mv = moves[ply - 1]
+		if prev_mv is Dictionary:
+			last_move_uci = str(prev_mv.get("uci", ""))
+			last_move_san = str(prev_mv.get("san", ""))
+
+	var white := str(game.get("white_name", "Blancs"))
+	var black := str(game.get("black_name", "Noirs"))
+	var date_str := str(game.get("date", ""))
+	var opponent := black if side_to_move == "white" else white
+	var coup_num := (ply / 2 + 1) if ply >= 0 else 0
+
+	return {
+		"opponent": opponent,
+		"side": side_to_move,
+		"date": date_str,
+		"ply": ply,
+		"coup_num": coup_num,
+		"last_move_uci": last_move_uci,
+		"last_move_san": last_move_san,
+		"time_class": str(game.get("time_class", "")),
+		"white_name": white,
+		"black_name": black,
+	}
+
+## Intitulé lisible et clair du motif travaillé par le drill.
+static func drill_motif_label(drill: Dictionary) -> String:
+	var motif_str := str(drill.get("motif", ""))
+	var parts := motif_str.split("|")
+	var famille := parts[0] if parts.size() > 0 else str(drill.get("famille", ""))
+	var cle := parts[1] if parts.size() > 1 else ""
+	return CarnetLedger.libelle(famille, cle)
+
+## Résumé statistique pour le tableau de bord (série, parties, atomes, drills maîtrisés).
+func get_streak_info() -> Dictionary:
+	_ensure_profile()
+	var tr := CarnetStore.get_trainer_state(profile_id)
+	var atoms_count := CarnetStore.get_atoms(profile_id).size()
+	var games_count := CarnetStore.game_count(profile_id)
+	var drills: Array = tr.get("drills", []) if tr.get("drills", []) is Array else []
+	var mastered := 0
+	for d in drills:
+		if d is Dictionary and bool(d.get("maitrise", false)):
+			mastered += 1
+	return {
+		"serie": int(tr.get("serie", 0)),
+		"joker": int(tr.get("joker_disponible", CarnetConfig.JOKER_PAR_SEMAINE)),
+		"nb_parties": games_count,
+		"nb_atomes": atoms_count,
+		"nb_drills": drills.size(),
+		"maitrise": mastered,
+	}
+
+## Répartition des motifs programmés dans la séance active pour affichage sous forme de badges.
+func plan_motifs_summary() -> Array[Dictionary]:
+	var drills: Array = plan.get("drills", []) if plan.get("drills", []) is Array else []
+	var counts := {}
+	var motifs_info := {}
+	for d in drills:
+		if not (d is Dictionary):
+			continue
+		var m_key := str(d.get("motif", ""))
+		counts[m_key] = int(counts.get(m_key, 0)) + 1
+		if not motifs_info.has(m_key):
+			var parts := m_key.split("|")
+			var f := parts[0] if parts.size() > 0 else str(d.get("famille", ""))
+			var c := parts[1] if parts.size() > 1 else ""
+			motifs_info[m_key] = {
+				"label": CarnetLedger.libelle(f, c),
+				"polarite": str(d.get("polarite", "négatif")),
+			}
+	var out: Array[Dictionary] = []
+	for k in counts.keys():
+		var info: Dictionary = motifs_info.get(k, {})
+		out.append({
+			"label": info.get("label", k),
+			"count": counts[k],
+			"polarite": info.get("polarite", "négatif"),
+		})
+	return out
 
 ## Convertit un coup UCI en SAN lisible depuis la position (repli : UCI brut).
 static func uci_to_san(fen: String, uci: String) -> String:

@@ -100,6 +100,9 @@ static func _make_drill(atom: Dictionary, motif: Dictionary, origine: String, us
 		"pv": atom.get("pv", []) if atom.get("pv", []) is Array else [],
 		"difficulte": difficulte,
 		"game_id": str(atom.get("game_id", "")),
+		"ply": int(atom.get("ply", -1)),
+		"couleur": str(atom.get("couleur", "")),
+		"date_iso": str(atom.get("date_iso", "")),
 		"motif_score": float(motif.get("score", 0.0)),
 		"gravite": float(atom.get("perte_winpct", 0.0)) / CarnetConfig.S_MAX \
 				if str(atom.get("polarite", "")) == CarnetConfig.POLARITE_NEGATIVE else float(atom.get("merite", 0.0)),

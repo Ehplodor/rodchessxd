@@ -15,6 +15,7 @@ const CarnetProfileEditorModal = preload("res://src/ui/carnet/components/CarnetP
 const CarnetImportPgnModal = preload("res://src/ui/carnet/components/CarnetImportPgnModal.gd")
 const CarnetGameListItem = preload("res://src/ui/carnet/components/CarnetGameListItem.gd")
 const ChessComBulkImportModal = preload("res://src/ui/carnet/components/ChessComBulkImportModal.gd")
+const CarnetBoardWidget = preload("res://src/ui/carnet/components/CarnetBoardWidget.gd")
 
 const _TAB_CARNET := "carnet"
 const _TAB_ANALYSE := "analyse"
@@ -275,28 +276,163 @@ func _build_summary() -> void:
 # ── Onglet 📓 Carnet ─────────────────────────────────────────────────────────────
 
 func _build_carnet_tab() -> void:
-	_content.add_child(_section_title("Aujourd'hui"))
+	var streak := presenter.get_streak_info()
+
+	# 1. Bandeau de synthèse du carnet
+	var stats_panel := PanelContainer.new()
+	stats_panel.add_theme_stylebox_override("panel", DesignTokens.card())
+	var stats_box := VBoxContainer.new()
+	stats_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	stats_panel.add_child(stats_box)
+
+	var stats_lbl := Label.new()
+	stats_lbl.text = "📊 %d parties · %d moments clés · %d drills" % [
+			streak.nb_parties, streak.nb_atomes, streak.nb_drills]
+	stats_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	stats_box.add_child(stats_lbl)
+
+	var streak_lbl := Label.new()
+	var serie_val: int = streak.serie
+	var joker_val: int = streak.joker
+	streak_lbl.text = "🔥 Série : %d jour%s consécutif%s · %d joker%s" % [
+			serie_val, "s" if serie_val > 1 else "", "s" if serie_val > 1 else "",
+			joker_val, "s" if joker_val > 1 else ""]
+	streak_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	streak_lbl.add_theme_color_override("font_color", DesignTokens.WARNING if serie_val > 0 else DesignTokens.TEXT_MUTED)
+	stats_box.add_child(streak_lbl)
+	_content.add_child(stats_panel)
+
+	# 2. Programme du jour (LePlan)
+	_content.add_child(_section_title("🎯 Séance quotidienne"))
+	var plan_panel := PanelContainer.new()
+	plan_panel.add_theme_stylebox_override("panel", DesignTokens.card())
+	var plan_box := VBoxContainer.new()
+	plan_box.add_theme_constant_override("separation", DesignTokens.SPACE_S)
+	plan_panel.add_child(plan_box)
+
 	var objective := Label.new()
 	objective.text = presenter.plan_objective()
 	objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	objective.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	_content.add_child(objective)
+	plan_box.add_child(objective)
+
+	# Badges des thèmes au programme
+	var motifs_summary := presenter.plan_motifs_summary()
+	if not motifs_summary.is_empty():
+		var badges_flow := HBoxContainer.new()
+		badges_flow.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+		for m in motifs_summary:
+			var badge := PanelContainer.new()
+			var b_style := StyleBoxFlat.new()
+			var is_force := str(m.get("polarite", "")) == "positif"
+			var col := DesignTokens.SUCCESS if is_force else DesignTokens.WARNING
+			b_style.bg_color = Color(col.r, col.g, col.b, 0.20)
+			b_style.border_color = col
+			b_style.set_border_width_all(1)
+			b_style.corner_radius_top_left = 6
+			b_style.corner_radius_top_right = 6
+			b_style.corner_radius_bottom_left = 6
+			b_style.corner_radius_bottom_right = 6
+			b_style.content_margin_left = 6
+			b_style.content_margin_right = 6
+			b_style.content_margin_top = 2
+			b_style.content_margin_bottom = 2
+			badge.add_theme_stylebox_override("panel", b_style)
+
+			var b_lbl := Label.new()
+			var prefix := "✨ " if is_force else "🎯 "
+			b_lbl.text = "%s%dx %s" % [prefix, m.get("count", 1), m.get("label", "")]
+			b_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+			b_lbl.add_theme_color_override("font_color", col)
+			badge.add_child(b_lbl)
+			badges_flow.add_child(badge)
+		plan_box.add_child(badges_flow)
 
 	var drills: Array = presenter.plan.get("drills", [])
 	var start := Button.new()
-	start.text = "Commencer la séance (%d)" % drills.size()
-	start.disabled = drills.is_empty()
+	if drills.is_empty():
+		start.text = "Aucun exercice pour aujourd'hui"
+		start.disabled = true
+	else:
+		start.text = "▶ Commencer la séance (%d exercices · ~3 min)" % drills.size()
+		start.disabled = false
 	start.clip_text = true
 	start.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	DesignTokens.style_button(start, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+	start.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	start.pressed.connect(func(): _start_session())
-	_content.add_child(start)
+	plan_box.add_child(start)
+	_content.add_child(plan_panel)
 
-	var progress := Label.new()
-	progress.text = "Indice de progression : %d / 100" % int(presenter.ledger.get("profil", {}).get("indice_progression", 0))
-	progress.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	progress.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	_content.add_child(progress)
+	# 3. Progression & Maîtrise
+	_content.add_child(_section_title("📈 Progression du carnet"))
+	var prog_panel := PanelContainer.new()
+	prog_panel.add_theme_stylebox_override("panel", DesignTokens.card())
+	var prog_box := VBoxContainer.new()
+	prog_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	prog_panel.add_child(prog_box)
+
+	var prog_score: int = int(presenter.ledger.get("profil", {}).get("indice_progression", 0))
+	var level_name := "Niveau 1 · Découverte"
+	if prog_score >= 80:
+		level_name = "Niveau 4 · Maîtrise avancée"
+	elif prog_score >= 50:
+		level_name = "Niveau 3 · Joueur confirmé"
+	elif prog_score >= 25:
+		level_name = "Niveau 2 · En progression"
+
+	var prog_lbl := Label.new()
+	prog_lbl.text = "Score d'apprentissage : %d / 100 (%s)" % [prog_score, level_name]
+	prog_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	prog_box.add_child(prog_lbl)
+
+	var prog_bar := ProgressBar.new()
+	prog_bar.max_value = 100.0
+	prog_bar.value = float(prog_score)
+	prog_bar.show_percentage = false
+	prog_bar.custom_minimum_size.y = 8
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = DesignTokens.ACCENT
+	fill.corner_radius_top_left = 4
+	fill.corner_radius_top_right = 4
+	fill.corner_radius_bottom_left = 4
+	fill.corner_radius_bottom_right = 4
+	prog_bar.add_theme_stylebox_override("fill", fill)
+	prog_box.add_child(prog_bar)
+
+	var mastery_lbl := Label.new()
+	mastery_lbl.text = "⭐ %d exercice(s) maîtrisé(s) en répétition espacée" % streak.maitrise
+	mastery_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	mastery_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	prog_box.add_child(mastery_lbl)
+	_content.add_child(prog_panel)
+
+	# 4. Conseil de jeu basé sur la faiblesse n°1
+	var faiblesses: Array = presenter.ledger.get("faiblesses", [])
+	if not faiblesses.is_empty() and faiblesses[0] is Dictionary:
+		var top_w: Dictionary = faiblesses[0]
+		var f_card := PanelContainer.new()
+		f_card.add_theme_stylebox_override("panel", DesignTokens.card())
+		var f_box := VBoxContainer.new()
+		f_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+		f_card.add_child(f_box)
+
+		var f_head := Label.new()
+		f_head.text = "💡 Conseil pour vos parties"
+		f_head.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+		f_head.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		f_box.add_child(f_head)
+
+		var f_txt := Label.new()
+		f_txt.text = "Point d'attention prioritaire : %s." % top_w.get("libelle", "")
+		var f_desc := CarnetLedger.motif_description(str(top_w.get("famille", "")), str(top_w.get("cle", "")))
+		if f_desc != "":
+			f_txt.text += " %s" % f_desc
+		f_txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		f_txt.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		f_txt.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+		f_box.add_child(f_txt)
+		_content.add_child(f_card)
 
 func _start_session() -> void:
 	presenter.start_plan_session()
@@ -306,19 +442,91 @@ func _build_session() -> void:
 	var drill := presenter.current_drill()
 	var total := presenter.session_size()
 	var index := presenter.session_index()
+	var result: Dictionary = presenter.session.get("last_result", {})
+	var ctx := presenter.drill_game_context(drill)
+
+	# 1. En-tête : Progression et Trait
+	var top_row := HBoxContainer.new()
+	top_row.add_theme_constant_override("separation", DesignTokens.SPACE_S)
+	_content.add_child(top_row)
+
 	var progress := Label.new()
 	progress.text = "Drill %d / %d" % [index + 1, total]
-	progress.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	progress.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	_content.add_child(progress)
+	progress.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	progress.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.add_child(progress)
 
+	var trait_pill := PanelContainer.new()
+	var trait_is_white: bool = str(ctx.get("side", "white")) == "white"
+	var trait_style := StyleBoxFlat.new()
+	trait_style.bg_color = DesignTokens.SURFACE_ELEVATED
+	trait_style.corner_radius_top_left = 12
+	trait_style.corner_radius_top_right = 12
+	trait_style.corner_radius_bottom_left = 12
+	trait_style.corner_radius_bottom_right = 12
+	trait_style.content_margin_left = 8
+	trait_style.content_margin_right = 8
+	trait_style.content_margin_top = 4
+	trait_style.content_margin_bottom = 4
+	trait_pill.add_theme_stylebox_override("panel", trait_style)
+	var trait_lbl := Label.new()
+	trait_lbl.text = "⚪ Trait aux Blancs" if trait_is_white else "⚫ Trait aux Noirs"
+	trait_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	trait_pill.add_child(trait_lbl)
+	top_row.add_child(trait_pill)
+
+	# 2. Contexte de la partie
+	var context_card := PanelContainer.new()
+	context_card.add_theme_stylebox_override("panel", DesignTokens.card())
+	var context_box := VBoxContainer.new()
+	context_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	context_card.add_child(context_box)
+
+	var origin_lbl := Label.new()
+	var opp_str: String = str(ctx.get("opponent", ""))
+	var coup_num: int = int(ctx.get("coup_num", 0))
+	if opp_str != "":
+		origin_lbl.text = "⚔ Partie vs %s · Coup %d" % [opp_str, coup_num]
+	else:
+		origin_lbl.text = "⚔ Position d'entraînement"
+	origin_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	context_box.add_child(origin_lbl)
+
+	var theme_lbl := Label.new()
+	var motif_name := presenter.drill_motif_label(drill)
+	theme_lbl.text = "Thème : %s" % motif_name
+	theme_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	theme_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	context_box.add_child(theme_lbl)
+
+	var last_mv_str: String = str(ctx.get("last_move_san", ""))
+	if last_mv_str != "":
+		var last_lbl := Label.new()
+		last_lbl.text = "Dernier coup joué : %s" % last_mv_str
+		last_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		last_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+		context_box.add_child(last_lbl)
+
+	_content.add_child(context_card)
+
+	# 3. Échiquier 2D autonome
+	var board_widget := CarnetBoardWidget.new()
+	board_widget.load_position(str(drill.get("position", "")), str(ctx.get("side", "")) == "black", str(ctx.get("last_move_uci", "")))
+	if not result.is_empty():
+		var exp_uci := str(result.get("expected", ""))
+		var played_uci := str(result.get("played", "")) if not bool(result.get("correct", false)) else ""
+		board_widget.show_solution(exp_uci, played_uci)
+	else:
+		board_widget.move_attempted.connect(func(uci): choose(uci))
+	_content.add_child(board_widget)
+
+	# 4. Question & Options
 	var type_label := Label.new()
 	type_label.text = CarnetPresenter.drill_type_label(str(drill.get("type", "")))
-	type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	type_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	type_label.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	_content.add_child(type_label)
 
-	var result: Dictionary = presenter.session.get("last_result", {})
 	var options := presenter.drill_options(drill)
 	if options.size() < 2:
 		var reveal := Button.new()
@@ -329,27 +537,63 @@ func _build_session() -> void:
 		DesignTokens.style_button(reveal, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
 		reveal.pressed.connect(_reveal)
 		_content.add_child(reveal)
-	for option in options:
-		var btn := Button.new()
-		btn.text = str(option.get("san", option.get("uci", "")))
-		btn.clip_text = true
-		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		DesignTokens.style_button(btn, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
-		btn.disabled = not result.is_empty()
-		btn.pressed.connect(func(): choose(str(option.get("uci", ""))))
-		_content.add_child(btn)
+	else:
+		var btn_row := HBoxContainer.new()
+		btn_row.add_theme_constant_override("separation", DesignTokens.SPACE_S)
+		_content.add_child(btn_row)
+		for option in options:
+			var btn := Button.new()
+			btn.text = str(option.get("san", option.get("uci", "")))
+			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			btn.clip_text = true
+			btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			DesignTokens.style_button(btn, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+			btn.disabled = not result.is_empty()
+			btn.pressed.connect(func(): choose(str(option.get("uci", ""))))
+			btn_row.add_child(btn)
 
+	# 5. Feedback post-réponse
 	if not result.is_empty():
-		var feedback := Label.new()
-		if bool(result.get("correct", false)):
-			feedback.text = "✅ Bien vu !"
-			feedback.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+		var feedback_card := PanelContainer.new()
+		var fb_box := VBoxContainer.new()
+		fb_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+		feedback_card.add_child(fb_box)
+
+		var fb_style := StyleBoxFlat.new()
+		var is_ok: bool = bool(result.get("correct", false))
+		fb_style.bg_color = Color(DesignTokens.SUCCESS.r, DesignTokens.SUCCESS.g, DesignTokens.SUCCESS.b, 0.15) if is_ok else Color(DesignTokens.DANGER.r, DesignTokens.DANGER.g, DesignTokens.DANGER.b, 0.15)
+		fb_style.border_color = DesignTokens.SUCCESS if is_ok else DesignTokens.DANGER
+		fb_style.set_border_width_all(1)
+		fb_style.corner_radius_top_left = 8
+		fb_style.corner_radius_top_right = 8
+		fb_style.corner_radius_bottom_left = 8
+		fb_style.corner_radius_bottom_right = 8
+		fb_style.content_margin_left = 10
+		fb_style.content_margin_right = 10
+		fb_style.content_margin_top = 8
+		fb_style.content_margin_bottom = 8
+		feedback_card.add_theme_stylebox_override("panel", fb_style)
+
+		var fb_title := Label.new()
+		fb_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		fb_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+		if is_ok:
+			fb_title.text = "✅ Bien vu ! Coup optimal trouvé."
+			fb_title.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 		else:
-			feedback.text = "❌ Le meilleur coup était %s." % CarnetPresenter.uci_to_san(
-					str(drill.get("position", "")), str(result.get("expected", "")))
-			feedback.add_theme_color_override("font_color", DesignTokens.DANGER)
-		feedback.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_content.add_child(feedback)
+			var played_san := CarnetPresenter.uci_to_san(str(drill.get("position", "")), str(result.get("played", "")))
+			var exp_san := CarnetPresenter.uci_to_san(str(drill.get("position", "")), str(result.get("expected", "")))
+			fb_title.text = "❌ Dans votre partie, vous aviez joué %s. Le meilleur coup était %s." % [played_san, exp_san]
+			fb_title.add_theme_color_override("font_color", DesignTokens.DANGER)
+		fb_box.add_child(fb_title)
+
+		var fb_hint := Label.new()
+		fb_hint.text = "Évaluez votre aisance pour calibrer la prochaine répétition :"
+		fb_hint.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		fb_hint.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		fb_box.add_child(fb_hint)
+
+		_content.add_child(feedback_card)
 		_content.add_child(_grade_row())
 
 func _grade_row() -> HBoxContainer:
@@ -399,8 +643,43 @@ static func _radar_dimensions(competences: Array, max_dim: int = 6) -> Array:
 	var dims: Array = []
 	for c in competences:
 		if c is Dictionary and int(c.get("n", 0)) >= 2 and dims.size() < max_dim:
-			dims.append({"label": "%s : %s" % [c.get("dimension", ""), c.get("cle", "")], "skill": c.get("skill", 0.0)})
+			var dim_str := str(c.get("dimension", ""))
+			var cle_str := str(c.get("cle", ""))
+			var lbl := _clean_dimension_label(dim_str, cle_str)
+			dims.append({"label": lbl, "skill": c.get("skill", 0.0)})
 	return dims
+
+static func _clean_dimension_label(dim: String, cle: String) -> String:
+	match dim:
+		"phase":
+			match cle:
+				"opening": return "Ouvertures"
+				"endgame": return "Finales"
+				_: return "Milieu de jeu"
+		"regime":
+			match cle:
+				"en_avance": return "Conversion"
+				"en_retard": return "Défense"
+				_: return "Position égale"
+		"schema":
+			match cle:
+				"gain_tactique_manqué", "capture_ratée": return "Tactique"
+				"piece_en_prise": return "Protection"
+				"dame_sortie_tôt": return "Développement"
+				"sécurité_roi", "roi_non_roqué": return "Sécurité Roi"
+				"structure_pions": return "Structure Pions"
+				"pression_temps": return "Gestion temps"
+				_: return cle.replace("_", " ").capitalize()
+		"type_finale":
+			match cle:
+				"tours": return "Finales Tours"
+				"dames": return "Finales Dames"
+				"mineures": return "Finales Mineures"
+				"pions": return "Finales Pions"
+				_: return "Finales"
+		"ouverture":
+			return "Ouverture %s" % cle
+	return cle.replace("_", " ").capitalize()
 
 # ── Onglet ⟳ Sync ────────────────────────────────────────────────────────────────
 
@@ -483,7 +762,7 @@ func _build_sync_tab() -> void:
 	filter_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	filter_scroll.add_child(filter_row)
 
-	var filters := [["all", "Toutes"], ["pending", "À traiter"], ["stale", "À jour"], ["up_to_date", "Périmées"]]
+	var filters := [["all", "Toutes"], ["pending", "À traiter"], ["up_to_date", "À jour"], ["stale", "Périmées"]]
 	for f in filters:
 		var btn := Button.new()
 		btn.text = f[1]

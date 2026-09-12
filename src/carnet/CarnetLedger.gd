@@ -435,30 +435,102 @@ static func _age_days(date_iso: String, today_iso: String) -> float:
 
 static func libelle(famille: String, cle: String) -> String:
 	match famille:
+		"qualite":
+			match cle:
+				"occasion_manquée": return "Occasion tactique manquée"
+				"gaffe": return "Gaffe majeure"
+				"erreur": return "Erreur tactique"
+				"imprécision": return "Imprécision positionnelle"
+				_: return "Faute : %s" % cle.replace("_", " ").capitalize()
+		"regime":
+			match cle:
+				"en_avance": return "Conversion d'avantage (fautes avec l'avantage)"
+				"en_retard": return "Défense sous pression (fautes en retard)"
+				"équilibré": return "Jeu en position égale"
+				_: return "Situation : %s" % cle.replace("_", " ")
+		"schema":
+			match cle:
+				"capture_ratée": return "Capture favorable omise"
+				"échec_manqué": return "Échec décisif manqué"
+				"gain_tactique_manqué": return "Gain matériel manqué"
+				"piece_en_prise": return "Pièce laissée en prise"
+				"dame_sortie_tôt": return "Sortie précoce de la Dame"
+				"structure_pions": return "Affaiblissement des pions"
+				"sécurité_roi": return "Sécurité du Roi fragilisée"
+				"roi_non_roqué": return "Retard de roque"
+				"pression_temps": return "Fautes en manque de temps"
+				_: return "Thème : %s" % cle.replace("_", " ").capitalize()
 		"phase": return "Phase : %s" % _phase_fr(cle)
-		"regime": return "Régime : %s" % cle.replace("_", " ")
 		"piece": return "Pièce : %s" % _piece_fr(cle)
 		"ouverture": return "Ouverture : %s" % cle
-		"type_finale": return "Finale : %s" % cle
-		"schema": return "Schéma : %s" % cle.replace("_", " ")
-		"tranche": return "Coups : %s" % cle
-		"qualite": return "Faute : %s" % cle
-		"categorie": return "Force : %s" % cle
-		"temps": return "Temps : pression"
+		"type_finale": return _finale_fr(cle)
+		"tranche": return "Coups %s" % cle
+		"categorie":
+			match cle:
+				"brillant": return "Coup brillant"
+				"trouvaille": return "Trouvaille tactique"
+				"précis": return "Coup précis"
+				"bon": return "Bon coup"
+				"surprise": return "Coup inattendu"
+				"mystere": return "Coup mystérieux"
+				"surprise_mystere": return "Surprise & mystère"
+				_: return "Force : %s" % cle.replace("_", " ").capitalize()
+		"temps": return "Gestion du temps (zeitnot)"
 	return "%s / %s" % [famille, cle]
+
+## Description pédagogique courte en 1 phrase pour expliquer le motif au joueur.
+static func motif_description(famille: String, cle: String) -> String:
+	match famille:
+		"qualite":
+			match cle:
+				"occasion_manquée": return "Une opportunité tactique ou un avantage net n'a pas été concrétisé."
+				"gaffe": return "Coup sévère coûtant du matériel ou dégradant nettement la position."
+				"erreur": return "Coup imprécis cédant l'initiative ou détériorant la position."
+				"imprécision": return "Coup sous-optimal sans conséquence matérielle immédiate."
+		"regime":
+			match cle:
+				"en_avance": return "Erreurs commises alors que la position était nettement à votre avantage."
+				"en_retard": return "Difficultés à maintenir la résistance et défendre sous pression."
+				"équilibré": return "Fautes survenues dans une position égale et stable."
+		"schema":
+			match cle:
+				"capture_ratée": return "Une prise de pièce profitable et nette a été manquée."
+				"échec_manqué": return "Un échec au roi forçant un gain ou une attaque n'a pas été joué."
+				"gain_tactique_manqué": return "Une séquence tactique gagnant du matériel n'a pas été trouvée."
+				"piece_en_prise": return "Une pièce est restée sans défense et capturable par l'adversaire."
+				"dame_sortie_tôt": return "La dame a été sortie trop tôt, devenant une cible facile."
+				"structure_pions": return "Pions doublés, isolés ou arriérés créés inutilement."
+				"sécurité_roi": return "Le roi a été dénudé ou privé de son bouclier défensif."
+				"roi_non_roqué": return "Le retard du roque a exposé le roi aux attaques centrales."
+				"pression_temps": return "Coup précipité en fin de pendule (moins de 10 % du temps)."
+		"phase":
+			match cle:
+				"opening": return "Fautes lors du développement et de la mise en place de la partie."
+				"endgame": return "Erreurs de calcul ou d'activation dans la phase finale."
+				_: return "Imprécisions tactiques ou stratégiques en plein milieu de jeu."
+	return ""
 
 static func _phase_fr(phase: String) -> String:
 	match phase:
-		"opening": return "ouverture"
-		"endgame": return "finale"
-		_: return "milieu de jeu"
+		"opening": return "Ouverture"
+		"endgame": return "Finale"
+		_: return "Milieu de jeu"
+
+static func _finale_fr(cle: String) -> String:
+	match cle:
+		"tours": return "Finales de tours"
+		"dames": return "Finales de dames"
+		"mineures": return "Finales de pièces mineures"
+		"pions": return "Finales de pions"
+		"mixte": return "Finales mixtes"
+		_: return "Finale : %s" % cle
 
 static func _piece_fr(letter: String) -> String:
 	match letter:
 		"P": return "pion"
-		"C": return "cavalier"
-		"F": return "fou"
+		"C", "N": return "cavalier"
+		"F", "B": return "fou"
 		"T": return "tour"
-		"D": return "dame"
-		"R": return "roi"
+		"D", "Q": return "dame"
+		"R", "K": return "roi"
 	return letter

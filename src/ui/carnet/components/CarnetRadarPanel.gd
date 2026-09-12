@@ -8,7 +8,7 @@ const MIN_RADAR_WIDTH := 360.0
 var _points: Array = []
 
 func _init() -> void:
-	custom_minimum_size = Vector2(0, 220)
+	custom_minimum_size = Vector2(0, 260)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 ## `dimensions` : Array de { label, skill, confiance }.
@@ -35,25 +35,83 @@ func _draw() -> void:
 	if _points.size() < 3 or size.x < MIN_RADAR_WIDTH:
 		_draw_bars()
 		return
+
+	var font := ThemeDB.fallback_font
+	var font_sz := int(DesignTokens.FONT_CAPTION)
 	var center := Vector2(size.x * 0.5, size.y * 0.5)
-	var radius := minf(size.x, size.y) * 0.38
+	# Rayon modéré pour laisser 65px de marge pour les textes de chaque côté
+	var radius := minf(size.x * 0.5 - 65.0, size.y * 0.5 - 28.0)
+	if radius < 40.0:
+		radius = 40.0
 	var n := _points.size()
-	# Toile de fond (axes + anneaux).
+
+	# 1. Anneaux concentriques polygonaux (25 %, 50 %, 75 %, 100 %)
+	var grid_col := Color(DesignTokens.BORDER.r, DesignTokens.BORDER.g, DesignTokens.BORDER.b, 0.55)
+	for lvl in [0.25, 0.50, 0.75, 1.0]:
+		var r_lvl: float = radius * lvl
+		var ring_pts := PackedVector2Array()
+		for i in range(n):
+			var angle := -PI / 2.0 + TAU * float(i) / float(n)
+			ring_pts.append(center + Vector2(cos(angle), sin(angle)) * r_lvl)
+		for i in range(n):
+			draw_line(ring_pts[i], ring_pts[(i + 1) % n], grid_col, 1.0)
+
+	# Repères chiffrés sur l'axe vertical haut
+	if font != null:
+		for lvl in [0.50, 1.0]:
+			var y_pt: float = center.y - radius * float(lvl)
+			draw_string(font, Vector2(center.x + 3.0, y_pt + 4.0), "%d" % int(lvl * 100),
+					HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(8, font_sz - 2), DesignTokens.TEXT_MUTED)
+
+	# 2. Axes radiaux
 	for i in range(n):
 		var angle := -PI / 2.0 + TAU * float(i) / float(n)
-		draw_line(center, center + Vector2(cos(angle), sin(angle)) * radius,
-				DesignTokens.BORDER, 1.0)
+		var dir := Vector2(cos(angle), sin(angle))
+		draw_line(center, center + dir * radius, grid_col, 1.0)
+
+	# 3. Surface de compétence du joueur
 	var poly := radar_points(_points, center, radius)
 	var fill := PackedVector2Array(poly)
 	if fill.size() >= 3:
-		draw_colored_polygon(fill, Color(DesignTokens.ACCENT, 0.25))
+		draw_colored_polygon(fill, Color(DesignTokens.ACCENT.r, DesignTokens.ACCENT.g, DesignTokens.ACCENT.b, 0.28))
 		for i in range(poly.size()):
-			draw_line(poly[i], poly[(i + 1) % poly.size()], DesignTokens.ACCENT, 2.0)
+			draw_line(poly[i], poly[(i + 1) % poly.size()], DesignTokens.ACCENT, 2.5)
+			draw_circle(poly[i], 3.5, DesignTokens.ACCENT)
+			draw_circle(poly[i], 1.8, Color.WHITE)
+
+	# 4. Libellés des compétences autour du périmètre
+	if font != null:
+		for i in range(n):
+			var angle := -PI / 2.0 + TAU * float(i) / float(n)
+			var dir := Vector2(cos(angle), sin(angle))
+			var label_pos := center + dir * (radius + 14.0)
+
+			var dim = _points[i]
+			var label_text := str(dim.get("label", ""))
+			var skill_val := int(dim.get("skill", 0))
+			var full_text := "%s (%d)" % [label_text, skill_val]
+
+			var text_w := font.get_string_size(full_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_sz).x
+			var draw_pos := label_pos
+
+			if dir.x > 0.25:
+				draw_pos.y += font_sz * 0.35
+			elif dir.x < -0.25:
+				draw_pos.x -= text_w
+				draw_pos.y += font_sz * 0.35
+			else:
+				draw_pos.x -= text_w * 0.5
+				if dir.y < 0:
+					draw_pos.y -= 2.0
+				else:
+					draw_pos.y += font_sz
+
+			draw_string(font, draw_pos, full_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_sz, DesignTokens.TEXT_SECONDARY)
 
 func _draw_bars() -> void:
 	var font := ThemeDB.fallback_font
 	var y := 4.0
-	var row_h := 26.0
+	var row_h := 30.0
 	for dim in _points:
 		var label := str(dim.get("label", ""))
 		var skill := clampf(float(dim.get("skill", 0.0)), 0.0, 100.0)
@@ -61,6 +119,7 @@ func _draw_bars() -> void:
 		draw_rect(Rect2(2, y, w, 12.0), DesignTokens.SURFACE_ELEVATED, true)
 		draw_rect(Rect2(2, y, w * skill / 100.0, 12.0), DesignTokens.ACCENT, true)
 		if font != null:
-			draw_string(font, Vector2(4, y + 24.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			var txt := "%s : %d / 100" % [label, int(skill)]
+			draw_string(font, Vector2(4, y + 25.0), txt, HORIZONTAL_ALIGNMENT_LEFT, -1,
 					int(DesignTokens.FONT_CAPTION), DesignTokens.TEXT_MUTED)
 		y += row_h
