@@ -579,13 +579,13 @@ func _on_profile_context_menu_action(id: int) -> void:
 
 func _on_edit_profile(profile_id: String) -> void:
 	var modal = CarnetProfileEditorModal.new()
+	add_child(modal)
 	modal.open_edit(presenter, profile_id)
 	modal.profile_saved.connect(func(pid, is_new):
 		presenter.refresh_profiles()
 		presenter.refresh_sync()
 		modal.queue_free()
 	)
-	add_child(modal)
 
 func _on_manage_keys(profile_id: String) -> void:
 	_on_edit_profile(profile_id)

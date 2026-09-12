@@ -243,7 +243,7 @@ func _on_rename() -> void:
 func _on_delete() -> void:
 	var dialog = ConfirmationDialog.new()
 	dialog.title = "Supprimer le profil"
-	dialog.text = "Supprimer ce profil et toutes ses données ? Cette action est irréversible."
+	dialog.dialog_text = "Supprimer ce profil et toutes ses données ? Cette action est irréversible."
 	dialog.ok_button_text = "Supprimer"
 	dialog.add_theme_color_override("font_color", DesignTokens.DANGER)
 	dialog.confirmed.connect(func():
