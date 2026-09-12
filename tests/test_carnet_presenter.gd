@@ -5,6 +5,7 @@ extends SceneTree
 const CarnetPresenter = preload("res://src/ui/carnet/CarnetPresenter.gd")
 const CarnetProfiles = preload("res://src/carnet/CarnetProfiles.gd")
 const CarnetStore = preload("res://src/carnet/CarnetStore.gd")
+const CarnetProfileEditorModal = preload("res://src/ui/carnet/components/CarnetProfileEditorModal.gd")
 
 var _failures := 0
 var _db: Node = null
@@ -37,6 +38,7 @@ func _process(_delta: float) -> bool:
 	_test_game_signals(presenter)
 	_test_import_pgn(presenter)
 	_test_stockfish_continuation(presenter)
+	_test_default_profile_keys(presenter)
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -357,4 +359,49 @@ func _test_stockfish_continuation(presenter: CarnetPresenter) -> void:
 	_check(str(step1.get("san_fr", "")) == "Fb5", "step 1 san_fr = Fb5")
 	_check(str(step1.get("action", "")) != "", "step 1 a un badge d'action")
 	_check(str(step1.get("desc", "")).find("Fou") != -1, "step 1 description en langage naturel explicite")
+
+func _test_default_profile_keys(presenter: CarnetPresenter) -> void:
+	# S'assurer que le profil actif est le profil par défaut 'Moi'
+	presenter.select_profile(CarnetProfiles.DEFAULT_PROFILE_ID)
+	_check(presenter.profile_id == CarnetProfiles.DEFAULT_PROFILE_ID, "profil par défaut 'Moi' sélectionné")
+	_check(presenter.active_profile_name() == "Moi", "nom profil par défaut = 'Moi'")
+
+	# 1. Test ajout direct de clé via presenter.add_player_key
+	presenter.add_player_key("rodchess_test")
+	var p_def := CarnetProfiles.get_profile(CarnetProfiles.DEFAULT_PROFILE_ID)
+	_check((p_def.get("player_keys", []) as Array).has("rodchess_test"), "clé rodchess_test ajoutée sur 'Moi' via presenter")
+
+	# 2. Test update_profile sur le profil par défaut
+	presenter.update_profile(CarnetProfiles.DEFAULT_PROFILE_ID, "Moi", ["rodchess_test", "mon_autre_pseudo"])
+	p_def = CarnetProfiles.get_profile(CarnetProfiles.DEFAULT_PROFILE_ID)
+	var keys: Array = p_def.get("player_keys", [])
+	_check(keys.has("rodchess_test") and keys.has("mon_autre_pseudo"), "update_profile persiste les clés sur 'Moi'")
+
+	# 3. Test de la modale CarnetProfileEditorModal sur 'Moi'
+	var modal := CarnetProfileEditorModal.new()
+	root.add_child(modal)
+	modal.open_edit(presenter, CarnetProfiles.DEFAULT_PROFILE_ID)
+	_check(modal._mode == "edit", "modale ouverte en mode edit")
+	_check(modal._profile_id == CarnetProfiles.DEFAULT_PROFILE_ID, "modale configurée sur 'default'")
+	_check(modal._keys.has("rodchess_test"), "modale a chargé les clés existantes")
+
+	# Ajout d'une clé via le champ texte inline
+	modal._new_key_input.text = "super_joueur_moi"
+	modal._on_add_key_from_input()
+	_check(modal._keys.has("super_joueur_moi"), "clé ajoutée via l'input inline dans la modale")
+	_check(modal._new_key_input.text == "", "champ input réinitialisé après ajout")
+
+	# Sauvegarde via _on_save
+	var saved := {"fired": false}
+	modal.profile_saved.connect(func(pid, _is_new):
+		saved["fired"] = true
+		_check(pid == CarnetProfiles.DEFAULT_PROFILE_ID, "signal profile_saved émis pour 'default'")
+	)
+	modal._on_save()
+	_check(saved["fired"], "sauvegarde exécutée avec succès")
+
+	p_def = CarnetProfiles.get_profile(CarnetProfiles.DEFAULT_PROFILE_ID)
+	keys = p_def.get("player_keys", [])
+	_check(keys.has("super_joueur_moi"), "la nouvelle clé 'super_joueur_moi' est bien persistée sur le carnet 'Moi'")
+
 

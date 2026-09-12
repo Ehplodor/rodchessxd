@@ -30,6 +30,8 @@ func _gui_input(event: InputEvent) -> void:
 			context_menu_requested.emit(profile_id, get_global_mouse_position())
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
+				if event.double_click:
+					context_menu_requested.emit(profile_id, get_global_mouse_position())
 				_is_long_pressing = true
 				_long_press_timer.start()
 			else:

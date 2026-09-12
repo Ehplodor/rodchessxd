@@ -70,11 +70,37 @@ func delete_profile(id: String) -> void:
 		profiles = CarnetProfiles.list()
 		profiles_changed.emit()
 
-func add_player_key(key: String) -> void:
-	if profile_id == "":
+func add_player_key(key: String, target_profile_id: String = "") -> void:
+	var pid := target_profile_id if target_profile_id != "" else profile_id
+	if pid == "":
 		return
-	CarnetProfiles.add_player_key(profile_id, key)
+	CarnetProfiles.add_player_key(pid, key)
+	profile_updated.emit(pid)
 	refresh_profiles()
+	refresh_sync()
+
+func update_profile(target_profile_id: String, new_name: String, new_keys: Array) -> void:
+	var pid := target_profile_id if target_profile_id != "" else profile_id
+	if pid == "":
+		return
+	var clean_name := new_name.strip_edges()
+	if clean_name == "":
+		clean_name = "Profil"
+	var clean_keys: Array = []
+	for k in new_keys:
+		var norm := DatabaseManagerClass.normalize_player_key(str(k))
+		if norm != "" and not clean_keys.has(norm):
+			clean_keys.append(norm)
+	CarnetProfiles.update(pid, {
+		"name": clean_name,
+		"player_keys": clean_keys
+	})
+	profile_updated.emit(pid)
+	refresh_profiles()
+	refresh_sync()
+	refresh_carnet()
+	refresh_plan()
+	game_list_changed.emit()
 
 func rename_profile(profile_id: String, new_name: String) -> void:
 	if new_name.strip_edges() == "":
@@ -93,6 +119,8 @@ func remove_player_key(profile_id: String, key: String) -> void:
 	profile_updated.emit(profile_id)
 	refresh_profiles()
 	refresh_sync()
+	refresh_carnet()
+	refresh_plan()
 
 func get_profile_games(profile_id: String) -> Array:
 	_ensure_profile()

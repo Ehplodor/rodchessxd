@@ -85,6 +85,17 @@ func _build_shell() -> void:
 	_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	row1.add_child(_title)
 
+	var btn_edit := Button.new()
+	btn_edit.text = "⚙"
+	btn_edit.tooltip_text = "Modifier le carnet actif et ses clés joueur"
+	btn_edit.custom_minimum_size = Vector2(float(DesignTokens.TOUCH_MIN), float(DesignTokens.TOUCH_MIN))
+	DesignTokens.style_button(btn_edit, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+	btn_edit.pressed.connect(func():
+		if presenter != null and presenter.profile_id != "":
+			_on_edit_profile(presenter.profile_id)
+	)
+	row1.add_child(btn_edit)
+
 	# Ligne 2 : profils défilables + badge de sync.
 	var row2 := HBoxContainer.new()
 	row2.add_theme_constant_override("separation", DesignTokens.SPACE_S)
@@ -886,6 +897,50 @@ func _build_sync_tab() -> void:
 	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	_content.add_child(summary)
+
+	# Carte explicite du profil actif et de ses clés joueur
+	var profile: Dictionary = CarnetProfiles.get_profile(presenter.profile_id)
+	var keys: Array = profile.get("player_keys", []) if not profile.is_empty() else []
+
+	var keys_card := PanelContainer.new()
+	keys_card.add_theme_stylebox_override("panel", DesignTokens.card())
+	var keys_box := VBoxContainer.new()
+	keys_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	keys_card.add_child(keys_box)
+
+	var keys_header := HBoxContainer.new()
+	keys_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	keys_box.add_child(keys_header)
+
+	var keys_title := Label.new()
+	keys_title.text = "👤 Clés joueur associées"
+	keys_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	keys_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	keys_title.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	keys_header.add_child(keys_title)
+
+	var btn_edit_keys := Button.new()
+	btn_edit_keys.text = "Gérer les clés"
+	btn_edit_keys.custom_minimum_size = Vector2(DesignTokens.TOUCH_MIN, DesignTokens.TOUCH_DENSE)
+	DesignTokens.style_button(btn_edit_keys, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
+	btn_edit_keys.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	btn_edit_keys.pressed.connect(func(): _on_edit_profile(presenter.profile_id))
+	keys_header.add_child(btn_edit_keys)
+
+	var keys_desc := Label.new()
+	keys_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	keys_desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	keys_desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+
+	if keys.is_empty():
+		keys_desc.text = "⚠️ Aucune clé de joueur configurée. Cliquez sur « Gérer les clés » pour ajouter vos pseudonymes (Lichess, Chess.com...) et rattacher automatiquement vos parties."
+		keys_desc.add_theme_color_override("font_color", DesignTokens.WARNING)
+	else:
+		keys_desc.text = "Pseudos rattachés à ce carnet : %s" % ", ".join(keys)
+		keys_desc.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	keys_box.add_child(keys_desc)
+
+	_content.add_child(keys_card)
 
 	# Actions Sync : ligne 1 = Mettre à jour ; ligne 2 = imports
 	var actions_col = VBoxContainer.new()
