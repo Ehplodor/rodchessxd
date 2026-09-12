@@ -6,6 +6,7 @@ const CarnetProfileChip = preload("res://src/ui/carnet/components/CarnetProfileC
 const CarnetSyncBadge = preload("res://src/ui/carnet/components/CarnetSyncBadge.gd")
 const CarnetMotifCard = preload("res://src/ui/carnet/components/CarnetMotifCard.gd")
 const CarnetRadarPanel = preload("res://src/ui/carnet/components/CarnetRadarPanel.gd")
+const CarnetGameListItem = preload("res://src/ui/carnet/components/CarnetGameListItem.gd")
 
 var _failures := 0
 var _ran := false
@@ -21,6 +22,7 @@ func _process(_delta: float) -> bool:
 	_test_sync_badge()
 	_test_motif_card()
 	_test_radar_panel()
+	_test_game_list_item()
 	if _failures == 0:
 		print("ALL CARNET COMPONENT TESTS PASSED SUCCESSFULLY!")
 	else:
@@ -91,3 +93,45 @@ func _test_radar_panel() -> void:
 	var zero := CarnetRadarPanel.radar_points([{"skill": 0.0}], Vector2(10, 10), 50.0)
 	_check(zero[0] == Vector2(10, 10), "skill 0 → centre")
 	radar.queue_free()
+
+func _test_game_list_item() -> void:
+	var item := CarnetGameListItem.new()
+	root.add_child(item)
+	var game_data := {
+		"game_id": "game_test_123",
+		"white_name": "Magnus Carlsen",
+		"black_name": "Hikaru Nakamura",
+		"white_elo": 2850,
+		"black_elo": 2870,
+		"result": "1-0",
+		"perspective": "white",
+		"status": "up_to_date",
+		"reason": "up_to_date",
+		"date": "2026.09.08",
+		"eco": "B20",
+		"moves_count": 42,
+		"source": "chess_com"
+	}
+	item.set_game(game_data)
+	_check(item.get_child_count() > 0, "CarnetGameListItem construit des enfants dans le panel")
+	_check(item._format_date("2026.09.08") == "08/09/2026", "date formatée en DD/MM/YYYY")
+	_check(item._format_date("2026-09-08") == "08/09/2026", "date avec tirets formatée en DD/MM/YYYY")
+	
+	var res_white := item._format_result("1-0", "white")
+	_check(res_white["text"].contains("Victoire") and res_white["color"] == DesignTokens.SUCCESS, "résultat 1-0 blancs = victoire")
+	var res_black := item._format_result("1-0", "black")
+	_check(res_black["text"].contains("Défaite") and res_black["color"] == DesignTokens.DANGER, "résultat 1-0 noirs = défaite")
+
+	var fired := {"reanalyze": false, "perspective": false, "remove": false}
+	item.reanalyze_requested.connect(func(gid): fired["reanalyze"] = (gid == "game_test_123"))
+	item.perspective_cycle_requested.connect(func(gid): fired["perspective"] = (gid == "game_test_123"))
+	item.remove_requested.connect(func(gid): fired["remove"] = (gid == "game_test_123"))
+
+	item.reanalyze_requested.emit("game_test_123")
+	item.perspective_cycle_requested.emit("game_test_123")
+	item.remove_requested.emit("game_test_123")
+
+	_check(fired["reanalyze"], "signal reanalyze_requested émis avec game_id")
+	_check(fired["perspective"], "signal perspective_cycle_requested émis avec game_id")
+	_check(fired["remove"], "signal remove_requested émis avec game_id")
+	item.queue_free()

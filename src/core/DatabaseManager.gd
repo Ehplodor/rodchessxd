@@ -397,6 +397,7 @@ func _update_index_entry(game_data: Dictionary) -> void:
 		"black_elo": game_data.get("black_elo", 0),
 		"date": game_data.get("date", ""),
 		"result": game_data.get("result", "*"),
+		"eco": game_data.get("eco", ""),
 		"source": game_data.get("source", "pgn_import"),
 		"external_id": game_data.get("external_id", ""),
 		"player_keys": game_data.get("player_keys", []),

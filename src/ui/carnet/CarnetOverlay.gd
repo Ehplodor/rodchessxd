@@ -1053,7 +1053,7 @@ func _build_sync_tab() -> void:
 	_games_list = VBoxContainer.new()
 	_games_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_games_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_games_list.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	_games_list.add_theme_constant_override("separation", DesignTokens.SPACE_S)
 	games_scroll.add_child(_games_list)
 	print("[Carnet] _build_sync_tab: games_scroll added to _content, _games_list added to games_scroll")
 
@@ -1214,19 +1214,7 @@ func _refresh_games_list() -> void:
 	print("[Carnet] _refresh_games_list: presenter=", presenter != null, " profile_id=", profile_id)
 	var games: Array = []
 	if presenter != null:
-		var profile := CarnetProfiles.get_profile(profile_id)
-		var keys: Array = profile.get("player_keys", []) if not profile.is_empty() else []
-		var matches := CarnetProfiles.match_games(profile) if not profile.is_empty() else []
-		var sync := CarnetStore.sync_status(profile_id)
-		var entries: Dictionary = CarnetStore._load_sync(profile_id).get("entries", {}) if not profile.is_empty() else {}
-		var hint := "Profil=%s | keys=%d | matches=%d | entries=%d | total_sync=%d" % [profile_id, keys.size(), matches.size(), entries.size(), sync.get("total", 0)]
-		_games_list.add_child(_hint(hint))
-		print("[Carnet] " + hint)
 		games = presenter.get_profile_games(profile_id)
-		print("[Carnet] get_profile_games returned ", games.size(), " games")
-	else:
-		_games_list.add_child(_hint("presenter=null"))
-		print("[Carnet] _refresh_games_list: presenter is null")
 
 	var filtered: Array = []
 	for game in games:
@@ -1305,6 +1293,7 @@ func _on_game_remove(game_id: String) -> void:
 		_refresh_games_list()
 		dialog.queue_free()
 	)
+	add_child(dialog)
 	dialog.popup_centered()
 
 func _on_profile_updated(profile_id: String) -> void:
