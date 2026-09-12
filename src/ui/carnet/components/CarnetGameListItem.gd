@@ -97,7 +97,7 @@ func set_game(game_data: Dictionary) -> void:
 
 	var btn_reanalyze = Button.new()
 	btn_reanalyze.text = "⟳"
-	btn_reanalyze.tooltip_text = "Réanalyser cette partie"
+	btn_reanalyze.tooltip_text = "Recalculer / Réanalyser cette partie"
 	btn_reanalyze.custom_minimum_size = Vector2(DesignTokens.TOUCH_DENSE, DesignTokens.TOUCH_DENSE)
 	btn_reanalyze.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_reanalyze.add_theme_color_override("font_color", DesignTokens.ACCENT)

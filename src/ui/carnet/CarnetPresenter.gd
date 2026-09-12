@@ -137,8 +137,42 @@ func get_profile_games(profile_id: String) -> Array:
 		})
 	return out
 
-func reanalyze_game(game_id: String, profile_id: String, options: Dictionary = {}) -> void:
+## Recalcul algorithmique unitaire d'une partie (mise à jour des atomes et du diagnostic)
+func recalculate_game(game_id: String, target_profile_id: String = "") -> Dictionary:
 	_ensure_profile()
+	var pid := target_profile_id if target_profile_id != "" else profile_id
+	var res := CarnetStore.recalculate_game(game_id, pid)
+	if res.get("ok", false):
+		refresh_sync()
+		refresh_carnet()
+		refresh_plan()
+		game_list_changed.emit()
+	return res
+
+## Recalcul algorithmique complet du carnet (rescanne la bibliothèque, ré-atomise et régénère le plan)
+func recalculate_profile(target_profile_id: String = "") -> Dictionary:
+	_ensure_profile()
+	var pid := target_profile_id if target_profile_id != "" else profile_id
+	var res := CarnetStore.recalculate_profile(pid)
+	if res.get("ok", false):
+		refresh_sync()
+		refresh_carnet()
+		refresh_plan()
+		game_list_changed.emit()
+	return res
+
+func reanalyze_game(game_id: String, target_profile_id: String = "", options: Dictionary = {}) -> void:
+	_ensure_profile()
+	var pid := target_profile_id if target_profile_id != "" else profile_id
+	var db := _db()
+	if db != null:
+		var game: Dictionary = db.get_game(game_id)
+		var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
+		# Si la partie a déjà une analyse moteur dans la bibliothèque et que l'on ne force pas l'analyse moteur,
+		# recalculer directement de façon algorithmique (instantané) !
+		if not analyses.is_empty() and not bool(options.get("force_analysis", false)):
+			recalculate_game(game_id, pid)
+			return
 	start_batch([game_id], options)
 
 func remove_game_from_profile(game_id: String, profile_id: String) -> void:

@@ -109,13 +109,136 @@ static func update_game_perspective(game_id: String, perspective: String, profil
 	sync["entries"] = entries
 	db.save_json_atomic(_sync_path(pid), sync)
 
+## Recalcule algorithmiquement les atomes d'une partie depuis la Bibliothèque
+## (sans relancer Stockfish si une analyse existe déjà). Met à jour le cache et le plan.
+static func recalculate_game(game_id: String, profile_id: String = "", options: Dictionary = {}) -> Dictionary:
+	var db := _db()
+	if db == null or game_id == "":
+		return {"ok": false, "error": "database_unavailable"}
+	var pid := _resolve(profile_id)
+	var game: Dictionary = db.get_game(game_id)
+	if game.is_empty():
+		return {"ok": false, "error": "game_not_found"}
+
+	var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
+	if analyses.is_empty():
+		return {"ok": false, "error": "no_engine_analysis"}
+
+	var analysis: Dictionary = analyses[-1]
+	var profile: Dictionary = CarnetProfiles.get_profile(pid)
+	var keys: Array = profile.get("player_keys", [])
+
+	# Résolution de la perspective : préférence forcée dans sync.json d'abord, puis matching des noms
+	var sync: Dictionary = _load_sync(pid)
+	var entries: Dictionary = sync.get("entries", {})
+	var perspective := ""
+	if entries.has(game_id):
+		perspective = str(entries[game_id].get("perspective", ""))
+	if perspective == "":
+		var white := DatabaseManagerClass.normalize_player_key(str(game.get("white_name", "")))
+		var black := DatabaseManagerClass.normalize_player_key(str(game.get("black_name", "")))
+		if keys.has(white):
+			perspective = "white"
+		elif keys.has(black):
+			perspective = "black"
+
+	var atoms := CarnetEvents.annotate_game(game, analysis, {
+		"couleur_joueur": perspective,
+		"mode_analyse": bool(options.get("mode_analyse", false)),
+	})
+
+	ingest_game(game_id, atoms, {
+		"date_iso": str(game.get("date", "")),
+		"perspective": perspective,
+		"analysis_version": int(game.get("analysis_version", 0)),
+	}, pid)
+
+	var ledger := compile("", -1, pid)
+	var plan := refresh_plan("", {}, pid)
+
+	return {
+		"ok": true,
+		"game_id": game_id,
+		"atoms_count": atoms.size(),
+		"perspective": perspective,
+		"ledger": ledger,
+		"plan": plan
+	}
+
+## Recalcule l'intégralité d'un Carnet à partir de la Bibliothèque.
+## Rescanne toutes les parties matchées, ré-atomise chaque partie analysée,
+## recompile le grand livre et régénère les exercices tout en préservant
+## l'état d'apprentissage humain (répétitions SM-2 et séries).
+static func recalculate_profile(profile_id: String = "", options: Dictionary = {}) -> Dictionary:
+	var db := _db()
+	if db == null:
+		return {"ok": false, "error": "database_unavailable"}
+	var pid := _resolve(profile_id)
+	var profile := CarnetProfiles.get_profile(pid)
+	if profile.is_empty():
+		return {"ok": false, "error": "profile_not_found"}
+
+	var matches := CarnetProfiles.match_games(profile)
+	var processed_games: int = 0
+	var total_atoms: int = 0
+	var skipped_no_analysis: int = 0
+
+	for match in matches:
+		var gid := str(match.get("game_id", ""))
+		var game: Dictionary = db.get_game(gid)
+		if game.is_empty():
+			continue
+		var analyses: Array = game.get("engine_analyses", []) if game.get("engine_analyses", []) is Array else []
+		if analyses.is_empty():
+			skipped_no_analysis += 1
+			continue
+		var analysis: Dictionary = analyses[-1]
+		var perspective := str(match.get("perspective", ""))
+		var atoms := CarnetEvents.annotate_game(game, analysis, {
+			"couleur_joueur": perspective,
+			"mode_analyse": bool(options.get("mode_analyse", false)),
+		})
+
+		ingest_game(gid, atoms, {
+			"date_iso": str(game.get("date", "")),
+			"perspective": perspective,
+			"analysis_version": int(game.get("analysis_version", 0)),
+		}, pid)
+
+		processed_games += 1
+		total_atoms += atoms.size()
+
+	var ledger := compile("", -1, pid)
+	var plan := refresh_plan("", {}, pid)
+
+	return {
+		"ok": true,
+		"profile_id": pid,
+		"matched_games": matches.size(),
+		"processed_games": processed_games,
+		"skipped_no_analysis": skipped_no_analysis,
+		"total_atoms": total_atoms,
+		"ledger": ledger,
+		"plan": plan
+	}
+
 static func _drop_game_drills(profile_id: String, game_id: String) -> void:
 	var trainer := _load_trainer(profile_id)
 	var drills: Array = trainer.get("drills", []) if trainer.get("drills", []) is Array else []
 	var kept: Array = []
 	for drill in drills:
-		if drill is Dictionary and str(drill.get("game_id", "")) != game_id:
-			kept.append(drill)
+		if drill is Dictionary:
+			var gid := str(drill.get("game_id", ""))
+			if gid == game_id:
+				# Conserver l'exercice s'il a déjà été révisé en répétition espacée (SM-2)
+				var srs: Dictionary = drill.get("srs", {}) if drill.get("srs", {}) is Dictionary else {}
+				var rep := int(srs.get("repetitions", drill.get("repetitions", 0)))
+				var ivl := int(srs.get("intervalle", drill.get("intervalle", drill.get("interval", 0))))
+				if rep > 0 or ivl > 0:
+					kept.append(drill)
+					continue
+			else:
+				kept.append(drill)
 	if kept.size() != drills.size():
 		trainer["drills"] = kept
 		_save_trainer(profile_id, trainer)
@@ -223,8 +346,20 @@ static func refresh_plan(today_iso: String = "", options: Dictionary = {}, profi
 	var trainer := _load_trainer(pid)
 	var existing: Array = trainer.get("drills", []) if trainer.get("drills", []) is Array else []
 
+	var faiblesses: Array = ledger.get("faiblesses", []).duplicate()
+	var forces: Array = ledger.get("forces", []).duplicate()
+	var curiosites: Array = ledger.get("curiosites", []).duplicate()
+	if faiblesses.is_empty():
+		for m in ledger.get("emergeants", []):
+			if str(m.get("polarite", "")) == CarnetConfig.POLARITE_NEGATIVE:
+				faiblesses.append(m)
+	if forces.is_empty():
+		for m in ledger.get("emergeants", []):
+			if str(m.get("polarite", "")) == CarnetConfig.POLARITE_POSITIVE:
+				forces.append(m)
+
 	var generated := CarnetTrainer.generate_drills(
-			atoms, ledger.get("faiblesses", []), ledger.get("forces", []), ledger.get("curiosites", []))
+			atoms, faiblesses, forces, curiosites)
 	var merged := _merge_drills(existing, generated)
 
 	var plan_options := options.duplicate()

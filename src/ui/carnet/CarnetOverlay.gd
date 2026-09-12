@@ -933,6 +933,19 @@ func _build_sync_tab() -> void:
 	btn_import_chesscom.pressed.connect(_on_import_chesscom)
 	imports_row.add_child(btn_import_chesscom)
 
+	var btn_recalc = Button.new()
+	btn_recalc.text = "⟳ Recalculer"
+	btn_recalc.tooltip_text = "Recalcule algorithmiquement tous les atomes et compétences du carnet depuis les analyses de la bibliothèque."
+	btn_recalc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_recalc.clip_text = true
+	btn_recalc.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	btn_recalc.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
+	btn_recalc.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	DesignTokens.style_button(btn_recalc, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
+	btn_recalc.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	btn_recalc.pressed.connect(_on_recalculate_profile)
+	imports_row.add_child(btn_recalc)
+
 	_batch_label = Label.new()
 	_batch_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	_batch_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1200,8 +1213,19 @@ func _on_game_reanalyze(game_id: String) -> void:
 
 func _on_game_perspective_cycle(game_id: String) -> void:
 	presenter.cycle_game_perspective(game_id)
+	presenter.recalculate_game(game_id)
 	presenter.refresh_sync()
 	_refresh_games_list()
+
+func _on_recalculate_profile() -> void:
+	if presenter == null:
+		return
+	var res := presenter.recalculate_profile()
+	var count = int(res.get("processed_games", 0))
+	var atoms = int(res.get("total_atoms", 0))
+	_on_toast_requested("Carnet recalculé : %d parties, %d atomes mis à jour." % [count, atoms], true)
+	_refresh_header()
+	_rebuild_content()
 
 func _on_game_remove(game_id: String) -> void:
 	var dialog = ConfirmationDialog.new()
