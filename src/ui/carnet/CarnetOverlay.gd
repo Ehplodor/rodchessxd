@@ -120,6 +120,7 @@ func _build_shell() -> void:
 
 	# Contenu défilable.
 	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	DesignTokens.touch_scroll(scroll)
@@ -288,6 +289,8 @@ func _build_carnet_tab() -> void:
 	var stats_lbl := Label.new()
 	stats_lbl.text = "📊 %d parties · %d moments clés · %d drills" % [
 			streak.nb_parties, streak.nb_atomes, streak.nb_drills]
+	stats_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stats_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stats_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	stats_box.add_child(stats_lbl)
 
@@ -297,6 +300,8 @@ func _build_carnet_tab() -> void:
 	streak_lbl.text = "🔥 Série : %d jour%s consécutif%s · %d joker%s" % [
 			serie_val, "s" if serie_val > 1 else "", "s" if serie_val > 1 else "",
 			joker_val, "s" if joker_val > 1 else ""]
+	streak_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	streak_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	streak_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	streak_lbl.add_theme_color_override("font_color", DesignTokens.WARNING if serie_val > 0 else DesignTokens.TEXT_MUTED)
 	stats_box.add_child(streak_lbl)
@@ -313,14 +318,17 @@ func _build_carnet_tab() -> void:
 	var objective := Label.new()
 	objective.text = presenter.plan_objective()
 	objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	objective.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	objective.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	plan_box.add_child(objective)
 
-	# Badges des thèmes au programme
+	# Badges des thèmes au programme (disposition flexible HFlow)
 	var motifs_summary := presenter.plan_motifs_summary()
 	if not motifs_summary.is_empty():
-		var badges_flow := HBoxContainer.new()
-		badges_flow.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+		var badges_flow := HFlowContainer.new()
+		badges_flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		badges_flow.add_theme_constant_override("h_separation", DesignTokens.SPACE_XS)
+		badges_flow.add_theme_constant_override("v_separation", DesignTokens.SPACE_XS)
 		for m in motifs_summary:
 			var badge := PanelContainer.new()
 			var b_style := StyleBoxFlat.new()
@@ -356,6 +364,7 @@ func _build_carnet_tab() -> void:
 	else:
 		start.text = "▶ Commencer la séance (%d exercices · ~3 min)" % drills.size()
 		start.disabled = false
+	start.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	start.clip_text = true
 	start.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	DesignTokens.style_button(start, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
@@ -383,6 +392,8 @@ func _build_carnet_tab() -> void:
 
 	var prog_lbl := Label.new()
 	prog_lbl.text = "Score d'apprentissage : %d / 100 (%s)" % [prog_score, level_name]
+	prog_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	prog_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	prog_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	prog_box.add_child(prog_lbl)
 
@@ -402,6 +413,8 @@ func _build_carnet_tab() -> void:
 
 	var mastery_lbl := Label.new()
 	mastery_lbl.text = "⭐ %d exercice(s) maîtrisé(s) en répétition espacée" % streak.maitrise
+	mastery_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mastery_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mastery_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	mastery_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	prog_box.add_child(mastery_lbl)
@@ -419,6 +432,8 @@ func _build_carnet_tab() -> void:
 
 		var f_head := Label.new()
 		f_head.text = "💡 Conseil pour vos parties"
+		f_head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		f_head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		f_head.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 		f_head.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 		f_box.add_child(f_head)
@@ -429,6 +444,7 @@ func _build_carnet_tab() -> void:
 		if f_desc != "":
 			f_txt.text += " %s" % f_desc
 		f_txt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		f_txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		f_txt.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		f_txt.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 		f_box.add_child(f_txt)
@@ -454,6 +470,8 @@ func _build_session() -> void:
 	progress.text = "Drill %d / %d" % [index + 1, total]
 	progress.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	progress.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	progress.clip_text = true
+	progress.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	top_row.add_child(progress)
 
 	var trait_pill := PanelContainer.new()
@@ -472,6 +490,8 @@ func _build_session() -> void:
 	var trait_lbl := Label.new()
 	trait_lbl.text = "⚪ Trait aux Blancs" if trait_is_white else "⚫ Trait aux Noirs"
 	trait_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	trait_lbl.clip_text = true
+	trait_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	trait_pill.add_child(trait_lbl)
 	top_row.add_child(trait_pill)
 
@@ -489,12 +509,16 @@ func _build_session() -> void:
 		origin_lbl.text = "⚔ Partie vs %s · Coup %d" % [opp_str, coup_num]
 	else:
 		origin_lbl.text = "⚔ Position d'entraînement"
+	origin_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	origin_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	origin_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	context_box.add_child(origin_lbl)
 
 	var theme_lbl := Label.new()
 	var motif_name := presenter.drill_motif_label(drill)
 	theme_lbl.text = "Thème : %s" % motif_name
+	theme_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	theme_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	theme_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	theme_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	context_box.add_child(theme_lbl)
@@ -503,13 +527,15 @@ func _build_session() -> void:
 	if last_mv_str != "":
 		var last_lbl := Label.new()
 		last_lbl.text = "Dernier coup joué : %s" % last_mv_str
+		last_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		last_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		last_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		last_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 		context_box.add_child(last_lbl)
 
 	_content.add_child(context_card)
 
-	# 3. Échiquier 2D autonome
+	# 3. Échiquier 2D autonome centré et responsive
 	var board_widget := CarnetBoardWidget.new()
 	board_widget.load_position(str(drill.get("position", "")), str(ctx.get("side", "")) == "black", str(ctx.get("last_move_uci", "")))
 	if not result.is_empty():
@@ -518,12 +544,18 @@ func _build_session() -> void:
 		board_widget.show_solution(exp_uci, played_uci)
 	else:
 		board_widget.move_attempted.connect(func(uci): choose(uci))
-	_content.add_child(board_widget)
+
+	var board_center := CenterContainer.new()
+	board_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	board_center.add_child(board_widget)
+	_content.add_child(board_center)
 
 	# 4. Question & Options
 	var type_label := Label.new()
 	type_label.text = CarnetPresenter.drill_type_label(str(drill.get("type", "")))
 	type_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	type_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	type_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	type_label.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	_content.add_child(type_label)
 
@@ -576,6 +608,7 @@ func _build_session() -> void:
 
 		var fb_title := Label.new()
 		fb_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		fb_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		fb_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 		if is_ok:
 			fb_title.text = "✅ Bien vu ! Coup optimal trouvé."
@@ -589,6 +622,8 @@ func _build_session() -> void:
 
 		var fb_hint := Label.new()
 		fb_hint.text = "Évaluez votre aisance pour calibrer la prochaine répétition :"
+		fb_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		fb_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		fb_hint.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		fb_hint.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		fb_box.add_child(fb_hint)
@@ -596,9 +631,12 @@ func _build_session() -> void:
 		_content.add_child(feedback_card)
 		_content.add_child(_grade_row())
 
-func _grade_row() -> HBoxContainer:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+func _grade_row() -> GridContainer:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", DesignTokens.SPACE_S)
+	grid.add_theme_constant_override("v_separation", DesignTokens.SPACE_XS)
 	for note in [1, 3, 4, 5]:
 		var btn := Button.new()
 		btn.text = CarnetPresenter.grade_label(note)
@@ -607,8 +645,8 @@ func _grade_row() -> HBoxContainer:
 		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		DesignTokens.style_button(btn, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_MIN)
 		btn.pressed.connect(func(): grade(note))
-		row.add_child(btn)
-	return row
+		grid.add_child(btn)
+	return grid
 
 # ── Onglet 📊 Analyse ────────────────────────────────────────────────────────────
 
@@ -655,31 +693,32 @@ static func _clean_dimension_label(dim: String, cle: String) -> String:
 			match cle:
 				"opening": return "Ouvertures"
 				"endgame": return "Finales"
-				_: return "Milieu de jeu"
+				_: return "Milieu"
 		"regime":
 			match cle:
 				"en_avance": return "Conversion"
 				"en_retard": return "Défense"
-				_: return "Position égale"
+				_: return "Égalité"
 		"schema":
 			match cle:
 				"gain_tactique_manqué", "capture_ratée": return "Tactique"
 				"piece_en_prise": return "Protection"
-				"dame_sortie_tôt": return "Développement"
-				"sécurité_roi", "roi_non_roqué": return "Sécurité Roi"
-				"structure_pions": return "Structure Pions"
-				"pression_temps": return "Gestion temps"
-				_: return cle.replace("_", " ").capitalize()
+				"dame_sortie_tôt": return "Dévelop."
+				"sécurité_roi", "roi_non_roqué": return "Sécurité"
+				"structure_pions": return "Structure"
+				"pression_temps": return "Temps"
+				_: return cle.replace("_", " ").capitalize().substr(0, 10)
 		"type_finale":
 			match cle:
-				"tours": return "Finales Tours"
-				"dames": return "Finales Dames"
-				"mineures": return "Finales Mineures"
-				"pions": return "Finales Pions"
+				"tours": return "Fin. Tours"
+				"dames": return "Fin. Dames"
+				"mineures": return "Fin. Min."
+				"pions": return "Fin. Pions"
 				_: return "Finales"
 		"ouverture":
-			return "Ouverture %s" % cle
-	return cle.replace("_", " ").capitalize()
+			var short_cle := cle.substr(0, 8) + "…" if cle.length() > 8 else cle
+			return "Ouv. %s" % short_cle
+	return cle.replace("_", " ").capitalize().substr(0, 10)
 
 # ── Onglet ⟳ Sync ────────────────────────────────────────────────────────────────
 

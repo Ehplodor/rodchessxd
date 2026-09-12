@@ -31,7 +31,7 @@ var _game: ChessGame = null
 var _selected_sq := -1
 
 func _init() -> void:
-	custom_minimum_size = Vector2(304, 304)
+	custom_minimum_size = Vector2(256, 256)
 	size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -94,8 +94,8 @@ func show_solution(best_uci: String, mistake_uci: String = "") -> void:
 func _update_layout() -> void:
 	var side := minf(size.x, size.y)
 	if side < 160.0:
-		side = 304.0
-	_square_size = floorf(side / 8.0)
+		side = 256.0
+	_square_size = maxf(24.0, floorf(side / 8.0))
 	_update_pieces()
 	queue_redraw()
 

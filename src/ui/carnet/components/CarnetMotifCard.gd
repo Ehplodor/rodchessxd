@@ -42,8 +42,8 @@ func _init() -> void:
 	box.add_child(_bar)
 
 	_meta = Label.new()
-	_meta.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_meta.clip_text = true
+	_meta.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_meta.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_meta.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	_meta.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	box.add_child(_meta)

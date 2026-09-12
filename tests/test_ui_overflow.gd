@@ -42,6 +42,26 @@ func _process(_delta: float) -> bool:
 	offenders.clear()
 	_collect_offenders(main, width, offenders)
 	_check(offenders.is_empty(), "Carnet ouvert : aucun débordement")
+
+	# Test de la vue séance (drill / échiquier / QCM) sans débordement à 360 px
+	if main.carnet_overlay != null and main.carnet_presenter != null:
+		var dummy_drill := {
+			"position": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+			"reponse_uci": "e7e5",
+			"piege_uci": "c7c5",
+			"type": "choix_binaire",
+			"motif": "qualite|occasion_manquée",
+			"adversaire": "AdversaireLongNomTresLongPourTesterOverflow"
+		}
+		main.carnet_presenter.start_session([dummy_drill])
+		main.carnet_overlay._build_session()
+		offenders.clear()
+		_collect_offenders(main, width, offenders)
+		_check(offenders.is_empty(), "Séance d'entraînement ouverte : aucun débordement")
+		for o in offenders.slice(0, 10):
+			printerr("  OVERSIZE %.0f px : %s" % [o["w"], o["path"]])
+		main.carnet_presenter.end_session()
+
 	main._close_carnet_overlay()
 
 	# Ouverture de l'Analyse : pas de débordement.
@@ -70,7 +90,9 @@ func _check(cond: bool, label: String) -> void:
 func _collect_offenders(node: Node, width: float, out: Array) -> void:
 	for child in node.get_children():
 		if child is Control:
-			var w := (child as Control).get_combined_minimum_size().x
-			if w > width + 0.5:
-				out.append({"w": w, "path": str(child.get_path())})
+			var in_horiz_scroll := node is ScrollContainer and (node as ScrollContainer).horizontal_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED
+			if not in_horiz_scroll:
+				var w := (child as Control).get_combined_minimum_size().x
+				if w > width + 0.5:
+					out.append({"w": w, "path": str(child.get_path())})
 		_collect_offenders(child, width, out)

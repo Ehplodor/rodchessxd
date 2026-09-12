@@ -9,7 +9,9 @@ var _points: Array = []
 
 func _init() -> void:
 	custom_minimum_size = Vector2(0, 260)
+	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip_contents = true
 
 ## `dimensions` : Array de { label, skill, confiance }.
 func set_dimensions(dimensions: Array) -> void:
@@ -37,12 +39,21 @@ func _draw() -> void:
 		return
 
 	var font := ThemeDB.fallback_font
-	var font_sz := int(DesignTokens.FONT_CAPTION)
+	var font_sz := 12
 	var center := Vector2(size.x * 0.5, size.y * 0.5)
-	# Rayon modéré pour laisser 65px de marge pour les textes de chaque côté
-	var radius := minf(size.x * 0.5 - 65.0, size.y * 0.5 - 28.0)
-	if radius < 40.0:
-		radius = 40.0
+
+	# Mesure des largeurs pour adapter le rayon au conteneur réel
+	var max_text_w := 30.0
+	if font != null:
+		for dim in _points:
+			var full_text := "%s (%d)" % [str(dim.get("label", "")), int(dim.get("skill", 0))]
+			var tw := font.get_string_size(full_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_sz).x
+			max_text_w = maxf(max_text_w, tw)
+
+	var margin_x := clampf(max_text_w + 6.0, 36.0, size.x * 0.30)
+	var margin_y := float(font_sz * 2.0)
+	var radius := minf(size.x * 0.5 - margin_x, size.y * 0.5 - margin_y)
+	radius = clampf(radius, 30.0, 90.0)
 	var n := _points.size()
 
 	# 1. Anneaux concentriques polygonaux (25 %, 50 %, 75 %, 100 %)
@@ -84,7 +95,7 @@ func _draw() -> void:
 		for i in range(n):
 			var angle := -PI / 2.0 + TAU * float(i) / float(n)
 			var dir := Vector2(cos(angle), sin(angle))
-			var label_pos := center + dir * (radius + 14.0)
+			var label_pos := center + dir * (radius + 8.0)
 
 			var dim = _points[i]
 			var label_text := str(dim.get("label", ""))
@@ -94,9 +105,9 @@ func _draw() -> void:
 			var text_w := font.get_string_size(full_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_sz).x
 			var draw_pos := label_pos
 
-			if dir.x > 0.25:
+			if dir.x > 0.2:
 				draw_pos.y += font_sz * 0.35
-			elif dir.x < -0.25:
+			elif dir.x < -0.2:
 				draw_pos.x -= text_w
 				draw_pos.y += font_sz * 0.35
 			else:
@@ -105,6 +116,10 @@ func _draw() -> void:
 					draw_pos.y -= 2.0
 				else:
 					draw_pos.y += font_sz
+
+			# Protection absolue anti-débordement
+			draw_pos.x = clampf(draw_pos.x, 2.0, size.x - text_w - 2.0)
+			draw_pos.y = clampf(draw_pos.y, float(font_sz), size.y - 4.0)
 
 			draw_string(font, draw_pos, full_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_sz, DesignTokens.TEXT_SECONDARY)
 
