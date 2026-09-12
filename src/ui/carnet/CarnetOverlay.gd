@@ -570,7 +570,8 @@ func _on_profile_context_menu(profile_id: String, global_pos: Vector2) -> void:
 		_profile_context_menu.set_item_metadata(2, profile_id)
 	_profile_context_menu.popup(Rect2i(global_pos, Vector2i(1, 1)))
 
-func _on_profile_context_menu_action(id: int, profile_id: String) -> void:
+func _on_profile_context_menu_action(id: int) -> void:
+	var profile_id: String = _profile_context_menu.get_item_metadata(id)
 	match id:
 		0: _on_edit_profile(profile_id)
 		1: _on_manage_keys(profile_id)
