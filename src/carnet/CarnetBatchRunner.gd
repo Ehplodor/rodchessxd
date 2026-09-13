@@ -24,6 +24,8 @@ var options := {}
 var processed := 0
 var failed := 0
 var last_error := ""
+var is_busy: bool = false
+var active_analyzer: RefCounted = null
 
 ## Callable `(game: Dictionary) -> Dictionary` renvoyant un rapport d'analyse moteur.
 ## Vide ⇒ le runner suppose l'analyse déjà présente sur la partie.
@@ -106,6 +108,11 @@ func start() -> void:
 func pause() -> void:
 	if state == "running":
 		state = "paused"
+		if active_analyzer != null and active_analyzer.has_method("cancel_analysis"):
+			active_analyzer.cancel_analysis()
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree and tree.root and tree.root.has_node("EngineManager"):
+			tree.root.get_node("EngineManager").stop_evaluation()
 		save_job()
 
 func resume() -> void:
@@ -114,12 +121,20 @@ func resume() -> void:
 
 func cancel() -> void:
 	state = "cancelled"
+	is_busy = false
+	if active_analyzer != null and active_analyzer.has_method("cancel_analysis"):
+		active_analyzer.cancel_analysis()
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		tree.root.get_node("EngineManager").stop_evaluation()
 	clear_job()
 
 # ── Traitement ───────────────────────────────────────────────────────────────────
 
 ## Traite la partie courante. Retourne un résumé ; `state` porte l'issue globale.
 func step() -> Dictionary:
+	if is_busy:
+		return {"state": state, "busy": true}
 	if state != "running":
 		return {"state": state, "done": true}
 	if engine_free.is_valid() and not bool(engine_free.call()):
@@ -128,9 +143,11 @@ func step() -> Dictionary:
 	if cursor >= queue.size():
 		return _finalize()
 
+	is_busy = true
 	var gid := str(queue[cursor])
 	var db := _db()
 	if db == null:
+		is_busy = false
 		last_error = "DatabaseManager indisponible"
 		state = "failed"
 		error.emit(last_error)
@@ -140,6 +157,7 @@ func step() -> Dictionary:
 	if game.is_empty():
 		print("[Carnet] [Mise à jour Lot] [%d/%d] Partie %s introuvable dans la base." % [cursor + 1, queue.size(), gid])
 		_record_failure(gid, "partie introuvable")
+		is_busy = false
 		return {"ok": false, "game_id": gid, "error": "partie introuvable"}
 
 	var white_name := str(game.get("white_name", "?"))
@@ -155,12 +173,17 @@ func step() -> Dictionary:
 		if not analyzer.is_valid():
 			print("[Carnet]   -> Échec : aucun analyseur moteur fourni.")
 			_record_failure(gid, "aucun analyseur fourni")
+			is_busy = false
 			return {"ok": false, "game_id": gid, "error": "analyzer_missing"}
-		var report = analyzer.call(game)
+		var report = await analyzer.call(game)
+		if state != "running":
+			is_busy = false
+			return {"state": state, "interrupted": true}
 		if not (report is Dictionary) or report.is_empty() or report.has("error"):
 			var msg := "échec d'analyse" if not (report is Dictionary) else str(report.get("error", "échec d'analyse"))
 			print("[Carnet]   -> Échec analyse moteur partie %s : %s" % [gid, msg])
 			_record_failure(gid, msg)
+			is_busy = false
 			return {"ok": false, "game_id": gid, "error": msg}
 		db.add_engine_analysis(gid, report)
 		game = db.get_game(gid)
@@ -186,6 +209,7 @@ func step() -> Dictionary:
 	save_job()
 	game_processed.emit(gid, true, "")
 	progress.emit(processed, queue.size(), gid)
+	is_busy = false
 	if cursor >= queue.size():
 		return _finalize()
 	return {"ok": true, "game_id": gid, "atoms": atoms.size()}
@@ -195,7 +219,7 @@ func run(max_games: int = -1) -> void:
 	start()
 	var count := 0
 	while state == "running":
-		var res := step()
+		var res := await step()
 		if state != "running":
 			break
 		count += 1
@@ -275,7 +299,7 @@ static func _get_active_engine_name() -> String:
 
 ## Analyseur moteur par défaut : reconstruit la partie et lance `GameAnalyzer`.
 ## Le PGN peut être absent (jeu libre/OCR) : on rejoue alors la liste de coups stockée.
-static func default_analyzer(depth: int = -1, mode: String = "", on_ply: Callable = Callable(), custom_options: Dictionary = {}) -> Callable:
+static func default_analyzer(depth: int = -1, mode: String = "", on_ply: Callable = Callable(), custom_options: Dictionary = {}, on_depth: Callable = Callable(), runner: CarnetBatchRunner = null) -> Callable:
 	return func(game: Dictionary) -> Dictionary:
 		var cg = ChessGame.new()
 		var pgn := str(game.get("pgn_text", ""))
@@ -307,13 +331,31 @@ static func default_analyzer(depth: int = -1, mode: String = "", on_ply: Callabl
 			engine_name, label, eff_depth, opts["dynamic_base"], opts["dynamic_max"]
 		])
 		var analyzer := GameAnalyzer.new()
+		if runner != null:
+			runner.active_analyzer = analyzer
 		analyzer.progress_updated.connect(func(ply: int, total: int):
 			var pct := (float(ply) / maxi(1, total)) * 100.0
 			print("[Carnet]   [Moteur %s] Coup %d/%d (%.0f%%)" % [engine_name, ply, total, pct])
 			if on_ply.is_valid():
 				on_ply.call(ply, total)
 		)
-		var report := analyzer.start_game_analysis(cg, eff_depth, opts)
+
+		var tree := Engine.get_main_loop() as SceneTree
+		var em: Node = null
+		var eval_conn: Callable = Callable()
+		if on_depth.is_valid() and tree and tree.root and tree.root.has_node("EngineManager"):
+			em = tree.root.get_node("EngineManager")
+			eval_conn = func(_score, _mate, d, _best, _pv, _multi):
+				on_depth.call(d, eff_depth)
+			em.evaluation_updated.connect(eval_conn)
+
+		var report := await analyzer.start_game_analysis_async(cg, eff_depth, opts)
+
+		if em != null and eval_conn.is_valid() and em.evaluation_updated.is_connected(eval_conn):
+			em.evaluation_updated.disconnect(eval_conn)
+		if runner != null and runner.active_analyzer == analyzer:
+			runner.active_analyzer = null
+
 		if report is Dictionary:
 			report["depth"] = eff_depth
 			report["engine_name"] = engine_name

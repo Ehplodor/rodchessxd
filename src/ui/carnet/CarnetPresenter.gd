@@ -13,6 +13,7 @@ signal carnet_changed
 signal plan_changed
 signal batch_progress(done: int, total: int, game_id: String)
 signal batch_ply_progress(ply: int, total: int)
+signal batch_engine_depth(depth: int, target_depth: int)
 signal batch_state(state: String)
 signal recalculate_progress(done: int, total: int, game_id: String, details: Dictionary)
 signal session_changed
@@ -338,10 +339,13 @@ func start_batch(game_ids: Array = [], options: Dictionary = {}) -> void:
 	var on_ply_cb := func(ply: int, total: int):
 		batch_ply_progress.emit(ply, total)
 
-	if _analyzer.is_valid() and not bool(options.get("force_analysis", false)) and not options.has("depth") and not options.has("speed"):
+	var on_depth_cb := func(d: int, target_d: int):
+		batch_engine_depth.emit(d, target_d)
+
+	if _analyzer.is_valid():
 		batch.analyzer = _analyzer
 	else:
-		batch.analyzer = CarnetBatchRunner.default_analyzer(opt_depth, opt_mode, on_ply_cb, custom_opts)
+		batch.analyzer = CarnetBatchRunner.default_analyzer(opt_depth, opt_mode, on_ply_cb, custom_opts, on_depth_cb, batch)
 	if _engine_free.is_valid():
 		batch.engine_free = _engine_free
 	batch.configure(profile_id, game_ids, options)
@@ -357,6 +361,8 @@ func start_batch(game_ids: Array = [], options: Dictionary = {}) -> void:
 func poll_batch() -> bool:
 	if batch == null:
 		return false
+	if batch.is_busy:
+		return true
 	batch.step()
 	batch_state.emit(batch.state)
 	if batch.state == "running":

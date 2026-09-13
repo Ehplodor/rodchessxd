@@ -153,6 +153,35 @@ func _test_progress_modal() -> void:
 	_check(modal._substep_lbl.text.contains("3 atomes"), "modal sous-étape affichée")
 	_check(modal._log_lbl.text.contains("Atome tactique"), "modal journal d'activité mis à jour")
 
+	# Test du triple niveau de progression (globale, partie, demi-coup 2px)
+	modal.update_global(4, 10, "4 parties traitées")
+	_check(is_equal_approx(modal._progress_bar.value, 40.0), "barre globale mise à jour à 40%")
+	_check(modal._counter_lbl.text.contains("4 / 10"), "compteur global 4 / 10")
+
+	modal.update_game("Firouzja vs Carlsen", 12, 36, "Demi-coup 12 en cours", "⚙️ Moteur Stockfish")
+	_check(is_equal_approx(modal._game_progress_bar.value, (12.0 / 36.0) * 100.0), "barre secondaire partie à 33.3%")
+	_check(modal._ply_counter_lbl.text.contains("12 / 36"), "compteur secondaire demi-coups 12 / 36")
+	_check(modal._op_badge_lbl.text.contains("Stockfish"), "badge opération moteur affiché")
+
+	modal.update_engine_ply(6, 12, "Stockfish 18")
+	_check(is_equal_approx(modal._engine_ply_bar.value, 50.0), "barre tertiaire demi-coup 2px à 50%")
+	_check(modal._engine_depth_lbl.text.contains("6 / 12"), "label profondeur moteur 6 / 12")
+
+	# Test pause et reprise
+	var pause_events := {"pause": false, "resume": false}
+	modal.pause_requested.connect(func(): pause_events["pause"] = true)
+	modal.resume_requested.connect(func(): pause_events["resume"] = true)
+
+	modal._on_pause_toggle_pressed()
+	_check(modal._is_paused, "modale en pause")
+	_check(pause_events["pause"], "signal pause_requested émis")
+	_check(modal._btn_pause.text == "▶ Reprendre", "bouton pause basculé en Reprendre")
+
+	modal._on_pause_toggle_pressed()
+	_check(not modal._is_paused, "modale reprise")
+	_check(pause_events["resume"], "signal resume_requested émis")
+	_check(modal._btn_pause.text == "⏸ Pause", "bouton reprise basculé en Pause")
+
 	var fired_events := {"completed": false, "cancelled": false}
 	modal.completed.connect(func(): fired_events["completed"] = true)
 	modal.finish("Recalcul terminé : 10 parties traitées")
@@ -169,3 +198,4 @@ func _test_progress_modal() -> void:
 	_check(fired_events["cancelled"], "signal cancelled émis lors de l'annulation")
 
 	modal.queue_free()
+	cancel_modal.queue_free()

@@ -1391,31 +1391,61 @@ func _show_batch_modal() -> void:
 			var white := str(gdata.get("white_name", "?"))
 			var black := str(gdata.get("black_name", "?"))
 			cur_game_title = "%s vs %s" % [white, black] if white != "?" else "Partie %s" % gid
-			modal.update_progress(done, total, cur_game_title, "Partie synchronisée")
+			modal.update_global(done, total, "Partie synchronisée")
+			modal.update_game(cur_game_title, 0, 1, "Analyse terminée pour cette partie", "✓ Synchronisée")
 
 	var on_ply_conn := func(ply: int, total_plies: int):
 		if is_instance_valid(modal):
-			var cur_done: int = presenter.batch.processed if presenter.batch != null else 0
-			var cur_tot: int = presenter.batch.queue.size() if presenter.batch != null else 1
 			var pct := (float(ply) / maxi(1, total_plies)) * 100.0
-			var substep := "Moteur %s (%s) : coup %d/%d (%.0f%%)" % [eng_name, speed_lbl, ply, total_plies, pct]
-			modal.update_progress(cur_done, cur_tot, cur_game_title, substep)
+			var substep := "Moteur %s (%s) : demi-coup %d/%d (%.0f%%)" % [eng_name, speed_lbl, ply, total_plies, pct]
+			modal.update_game(cur_game_title, ply, total_plies, substep, "⚙️ Analyse %s" % eng_name)
+
+	var on_depth_conn := func(depth: int, target_depth: int):
+		if is_instance_valid(modal):
+			modal.update_engine_ply(depth, target_depth, "%s" % eng_name)
 
 	var on_state_conn := func(state: String):
 		if is_instance_valid(modal):
-			if state == "done":
+			if state == "paused":
+				modal.set_paused(true)
+			elif state == "running":
+				modal.set_paused(false)
+			elif state == "done":
 				var p: int = presenter.batch.processed if presenter.batch != null else 0
 				var f: int = presenter.batch.failed if presenter.batch != null else 0
 				modal.finish("Mise à jour terminée !\n%d parties traitées • %d échec(s)." % [p, f])
 			elif state == "failed":
 				modal.finish("Erreur lors du traitement du lot.")
+			elif state == "cancelled":
+				modal.finish("Traitement arrêté par l'utilisateur.")
 
 	presenter.batch_progress.connect(on_progress_conn)
 	presenter.batch_ply_progress.connect(on_ply_conn)
+	presenter.batch_engine_depth.connect(on_depth_conn)
 	presenter.batch_state.connect(on_state_conn)
+
+	modal.pause_requested.connect(func():
+		presenter.pause_batch()
+		_update_batch_row()
+	)
+	modal.resume_requested.connect(func():
+		presenter.resume_batch()
+		_update_batch_row()
+	)
 	modal.cancelled.connect(func():
 		presenter.cancel_batch()
 		_update_batch_row()
+	)
+	modal.tree_exiting.connect(func():
+		if presenter != null:
+			if presenter.batch_progress.is_connected(on_progress_conn):
+				presenter.batch_progress.disconnect(on_progress_conn)
+			if presenter.batch_ply_progress.is_connected(on_ply_conn):
+				presenter.batch_ply_progress.disconnect(on_ply_conn)
+			if presenter.batch_engine_depth.is_connected(on_depth_conn):
+				presenter.batch_engine_depth.disconnect(on_depth_conn)
+			if presenter.batch_state.is_connected(on_state_conn):
+				presenter.batch_state.disconnect(on_state_conn)
 	)
 
 func _on_recalculate_profile() -> void:
@@ -1466,7 +1496,8 @@ func _launch_algorithmic_recalculate() -> void:
 			var black := str(gdata.get("black_name", "?"))
 			var gtitle := "%s vs %s" % [white, black] if white != "?" else "Partie %s" % gid
 			var substep := "%d atome(s) pédagogique(s) extrait(s)" % atoms_cnt
-			modal.update_progress(done, total, gtitle, substep)
+			modal.update_global(done, total)
+			modal.update_game(gtitle, done, total, substep, "🔬 Atomisation")
 	)
 
 	var count: int = int(res.get("processed_games", 0))
