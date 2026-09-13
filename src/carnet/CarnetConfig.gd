@@ -163,6 +163,7 @@ static func get_analysis_speed_config(preset: String = "") -> Dictionary:
 	if not ANALYSIS_SPEED_PRESETS.has(key):
 		key = ANALYSIS_SPEED_FAST
 	var cfg: Dictionary = ANALYSIS_SPEED_PRESETS[key].duplicate(true)
+	cfg["speed"] = key
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		cfg["depth"] = maxi(6, int(cfg.get("depth", 8)) - 2)
 	return cfg

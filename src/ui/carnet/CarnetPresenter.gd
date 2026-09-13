@@ -234,7 +234,12 @@ func reanalyze_game(game_id: String, target_profile_id: String = "", options: Di
 		if has_valid_analysis and not bool(options.get("force_analysis", false)):
 			recalculate_game(game_id, pid)
 			return
-	start_batch([game_id], options)
+	var batch_opts := options.duplicate(true)
+	if not batch_opts.has("speed"):
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree and tree.root and tree.root.has_node("SettingsManager"):
+			batch_opts["speed"] = str(tree.root.get_node("SettingsManager").get_setting("carnet_analysis_speed", CarnetConfig.ANALYSIS_SPEED_FAST))
+	start_batch([game_id], batch_opts)
 
 func remove_game_from_profile(game_id: String, profile_id: String) -> void:
 	CarnetStore.remove_game(game_id, profile_id)
@@ -326,12 +331,24 @@ func set_engine_free_provider(provider: Callable) -> void:
 func start_batch(game_ids: Array = [], options: Dictionary = {}) -> void:
 	_ensure_profile()
 	batch = CarnetBatchRunner.new()
-	var opt_depth: int = int(options.get("depth", -1))
-	var opt_mode: String = str(options.get("mode", ""))
 	var opt_speed: String = str(options.get("speed", ""))
-	var custom_opts: Dictionary = {}
-	if opt_speed != "":
-		custom_opts = CarnetConfig.get_analysis_speed_config(opt_speed)
+	if opt_speed == "":
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree and tree.root and tree.root.has_node("SettingsManager"):
+			opt_speed = str(tree.root.get_node("SettingsManager").get_setting("carnet_analysis_speed", CarnetConfig.ANALYSIS_SPEED_FAST))
+		else:
+			opt_speed = CarnetConfig.ANALYSIS_SPEED_FAST
+
+	var speed_cfg := CarnetConfig.get_analysis_speed_config(opt_speed)
+	var opt_depth: int = int(options.get("depth", -1))
+	if opt_depth <= 0:
+		opt_depth = int(speed_cfg.get("depth", 8))
+	var opt_mode: String = str(options.get("mode", "dynamic"))
+
+	var custom_opts: Dictionary = speed_cfg.duplicate(true)
+	custom_opts["speed"] = opt_speed
+	custom_opts["depth"] = opt_depth
+	custom_opts["mode"] = opt_mode
 	for k in options:
 		if k not in ["depth", "mode", "speed"]:
 			custom_opts[k] = options[k]

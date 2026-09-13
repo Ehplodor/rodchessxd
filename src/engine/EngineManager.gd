@@ -1132,7 +1132,9 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 	state_mutex.unlock()
 
 	send_command("position fen " + fen)
-	if movetime_ms > 0:
+	if movetime_ms > 0 and depth > 0:
+		send_command("go depth %d movetime %d" % [depth, movetime_ms])
+	elif movetime_ms > 0:
 		send_command("go movetime %d" % movetime_ms)
 	else:
 		send_command("go depth %d" % depth)
@@ -1203,7 +1205,9 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 	state_mutex.unlock()
 
 	send_command("position fen " + fen)
-	if movetime_ms > 0:
+	if movetime_ms > 0 and depth > 0:
+		send_command("go depth %d movetime %d" % [depth, movetime_ms])
+	elif movetime_ms > 0:
 		send_command("go movetime %d" % movetime_ms)
 	else:
 		send_command("go depth %d" % depth)

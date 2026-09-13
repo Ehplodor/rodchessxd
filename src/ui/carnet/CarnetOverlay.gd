@@ -1330,7 +1330,8 @@ func _on_game_reanalyze(game_id: String) -> void:
 		_show_batch_modal()
 		return
 
-	var speed_cfg := CarnetConfig.get_analysis_speed_config()
+	var cur_speed := str(_get_setting("carnet_analysis_speed", "fast"))
+	var speed_cfg := CarnetConfig.get_analysis_speed_config(cur_speed)
 	var speed_lbl := str(speed_cfg.get("label", "⚡ Rapide"))
 	var eng_name := _get_active_engine_name()
 	var dialog := ConfirmationDialog.new()
@@ -1350,7 +1351,11 @@ func _on_game_reanalyze(game_id: String) -> void:
 	)
 	dialog.confirmed.connect(func():
 		dialog.queue_free()
-		presenter.reanalyze_game(game_id, presenter.profile_id, {"force_analysis": true})
+		presenter.reanalyze_game(game_id, presenter.profile_id, {
+			"force_analysis": true,
+			"speed": cur_speed,
+			"depth": int(speed_cfg.get("depth", 8))
+		})
 		_update_batch_row()
 		_show_batch_modal()
 	)
@@ -1366,7 +1371,12 @@ func _on_game_perspective_cycle(game_id: String) -> void:
 func _on_run_batch() -> void:
 	if presenter == null:
 		return
-	presenter.start_batch()
+	var cur_speed := str(_get_setting("carnet_analysis_speed", "fast"))
+	var speed_cfg := CarnetConfig.get_analysis_speed_config(cur_speed)
+	presenter.start_batch([], {
+		"speed": cur_speed,
+		"depth": int(speed_cfg.get("depth", 8))
+	})
 	_update_batch_row()
 	if presenter.batch != null:
 		_show_batch_modal()
@@ -1457,7 +1467,8 @@ func _on_recalculate_profile() -> void:
 		_on_toast_requested("Aucune partie dans ce carnet à recalculer.", false)
 		return
 
-	var speed_cfg := CarnetConfig.get_analysis_speed_config()
+	var cur_speed := str(_get_setting("carnet_analysis_speed", "fast"))
+	var speed_cfg := CarnetConfig.get_analysis_speed_config(cur_speed)
 	var speed_lbl := str(speed_cfg.get("label", "⚡ Rapide"))
 	var eng_name := _get_active_engine_name()
 
@@ -1520,7 +1531,13 @@ func _launch_full_reanalysis() -> void:
 			game_ids.append(gid)
 	if game_ids.is_empty():
 		return
-	presenter.start_batch(game_ids, {"force_analysis": true})
+	var cur_speed := str(_get_setting("carnet_analysis_speed", "fast"))
+	var speed_cfg := CarnetConfig.get_analysis_speed_config(cur_speed)
+	presenter.start_batch(game_ids, {
+		"force_analysis": true,
+		"speed": cur_speed,
+		"depth": int(speed_cfg.get("depth", 8))
+	})
 	_update_batch_row()
 	_show_batch_modal()
 
@@ -1570,4 +1587,3 @@ func _get_active_engine_name() -> String:
 		if em.has_method("get_engine_display_name"):
 			return em.get_engine_display_name()
 	return "Stockfish"
-

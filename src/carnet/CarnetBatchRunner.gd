@@ -314,17 +314,22 @@ static func default_analyzer(depth: int = -1, mode: String = "", on_ply: Callabl
 					cg.make_move(m)
 		if cg.move_history.is_empty():
 			return {"error": "partie_vide"}
-		var speed_cfg: Dictionary = CarnetConfig.get_analysis_speed_config()
-		var eff_depth: int = depth if depth > 0 else int(speed_cfg.get("depth", 8))
-		var eff_mode: String = mode if mode != "" else "dynamic"
+		var opt_speed_key := str(custom_options.get("speed", ""))
+		var speed_cfg: Dictionary = CarnetConfig.get_analysis_speed_config(opt_speed_key)
+		var eff_depth: int = depth if depth > 0 else int(custom_options.get("depth", speed_cfg.get("depth", 8)))
+		var eff_mode: String = mode if mode != "" else str(custom_options.get("mode", "dynamic"))
 		var opts: Dictionary = {
 			"mode": eff_mode,
+			"depth": eff_depth,
+			"speed": str(speed_cfg.get("speed", "fast")),
 			"dynamic_base": float(custom_options.get("dynamic_base", speed_cfg.get("dynamic_base", 0.05))),
 			"dynamic_max": float(custom_options.get("dynamic_max", speed_cfg.get("dynamic_max", 0.20))),
 			"time_per_move": float(custom_options.get("time_per_move", speed_cfg.get("time_per_move", 0.08))),
 		}
 		for k in custom_options:
 			opts[k] = custom_options[k]
+		opts["mode"] = eff_mode
+		opts["depth"] = eff_depth
 		var label: String = str(speed_cfg.get("label", "⚡ Rapide"))
 		var engine_name := _get_active_engine_name()
 		print("[Carnet]   [Moteur %s] Config: %s (Prof. %d, base %.2fs, max %.2fs)" % [

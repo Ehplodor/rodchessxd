@@ -55,6 +55,8 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	_awaited_display_ply = -1
 	move_evaluations.clear()
 	
+	if options.has("depth") and int(options["depth"]) > 0:
+		depth = int(options["depth"])
 	if not engine_manager:
 		engine_manager = _get_engine_manager()
 
@@ -283,6 +285,8 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	_awaited_display_ply = -1
 	move_evaluations.clear()
 	
+	if options.has("depth") and int(options["depth"]) > 0:
+		depth = int(options["depth"])
 	if not engine_manager:
 		engine_manager = _get_engine_manager()
 
