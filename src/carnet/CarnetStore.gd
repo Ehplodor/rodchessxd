@@ -406,6 +406,13 @@ static func recalculate_profile_async(profile_id: String = "", options: Dictiona
 		if tree != null:
 			await tree.process_frame
 
+		# Vérification de l'interruption / STOP utilisateur
+		var is_cancelled_fn: Callable = options.get("is_cancelled", Callable())
+		if is_cancelled_fn.is_valid() and bool(is_cancelled_fn.call()):
+			print("[Carnet] [Recalcul Profil '%s'] Arrêt demandé par l'utilisateur après %d partie(s)." % [pid, processed_games])
+			break
+
+	# Enregistrement garanti de toutes les parties traitées jusqu'au STOP ou à la fin
 	sync["entries"] = entries
 	sync["schema_version"] = CarnetConfig.CARNET_SCHEMA_VERSION
 	db.save_json_atomic(_sync_path(pid), sync)
@@ -416,12 +423,19 @@ static func recalculate_profile_async(profile_id: String = "", options: Dictiona
 	var ledger := compile("", -1, pid)
 	var plan := refresh_plan("", {}, pid)
 
-	print("[Carnet] [Recalcul Profil '%s'] Terminé : %d parties traitées, %d ignorées, %d atomes régénérés." % [
-		pid, processed_games, skipped_no_analysis, total_atoms
+	var was_cancelled: bool = false
+	var is_cancelled_check: Callable = options.get("is_cancelled", Callable())
+	if is_cancelled_check.is_valid() and bool(is_cancelled_check.call()):
+		was_cancelled = true
+
+	print("[Carnet] [Recalcul Profil '%s'] %s : %d parties traitées, %d ignorées, %d atomes régénérés." % [
+		pid, "Arrêté par l'utilisateur (progression conservée)" if was_cancelled else "Terminé",
+		processed_games, skipped_no_analysis, total_atoms
 	])
 
 	return {
 		"ok": true,
+		"cancelled": was_cancelled,
 		"profile_id": pid,
 		"matched_games": total_matches,
 		"processed_games": processed_games,

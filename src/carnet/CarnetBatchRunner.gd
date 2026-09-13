@@ -127,6 +127,10 @@ func cancel() -> void:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree and tree.root and tree.root.has_node("EngineManager"):
 		tree.root.get_node("EngineManager").stop_evaluation()
+	# Si des parties ont été traitées avant l'annulation, compiler immédiatement le carnet pour les conserver
+	if profile_id != "" and processed > 0:
+		CarnetStore.compile("", -1, profile_id)
+		CarnetStore.refresh_plan("", {}, profile_id)
 	clear_job()
 
 # ── Traitement ───────────────────────────────────────────────────────────────────
@@ -228,6 +232,24 @@ func run(max_games: int = -1) -> void:
 
 func _needs_analysis(game_id: String, game: Dictionary) -> bool:
 	if bool(options.get("force_analysis", false)):
+		# Si la partie possède déjà une analyse avec le même moteur et la même profondeur cible (ou supérieure),
+		# et qu'elle est déjà synchronisée dans sync.json, ne pas gaspiller de calcul : elle est conservée !
+		var req_depth: int = int(options.get("depth", 8))
+		var analyses = game.get("engine_analyses", [])
+		if analyses is Array and not analyses.is_empty():
+			var last_a = analyses[-1]
+			if last_a is Dictionary:
+				var last_d: int = int(last_a.get("depth", 0))
+				var last_eng: String = str(last_a.get("engine_name", ""))
+				var cur_eng := _get_active_engine_name()
+				var evals: Array = last_a.get("evaluations", []) if last_a.get("evaluations", []) is Array else []
+				if last_d >= req_depth and (last_eng == cur_eng or last_eng == "") and not evals.is_empty():
+					var sync_entry: Dictionary = CarnetStore._load_sync(profile_id).get("entries", {}).get(game_id, {})
+					if int(sync_entry.get("analysis_version", -1)) == int(game.get("analysis_version", 0)) and int(sync_entry.get("atom_version", -1)) == CarnetConfig.ATOM_VERSION:
+						print("[Carnet]   -> Partie %s déjà analysée avec %s (prof. %d >= %d), réanalyse moteur sautée." % [
+							game_id, cur_eng, last_d, req_depth
+						])
+						return false
 		return true
 	var forced: Dictionary = options.get("force_analysis_ids", {})
 	if forced is Dictionary and forced.has(game_id):
@@ -251,6 +273,9 @@ func _record_failure(game_id: String, message: String) -> void:
 
 func _finalize() -> Dictionary:
 	state = "done"
+	if profile_id != "" and processed > 0:
+		CarnetStore.compile("", -1, profile_id)
+		CarnetStore.refresh_plan("", {}, profile_id)
 	clear_job()
 	finished.emit(processed, failed)
 	print("[Carnet] [Mise à jour Lot] Terminé : %d partie(s) traitée(s), %d échec(s)." % [processed, failed])

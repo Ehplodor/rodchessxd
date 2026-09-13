@@ -14,16 +14,18 @@ var _finished := {}
 
 func _init() -> void:
 	print("--- Running CarnetPresenter (T1) test ---")
+	_start()
 
-func _process(_delta: float) -> bool:
-	if _ran:
-		return true
-	_ran = true
+func _start() -> void:
+	await process_frame
+	_run_all()
+
+func _run_all() -> void:
 	_db = root.get_node_or_null("DatabaseManager")
 	if _db == null:
 		printerr("DatabaseManager autoload introuvable")
 		quit(1)
-		return true
+		return
 	CarnetProfiles.reset()
 
 	var presenter: CarnetPresenter = CarnetPresenter.new()
@@ -41,6 +43,8 @@ func _process(_delta: float) -> bool:
 	_test_default_profile_keys(presenter)
 	await _test_recalculate_profile_async(presenter)
 	_test_batch_ply_progress_and_effort(presenter)
+	_test_batch_cancellation_preservation(presenter)
+	await _test_recalculate_cancellation_preservation(presenter)
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -48,7 +52,6 @@ func _process(_delta: float) -> bool:
 	else:
 		printerr("CARNET PRESENTER TESTS FAILED: %d" % _failures)
 	quit(0 if _failures == 0 else 1)
-	return true
 
 func _check(cond: bool, label: String) -> void:
 	if cond:
@@ -483,5 +486,131 @@ func _test_batch_ply_progress_and_effort(presenter: CarnetPresenter) -> void:
 	presenter.batch_ply_progress.disconnect(ply_conn)
 	_db.delete_game(gid)
 	presenter.delete_profile(pid)
+
+func _test_batch_cancellation_preservation(presenter: CarnetPresenter) -> void:
+	var pid := presenter.create_profile("CancelBatchProf", "local", ["cancelplayer"])
+	var pgn1 := """[Event "Cancel Test 1"]
+[White "CancelPlayer"]
+[Black "Opp1"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 Nc6 1-0"""
+	var pgn2 := """[Event "Cancel Test 2"]
+[White "CancelPlayer"]
+[Black "Opp2"]
+[Result "1-0"]
+
+1. d4 d5 2. c4 e6 1-0"""
+	var gid1 := str(_db.record_pgn_game(pgn1, "pgn_import"))
+	var gid2 := str(_db.record_pgn_game(pgn2, "pgn_import"))
+
+	presenter.refresh_sync()
+	var initial_games := presenter.get_profile_games(pid)
+	_check(initial_games.size() == 2, "2 parties initialement détectées pour CancelBatchProf")
+
+	var analyzed_count := 0
+	presenter.set_analyzer(func(_game: Dictionary) -> Dictionary:
+		analyzed_count += 1
+		return {
+			"depth": 8,
+			"evaluations": [
+				{"ply": 0, "is_white": true, "uci": "e2e4", "san": "e4", "quality": 1, "score_cp": 10, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""},
+				{"ply": 1, "is_white": false, "uci": "e7e5", "san": "e5", "quality": 1, "score_cp": 10, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""}
+			]
+		}
+	)
+
+	presenter.start_batch([gid1, gid2])
+	_check(presenter.is_batching(), "lot démarré avec 2 parties")
+
+	# Exécuter un pas de batch pour traiter la 1ère partie
+	var poll_res := presenter.poll_batch()
+	_check(poll_res, "1er pas exécuté")
+	_check(presenter.batch != null and presenter.batch.processed == 1, "1ère partie traitée avec succès par le lot")
+
+	# Simuler l'appui sur le bouton STOP par l'utilisateur
+	presenter.cancel_batch()
+	_check(presenter.batch == null, "batch annulé et remis à null")
+
+	# Vérifier que la partie 1 a été STRICTEMENT conservée
+	var games_after_cancel := presenter.get_profile_games(pid)
+	var g1_status := ""
+	var g2_status := ""
+	for g in games_after_cancel:
+		if str(g.get("game_id", "")) == gid1:
+			g1_status = str(g.get("status", ""))
+		elif str(g.get("game_id", "")) == gid2:
+			g2_status = str(g.get("status", ""))
+
+	_check(g1_status == "up_to_date", "partie 1 conservée et marquée 'up_to_date' après STOP")
+	_check(g2_status == "pending", "partie 2 toujours 'pending' après STOP")
+
+	var known_ids: Array = []
+	for k in presenter.sync.get("known", []):
+		known_ids.append(str(k.get("game_id", "")))
+	_check(known_ids.has(gid1), "partie 1 présente dans sync.known après STOP")
+
+	# Relancer le batch pour les parties restantes : partie 1 ne doit PAS être re-traitée
+	analyzed_count = 0
+	presenter.refresh_sync()
+	var to_proc: Array = presenter.sync.get("to_process", [])
+	var to_proc_ids: Array = []
+	for tp in to_proc:
+		to_proc_ids.append(str(tp.get("game_id", "")))
+	_check(to_proc_ids.size() == 1 and str(to_proc_ids[0]) == gid2, "seule la partie 2 reste à traiter")
+
+	_db.delete_game(gid1)
+	_db.delete_game(gid2)
+	presenter.delete_profile(pid)
+
+func _test_recalculate_cancellation_preservation(presenter: CarnetPresenter) -> void:
+	var pid := presenter.create_profile("CancelRecalcProf", "local", ["recalcplayer"])
+	var pgn1 := """[Event "Recalc Cancel 1"]
+[White "RecalcPlayer"]
+[Black "Opp1"]
+[Result "1-0"]
+
+1. e4 e5 1-0"""
+	var pgn2 := """[Event "Recalc Cancel 2"]
+[White "RecalcPlayer"]
+[Black "Opp2"]
+[Result "1-0"]
+
+1. d4 d5 1-0"""
+	var gid1 := str(_db.record_pgn_game(pgn1, "pgn_import"))
+	var gid2 := str(_db.record_pgn_game(pgn2, "pgn_import"))
+	_db.add_engine_analysis(gid1, {
+		"schema_version": 2, "depth": 8, "evaluations": [
+			{"ply": 0, "is_white": true, "uci": "e2e4", "san": "e4", "quality": 1, "score_cp": 10, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""}
+		]
+	})
+	_db.add_engine_analysis(gid2, {
+		"schema_version": 2, "depth": 8, "evaluations": [
+			{"ply": 0, "is_white": true, "uci": "d2d4", "san": "d4", "quality": 1, "score_cp": 10, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""}
+		]
+	})
+
+	# Lancer recalcul asynchrone et annuler après la 1ère partie
+	var processed_in_callback := 0
+	var res = await presenter.recalculate_profile_async(pid, func(done, _total, _game_id, _gdata, _atoms_cnt):
+		processed_in_callback = done
+		if done == 1:
+			presenter.cancel_recalculate()
+	)
+
+	_check(bool(res.get("cancelled", false)), "recalcul marqué cancelled=true")
+	_check(int(res.get("processed_games", 0)) == 1, "exactement 1 partie traitée avant l'arrêt")
+	
+	var games := presenter.get_profile_games(pid)
+	var g1_status := ""
+	for g in games:
+		if str(g.get("game_id", "")) == gid1:
+			g1_status = str(g.get("status", ""))
+	_check(g1_status == "up_to_date", "partie 1 traitée est conservée et 'up_to_date' après arrêt du recalcul")
+
+	_db.delete_game(gid1)
+	_db.delete_game(gid2)
+	presenter.delete_profile(pid)
+
 
 

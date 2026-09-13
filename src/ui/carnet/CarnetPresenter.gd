@@ -39,6 +39,10 @@ var _chesscom_service: ChessComService = null
 var _chesscom_profile_name: String = ""
 var _chesscom_batch_depth: int = 14
 var _chesscom_batch_mode: String = "dynamic"
+var _recalculate_cancelled: bool = false
+
+func cancel_recalculate() -> void:
+	_recalculate_cancelled = true
 
 # ── Profils (L1) ─────────────────────────────────────────────────────────────────
 
@@ -203,8 +207,12 @@ func recalculate_profile(target_profile_id: String = "") -> Dictionary:
 ## Recalcul algorithmique complet et asynchrone du carnet (avec émission de progression et sans freeze)
 func recalculate_profile_async(target_profile_id: String = "", on_progress: Callable = Callable()) -> Dictionary:
 	_ensure_profile()
+	_recalculate_cancelled = false
 	var pid := target_profile_id if target_profile_id != "" else profile_id
-	var res = await CarnetStore.recalculate_profile_async(pid, {}, func(done: int, total: int, gid: String, gdata: Dictionary, atoms_cnt: int):
+	var opts := {
+		"is_cancelled": func(): return _recalculate_cancelled
+	}
+	var res = await CarnetStore.recalculate_profile_async(pid, opts, func(done: int, total: int, gid: String, gdata: Dictionary, atoms_cnt: int):
 		var details := {
 			"game": gdata,
 			"atoms_count": atoms_cnt
@@ -213,11 +221,10 @@ func recalculate_profile_async(target_profile_id: String = "", on_progress: Call
 		if on_progress.is_valid():
 			on_progress.call(done, total, gid, gdata, atoms_cnt)
 	)
-	if res.get("ok", false):
-		refresh_sync()
-		refresh_carnet()
-		refresh_plan()
-		game_list_changed.emit()
+	refresh_sync()
+	refresh_carnet()
+	refresh_plan()
+	game_list_changed.emit()
 	return res
 
 func reanalyze_game(game_id: String, target_profile_id: String = "", options: Dictionary = {}) -> void:
@@ -385,7 +392,13 @@ func poll_batch() -> bool:
 	if batch.state == "running":
 		return true
 	if batch.state == "done":
+		if batch.profile_id != "":
+			CarnetStore.compile("", -1, batch.profile_id)
+			CarnetStore.refresh_plan("", {}, batch.profile_id)
 		refresh_sync()
+		refresh_carnet()
+		refresh_plan()
+		game_list_changed.emit()
 	return false
 
 func pause_batch() -> void:
@@ -400,8 +413,17 @@ func resume_batch() -> void:
 
 func cancel_batch() -> void:
 	if batch != null:
+		var pid := batch.profile_id
+		var p_count := batch.processed
 		batch.cancel()
-		batch_state.emit(batch.state)
+		if pid != "" and p_count > 0:
+			CarnetStore.compile("", -1, pid)
+			CarnetStore.refresh_plan("", {}, pid)
+		refresh_sync()
+		refresh_carnet()
+		refresh_plan()
+		game_list_changed.emit()
+		batch_state.emit("cancelled")
 		batch = null
 
 func is_batching() -> bool:

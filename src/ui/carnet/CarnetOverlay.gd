@@ -904,7 +904,9 @@ func _build_sync_tab() -> void:
 
 	var keys_card := PanelContainer.new()
 	keys_card.add_theme_stylebox_override("panel", DesignTokens.card())
+	keys_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var keys_box := VBoxContainer.new()
+	keys_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	keys_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
 	keys_card.add_child(keys_box)
 
@@ -915,12 +917,16 @@ func _build_sync_tab() -> void:
 	var keys_title := Label.new()
 	keys_title.text = "👤 Clés joueur associées"
 	keys_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	keys_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	keys_title.clip_text = true
 	keys_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	keys_title.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	keys_header.add_child(keys_title)
 
 	var btn_edit_keys := Button.new()
 	btn_edit_keys.text = "Gérer les clés"
+	btn_edit_keys.clip_text = true
+	btn_edit_keys.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	btn_edit_keys.custom_minimum_size = Vector2(DesignTokens.TOUCH_MIN, DesignTokens.TOUCH_DENSE)
 	DesignTokens.style_button(btn_edit_keys, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
 	btn_edit_keys.add_theme_color_override("font_color", DesignTokens.ACCENT)
@@ -942,31 +948,33 @@ func _build_sync_tab() -> void:
 
 	_content.add_child(keys_card)
 
-	# Vitesse d'analyse moteur du carnet
+	# Vitesse d'analyse moteur du carnet (scindée sur 2 lignes pour ergonomie mobile et éviter tout débordement)
 	var speed_card := PanelContainer.new()
 	speed_card.add_theme_stylebox_override("panel", DesignTokens.card())
+	speed_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var speed_box := VBoxContainer.new()
+	speed_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	speed_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
 	speed_card.add_child(speed_box)
-
-	var speed_header := HBoxContainer.new()
-	speed_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	speed_box.add_child(speed_header)
 
 	var eng_name := _get_active_engine_name()
 	var speed_title := Label.new()
 	speed_title.text = "⚡ Effort du moteur (%s)" % eng_name
 	speed_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	speed_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	speed_title.clip_text = true
 	speed_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	speed_title.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	speed_header.add_child(speed_title)
+	speed_box.add_child(speed_title)
 
 	var speed_opt := OptionButton.new()
 	speed_opt.name = "AnalysisSpeedOption"
-	speed_opt.custom_minimum_size = Vector2(150, DesignTokens.TOUCH_DENSE)
+	speed_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	speed_opt.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
 	speed_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	speed_opt.fit_to_longest_item = false
 	speed_opt.clip_text = true
+	speed_opt.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	speed_opt.add_item("⚡ Rapide", 0)
 	speed_opt.add_item("⚖️ Standard", 1)
 	speed_opt.add_item("🎯 Approfondie", 2)
@@ -977,7 +985,7 @@ func _build_sync_tab() -> void:
 		"balanced": speed_opt.selected = 1
 		"deep": speed_opt.selected = 2
 		_: speed_opt.selected = 0
-	speed_header.add_child(speed_opt)
+	speed_box.add_child(speed_opt)
 
 	var speed_desc := Label.new()
 	speed_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1007,6 +1015,7 @@ func _build_sync_tab() -> void:
 
 	# Actions Sync : ligne 1 = Mettre à jour ; ligne 2 = imports
 	var actions_col = VBoxContainer.new()
+	actions_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	actions_col.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
 	_content.add_child(actions_col)
 
@@ -1024,6 +1033,7 @@ func _build_sync_tab() -> void:
 	actions_col.add_child(run)
 
 	var imports_row = HBoxContainer.new()
+	imports_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	imports_row.add_theme_constant_override("separation", DesignTokens.SPACE_S)
 	actions_col.add_child(imports_row)
 
@@ -1065,10 +1075,12 @@ func _build_sync_tab() -> void:
 	imports_row.add_child(btn_recalc)
 
 	_batch_label = Label.new()
+	_batch_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_batch_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	_batch_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_content.add_child(_batch_label)
 	_batch_actions = HBoxContainer.new()
+	_batch_actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_batch_actions.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
 	_content.add_child(_batch_actions)
 	_update_batch_row()
@@ -1144,6 +1156,8 @@ func _append_batch_action(label: String, action: Callable) -> void:
 	var btn := Button.new()
 	btn.text = label
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.clip_text = true
+	btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	DesignTokens.style_button(btn, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
 	btn.pressed.connect(func(): action.call(); _update_batch_row())
 	_batch_actions.add_child(btn)
@@ -1153,6 +1167,7 @@ func _append_batch_action(label: String, action: Callable) -> void:
 static func _section_title(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	label.clip_text = true
 	label.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
@@ -1162,6 +1177,7 @@ static func _section_title(text: String) -> Label:
 static func _hint(text: String) -> Label:
 	var label := Label.new()
 	label.text = text
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	label.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
@@ -1427,7 +1443,11 @@ func _show_batch_modal() -> void:
 			elif state == "failed":
 				modal.finish("Erreur lors du traitement du lot.")
 			elif state == "cancelled":
-				modal.finish("Traitement arrêté par l'utilisateur.")
+				var p: int = presenter.batch.processed if presenter.batch != null else 0
+				if p > 0:
+					modal.finish("Traitement arrêté par l'utilisateur.\n%d partie(s) déjà traitée(s) et conservée(s)." % p)
+				else:
+					modal.finish("Traitement arrêté par l'utilisateur.")
 
 	presenter.batch_progress.connect(on_progress_conn)
 	presenter.batch_ply_progress.connect(on_ply_conn)
@@ -1444,6 +1464,8 @@ func _show_batch_modal() -> void:
 	)
 	modal.cancelled.connect(func():
 		presenter.cancel_batch()
+		_refresh_header()
+		_refresh_games_list()
 		_update_batch_row()
 	)
 	modal.tree_exiting.connect(func():
@@ -1456,6 +1478,9 @@ func _show_batch_modal() -> void:
 				presenter.batch_engine_depth.disconnect(on_depth_conn)
 			if presenter.batch_state.is_connected(on_state_conn):
 				presenter.batch_state.disconnect(on_state_conn)
+		_refresh_header()
+		_refresh_games_list()
+		_rebuild_content()
 	)
 
 func _on_recalculate_profile() -> void:
@@ -1501,6 +1526,10 @@ func _launch_algorithmic_recalculate() -> void:
 	var prof_name := presenter.active_profile_name()
 	modal.open("Recalcul du carnet", games.size(), "Profil : %s • Algorithmique" % prof_name)
 
+	modal.cancelled.connect(func():
+		presenter.cancel_recalculate()
+	)
+
 	var res = await presenter.recalculate_profile_async("", func(done: int, total: int, gid: String, gdata: Dictionary, atoms_cnt: int):
 		if is_instance_valid(modal):
 			var white := str(gdata.get("white_name", "?"))
@@ -1513,11 +1542,21 @@ func _launch_algorithmic_recalculate() -> void:
 
 	var count: int = int(res.get("processed_games", 0))
 	var atoms: int = int(res.get("total_atoms", 0))
-	if is_instance_valid(modal):
-		modal.finish("Recalcul terminé avec succès !\n%d parties traitées • %d atomes régénérés." % [count, atoms])
+	var was_cancelled: bool = bool(res.get("cancelled", false))
 
-	_on_toast_requested("Carnet recalculé : %d parties, %d atomes mis à jour." % [count, atoms], true)
+	if is_instance_valid(modal):
+		if was_cancelled:
+			modal.finish("Recalcul arrêté par l'utilisateur.\n%d parties recalculées et conservées." % count)
+		else:
+			modal.finish("Recalcul terminé avec succès !\n%d parties traitées • %d atomes régénérés." % [count, atoms])
+
+	if was_cancelled:
+		_on_toast_requested("Recalcul arrêté : %d parties et %d atomes conservés." % [count, atoms], true)
+	else:
+		_on_toast_requested("Carnet recalculé : %d parties, %d atomes mis à jour." % [count, atoms], true)
+
 	_refresh_header()
+	_refresh_games_list()
 	_rebuild_content()
 
 func _launch_full_reanalysis() -> void:
