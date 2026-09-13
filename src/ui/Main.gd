@@ -1047,7 +1047,7 @@ func _setup_carnet_overlay() -> void:
 	add_child(carnet_overlay)
 	carnet_overlay.closed.connect(_close_carnet_overlay)
 	# Le lot analyse via le moteur partagé : il cède le pas à l'utilisateur.
-	carnet_presenter.set_analyzer(CarnetBatchRunner.default_analyzer(14))
+	carnet_presenter.set_analyzer(CarnetBatchRunner.default_analyzer())
 	carnet_presenter.set_engine_free_provider(func() -> bool:
 		if analyse_overlay != null and analyse_overlay.visible:
 			return false

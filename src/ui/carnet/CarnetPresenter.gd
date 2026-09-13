@@ -12,6 +12,7 @@ signal sync_changed
 signal carnet_changed
 signal plan_changed
 signal batch_progress(done: int, total: int, game_id: String)
+signal batch_ply_progress(ply: int, total: int)
 signal batch_state(state: String)
 signal recalculate_progress(done: int, total: int, game_id: String, details: Dictionary)
 signal session_changed
@@ -324,12 +325,23 @@ func set_engine_free_provider(provider: Callable) -> void:
 func start_batch(game_ids: Array = [], options: Dictionary = {}) -> void:
 	_ensure_profile()
 	batch = CarnetBatchRunner.new()
-	if _analyzer.is_valid():
+	var opt_depth: int = int(options.get("depth", -1))
+	var opt_mode: String = str(options.get("mode", ""))
+	var opt_speed: String = str(options.get("speed", ""))
+	var custom_opts: Dictionary = {}
+	if opt_speed != "":
+		custom_opts = CarnetConfig.get_analysis_speed_config(opt_speed)
+	for k in options:
+		if k not in ["depth", "mode", "speed"]:
+			custom_opts[k] = options[k]
+
+	var on_ply_cb := func(ply: int, total: int):
+		batch_ply_progress.emit(ply, total)
+
+	if _analyzer.is_valid() and not bool(options.get("force_analysis", false)) and not options.has("depth") and not options.has("speed"):
 		batch.analyzer = _analyzer
 	else:
-		# Repli : analyseur moteur par défaut (desktop), sinon le lot échouerait partout.
-		batch.analyzer = CarnetBatchRunner.default_analyzer(
-				int(options.get("depth", 14)), str(options.get("mode", "dynamic")))
+		batch.analyzer = CarnetBatchRunner.default_analyzer(opt_depth, opt_mode, on_ply_cb, custom_opts)
 	if _engine_free.is_valid():
 		batch.engine_free = _engine_free
 	batch.configure(profile_id, game_ids, options)
@@ -386,8 +398,8 @@ func bulk_import_chesscom(username: String, profile_name: String = "", options: 
 
 	var max_months := int(options.get("max_months", 12))
 	var max_games := int(options.get("max_games", 500))
-	_chesscom_batch_depth = int(options.get("depth", 14))
-	_chesscom_batch_mode = str(options.get("mode", "dynamic"))
+	_chesscom_batch_depth = int(options.get("depth", -1))
+	_chesscom_batch_mode = str(options.get("mode", ""))
 
 	var name := profile_name.strip_edges()
 	if name == "":

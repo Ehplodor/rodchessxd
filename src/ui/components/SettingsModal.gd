@@ -313,8 +313,43 @@ func _setup_ui() -> void:
 	mpv_row.add_child(mpv_spin)
 	vbox.add_child(mpv_row)
 
+	# Vitesse d'analyse du Carnet (traitement par lot et synchronisations)
+	var carnet_speed_row = HBoxContainer.new()
+	carnet_speed_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var carnet_speed_lbl = Label.new()
+	carnet_speed_lbl.text = "Vitesse moteur Carnet :"
+	carnet_speed_lbl.tooltip_text = "Vitesse du moteur pour le traitement par lot et les recalculs de LeCarnet"
+	carnet_speed_lbl.custom_minimum_size = Vector2(50, 0)
+	carnet_speed_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	carnet_speed_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	carnet_speed_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	carnet_speed_row.add_child(carnet_speed_lbl)
+
+	var carnet_speed_opt = OptionButton.new()
+	carnet_speed_opt.custom_minimum_size = Vector2(160, DesignTokens.TOUCH_MIN)
+	carnet_speed_opt.fit_to_longest_item = false
+	carnet_speed_opt.clip_text = true
+	carnet_speed_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	carnet_speed_opt.add_item("⚡ Rapide (~2s)", 0)
+	carnet_speed_opt.add_item("⚖️ Standard (~6s)", 1)
+	carnet_speed_opt.add_item("🎯 Approfondie (~20s)", 2)
+	var cur_speed = SettingsManager.get_setting("carnet_analysis_speed", "fast")
+	match cur_speed:
+		"fast": carnet_speed_opt.selected = 0
+		"balanced": carnet_speed_opt.selected = 1
+		"deep": carnet_speed_opt.selected = 2
+		_: carnet_speed_opt.selected = 0
+	carnet_speed_opt.item_selected.connect(func(idx):
+		match idx:
+			0: SettingsManager.set_setting("carnet_analysis_speed", "fast")
+			1: SettingsManager.set_setting("carnet_analysis_speed", "balanced")
+			2: SettingsManager.set_setting("carnet_analysis_speed", "deep")
+	)
+	carnet_speed_row.add_child(carnet_speed_opt)
+	vbox.add_child(carnet_speed_row)
+
 	var param_note = Label.new()
-	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Mode Dynamique : vitesse maximale sur les coups évidents (0.15s) et approfondissement automatique sur les coups critiques.\n• Mode Temps fixe : durée garantie par demi-coup (0.1s à 3.0s).\n• Mode Profondeur : analyse à profondeur UCI fixe.\n• Intervalles de confiance (IC 95%) : calculés statistiquement sur les évaluations et les ELO avec test de Welch (*, **, ***).\n• Threads & Hash : nombre de cœurs CPU et mémoire cache (redémarre le moteur si modifié)."
+	param_note.text = "Comment ajuster vitesse vs profondeur ?\n• Vitesse moteur Carnet : ajuste la profondeur et le temps de calcul pour les imports et mises à jour de lot (Rapide = ~2s/partie, Standard = ~6s/partie, Approfondie = ~20s/partie).\n• Mode Dynamique : vitesse maximale sur les coups évidents (0.15s) et approfondissement automatique sur les coups critiques.\n• Mode Temps fixe : durée garantie par demi-coup (0.1s à 3.0s).\n• Mode Profondeur : analyse à profondeur UCI fixe.\n• Intervalles de confiance (IC 95%) : calculés statistiquement sur les évaluations et les ELO avec test de Welch (*, **, ***).\n• Threads & Hash : nombre de cœurs CPU et mémoire cache (redémarre le moteur si modifié)."
 	param_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	param_note.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	param_note.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)

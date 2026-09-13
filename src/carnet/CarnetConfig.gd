@@ -118,3 +118,51 @@ const NO_SECOND_LINE := -999999
 const ATOM_VERSION := 1
 ## Version du schéma des fichiers de profil (sync/atoms/trainer).
 const CARNET_SCHEMA_VERSION := 1
+
+# ── Vitesse d'analyse moteur du Carnet ──────────────────────────────────────────
+const ANALYSIS_SPEED_FAST := "fast"
+const ANALYSIS_SPEED_BALANCED := "balanced"
+const ANALYSIS_SPEED_DEEP := "deep"
+
+const ANALYSIS_SPEED_PRESETS := {
+	ANALYSIS_SPEED_FAST: {
+		"label": "⚡ Rapide",
+		"desc": "Idéal pour les grands carnets (~1 à 3 s / partie)",
+		"depth": 8,
+		"dynamic_base": 0.05,
+		"dynamic_max": 0.20,
+		"time_per_move": 0.08,
+	},
+	ANALYSIS_SPEED_BALANCED: {
+		"label": "⚖️ Standard",
+		"desc": "Équilibré (~5 à 8 s / partie)",
+		"depth": 12,
+		"dynamic_base": 0.10,
+		"dynamic_max": 0.40,
+		"time_per_move": 0.15,
+	},
+	ANALYSIS_SPEED_DEEP: {
+		"label": "🎯 Approfondie",
+		"desc": "Précision maximale (~15 à 25 s / partie)",
+		"depth": 16,
+		"dynamic_base": 0.20,
+		"dynamic_max": 0.80,
+		"time_per_move": 0.30,
+	},
+}
+
+static func get_analysis_speed_config(preset: String = "") -> Dictionary:
+	var key := preset
+	if key == "" or not ANALYSIS_SPEED_PRESETS.has(key):
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree and tree.root and tree.root.has_node("SettingsManager"):
+			var sm = tree.root.get_node("SettingsManager")
+			key = str(sm.get_setting("carnet_analysis_speed", ANALYSIS_SPEED_FAST))
+		else:
+			key = ANALYSIS_SPEED_FAST
+	if not ANALYSIS_SPEED_PRESETS.has(key):
+		key = ANALYSIS_SPEED_FAST
+	var cfg: Dictionary = ANALYSIS_SPEED_PRESETS[key].duplicate(true)
+	if OS.has_feature("android") or OS.has_feature("ios"):
+		cfg["depth"] = maxi(6, int(cfg.get("depth", 8)) - 2)
+	return cfg

@@ -134,10 +134,11 @@ func set_game(game_data: Dictionary) -> void:
 	row4.add_theme_constant_override("separation", DesignTokens.SPACE_S)
 	vbox.add_child(row4)
 
+	var eng_name := _get_active_engine_name()
 	var btn_recalc := Button.new()
 	if status == "pending":
-		btn_recalc.text = "⚡ Analyser avec Stockfish"
-		btn_recalc.tooltip_text = "Lancer l'analyse Stockfish de cette partie"
+		btn_recalc.text = "⚡ Analyser avec %s" % eng_name
+		btn_recalc.tooltip_text = "Lancer l'analyse %s de cette partie" % eng_name
 		btn_recalc.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	elif status == "stale":
 		btn_recalc.text = "⟳ Mettre à jour les atomes"
@@ -197,7 +198,7 @@ func _format_status(status: String, reason: String) -> Dictionary:
 			return {
 				"text": "⏳ En attente d'analyse",
 				"color": DesignTokens.WARNING,
-				"tooltip": "Partie pas encore analysée par Stockfish ou à intégrer"
+				"tooltip": "Partie pas encore analysée par %s ou à intégrer" % _get_active_engine_name()
 			}
 		"stale":
 			return {
@@ -210,6 +211,14 @@ func _format_status(status: String, reason: String) -> Dictionary:
 		"color": DesignTokens.TEXT_MUTED,
 		"tooltip": reason
 	}
+
+func _get_active_engine_name() -> String:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		var em = tree.root.get_node("EngineManager")
+		if em.has_method("get_engine_display_name"):
+			return em.get_engine_display_name()
+	return "Stockfish"
 
 func _format_date(raw_date: String) -> String:
 	var clean := raw_date.strip_edges()

@@ -40,6 +40,7 @@ func _process(_delta: float) -> bool:
 	_test_stockfish_continuation(presenter)
 	_test_default_profile_keys(presenter)
 	await _test_recalculate_profile_async(presenter)
+	_test_batch_ply_progress_and_effort(presenter)
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -439,6 +440,47 @@ func _test_recalculate_profile_async(presenter: CarnetPresenter) -> void:
 	_check(progress_events.size() >= 1, "signal recalculate_progress émis au moins 1 fois")
 	_check(callback_events.size() >= 1, "rappel on_progress invoqué au moins 1 fois")
 
+	_db.delete_game(gid)
+	presenter.delete_profile(pid)
+
+func _test_batch_ply_progress_and_effort(presenter: CarnetPresenter) -> void:
+	var pid := presenter.create_profile("EffortProfile", "local", ["effortplayer"])
+	var pgn := """[Event "Effort Test"]
+[White "EffortPlayer"]
+[Black "Opponent"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 1-0"""
+	var gid := str(_db.record_pgn_game(pgn, "pgn_import"))
+
+	var ply_events := []
+	var ply_conn := func(ply: int, total: int):
+		ply_events.append({"ply": ply, "total": total})
+	presenter.batch_ply_progress.connect(ply_conn)
+
+	presenter.set_analyzer(func(_game: Dictionary) -> Dictionary:
+		presenter.batch_ply_progress.emit(1, 3)
+		presenter.batch_ply_progress.emit(2, 3)
+		presenter.batch_ply_progress.emit(3, 3)
+		return {
+			"depth": 12,
+			"evaluations": [
+				{"ply": 0, "is_white": true, "uci": "e2e4", "san": "e4", "quality": 1, "score_cp": 20, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""},
+				{"ply": 1, "is_white": false, "uci": "e7e5", "san": "e5", "quality": 1, "score_cp": 20, "loss_cp": 0, "winpct_loss": 0.0, "is_theory": false, "best_alternative": "", "best_move": ""}
+			]
+		}
+	)
+
+	presenter.start_batch([gid], {"speed": "balanced"})
+	var max_steps := 50
+	while presenter.batch != null and presenter.batch.state == "running" and max_steps > 0:
+		presenter.poll_batch()
+		max_steps -= 1
+
+	_check(ply_events.size() == 3, "signal batch_ply_progress émis 3 fois lors de l'analyse")
+	_check(ply_events[0]["ply"] == 1 and ply_events[2]["ply"] == 3, "ply progress incrémenté de 1 à 3")
+
+	presenter.batch_ply_progress.disconnect(ply_conn)
 	_db.delete_game(gid)
 	presenter.delete_profile(pid)
 

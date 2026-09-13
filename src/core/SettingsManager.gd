@@ -38,7 +38,8 @@ var settings := {
 	"coach_personality": "mentor", # "mentor", "blunder_hunter", "kids_simple"
 	"flip_board": false,
 	"show_move_hints": true,
-	"app_theme_mode": "dark" # "dark", "light"
+	"app_theme_mode": "dark", # "dark", "light"
+	"carnet_analysis_speed": "fast" # "fast", "balanced", "deep"
 }
 
 func _ready() -> void:

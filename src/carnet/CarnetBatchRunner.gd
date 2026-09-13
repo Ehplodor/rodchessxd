@@ -150,7 +150,8 @@ func step() -> Dictionary:
 
 	# Phase 1 — analyse moteur (uniquement si nécessaire).
 	if _needs_analysis(gid, game):
-		print("[Carnet]   -> Analyse moteur Stockfish requise...")
+		var engine_name := _get_active_engine_name()
+		print("[Carnet]   -> Analyse moteur %s requise..." % engine_name)
 		if not analyzer.is_valid():
 			print("[Carnet]   -> Échec : aucun analyseur moteur fourni.")
 			_record_failure(gid, "aucun analyseur fourni")
@@ -264,9 +265,17 @@ static func clear_job_for(profile_id: String) -> void:
 func clear_job() -> void:
 	CarnetBatchRunner.clear_job_for(profile_id)
 
-## Analyseur moteur par défaut (desktop) : reconstruit la partie et lance `GameAnalyzer`.
+static func _get_active_engine_name() -> String:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		var em = tree.root.get_node("EngineManager")
+		if em.has_method("get_engine_display_name"):
+			return em.get_engine_display_name()
+	return "Stockfish"
+
+## Analyseur moteur par défaut : reconstruit la partie et lance `GameAnalyzer`.
 ## Le PGN peut être absent (jeu libre/OCR) : on rejoue alors la liste de coups stockée.
-static func default_analyzer(depth: int = 14, mode: String = "dynamic", on_ply: Callable = Callable()) -> Callable:
+static func default_analyzer(depth: int = -1, mode: String = "", on_ply: Callable = Callable(), custom_options: Dictionary = {}) -> Callable:
 	return func(game: Dictionary) -> Dictionary:
 		var cg = ChessGame.new()
 		var pgn := str(game.get("pgn_text", ""))
@@ -281,14 +290,34 @@ static func default_analyzer(depth: int = 14, mode: String = "dynamic", on_ply: 
 					cg.make_move(m)
 		if cg.move_history.is_empty():
 			return {"error": "partie_vide"}
+		var speed_cfg: Dictionary = CarnetConfig.get_analysis_speed_config()
+		var eff_depth: int = depth if depth > 0 else int(speed_cfg.get("depth", 8))
+		var eff_mode: String = mode if mode != "" else "dynamic"
+		var opts: Dictionary = {
+			"mode": eff_mode,
+			"dynamic_base": float(custom_options.get("dynamic_base", speed_cfg.get("dynamic_base", 0.05))),
+			"dynamic_max": float(custom_options.get("dynamic_max", speed_cfg.get("dynamic_max", 0.20))),
+			"time_per_move": float(custom_options.get("time_per_move", speed_cfg.get("time_per_move", 0.08))),
+		}
+		for k in custom_options:
+			opts[k] = custom_options[k]
+		var label: String = str(speed_cfg.get("label", "⚡ Rapide"))
+		var engine_name := _get_active_engine_name()
+		print("[Carnet]   [Moteur %s] Config: %s (Prof. %d, base %.2fs, max %.2fs)" % [
+			engine_name, label, eff_depth, opts["dynamic_base"], opts["dynamic_max"]
+		])
 		var analyzer := GameAnalyzer.new()
 		analyzer.progress_updated.connect(func(ply: int, total: int):
 			var pct := (float(ply) / maxi(1, total)) * 100.0
-			print("[Carnet]   [Moteur Stockfish] Coup %d/%d (%.0f%%)" % [ply, total, pct])
+			print("[Carnet]   [Moteur %s] Coup %d/%d (%.0f%%)" % [engine_name, ply, total, pct])
 			if on_ply.is_valid():
 				on_ply.call(ply, total)
 		)
-		var report := analyzer.start_game_analysis(cg, depth, {"mode": mode})
+		var report := analyzer.start_game_analysis(cg, eff_depth, opts)
+		if report is Dictionary:
+			report["depth"] = eff_depth
+			report["engine_name"] = engine_name
+			report["analysis_speed"] = label
 		var evals: Array = report.get("evaluations", []) if report.get("evaluations", []) is Array else []
-		print("[Carnet]   [Moteur Stockfish] Évaluations terminées (%d coups analysés)." % evals.size())
+		print("[Carnet]   [Moteur %s] Évaluations terminées (%d coups analysés)." % [engine_name, evals.size()])
 		return report

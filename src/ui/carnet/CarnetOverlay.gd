@@ -942,6 +942,69 @@ func _build_sync_tab() -> void:
 
 	_content.add_child(keys_card)
 
+	# Vitesse d'analyse moteur du carnet
+	var speed_card := PanelContainer.new()
+	speed_card.add_theme_stylebox_override("panel", DesignTokens.card())
+	var speed_box := VBoxContainer.new()
+	speed_box.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
+	speed_card.add_child(speed_box)
+
+	var speed_header := HBoxContainer.new()
+	speed_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	speed_box.add_child(speed_header)
+
+	var eng_name := _get_active_engine_name()
+	var speed_title := Label.new()
+	speed_title.text = "⚡ Effort du moteur (%s)" % eng_name
+	speed_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	speed_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	speed_title.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	speed_header.add_child(speed_title)
+
+	var speed_opt := OptionButton.new()
+	speed_opt.name = "AnalysisSpeedOption"
+	speed_opt.custom_minimum_size = Vector2(150, DesignTokens.TOUCH_DENSE)
+	speed_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	speed_opt.fit_to_longest_item = false
+	speed_opt.clip_text = true
+	speed_opt.add_item("⚡ Rapide", 0)
+	speed_opt.add_item("⚖️ Standard", 1)
+	speed_opt.add_item("🎯 Approfondie", 2)
+
+	var cur_speed_key: String = str(_get_setting("carnet_analysis_speed", "fast"))
+	match cur_speed_key:
+		"fast": speed_opt.selected = 0
+		"balanced": speed_opt.selected = 1
+		"deep": speed_opt.selected = 2
+		_: speed_opt.selected = 0
+	speed_header.add_child(speed_opt)
+
+	var speed_desc := Label.new()
+	speed_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	speed_desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	speed_desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	speed_desc.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+
+	var update_speed_desc := func(key: String):
+		var cfg: Dictionary = CarnetConfig.ANALYSIS_SPEED_PRESETS.get(key, CarnetConfig.ANALYSIS_SPEED_PRESETS["fast"])
+		speed_desc.text = "%s • Profondeur %d (recommandé pour les mises à jour)" % [
+			cfg.get("desc", ""),
+			cfg.get("depth", 8)
+		]
+	update_speed_desc.call(cur_speed_key)
+
+	speed_opt.item_selected.connect(func(idx: int):
+		var chosen := "fast"
+		match idx:
+			0: chosen = "fast"
+			1: chosen = "balanced"
+			2: chosen = "deep"
+		_set_setting("carnet_analysis_speed", chosen)
+		update_speed_desc.call(chosen)
+	)
+	speed_box.add_child(speed_desc)
+	_content.add_child(speed_card)
+
 	# Actions Sync : ligne 1 = Mettre à jour ; ligne 2 = imports
 	var actions_col = VBoxContainer.new()
 	actions_col.add_theme_constant_override("separation", DesignTokens.SPACE_XS)
@@ -1261,10 +1324,38 @@ func _on_game_reanalyze(game_id: String) -> void:
 		if not analyses.is_empty() and (analyses[-1].get("evaluations", []) as Array).size() > 0:
 			has_valid_analysis = true
 
-	presenter.reanalyze_game(game_id, presenter.profile_id)
-	if has_valid_analysis:
+	if not has_valid_analysis:
+		presenter.reanalyze_game(game_id, presenter.profile_id)
+		_update_batch_row()
+		_show_batch_modal()
+		return
+
+	var speed_cfg := CarnetConfig.get_analysis_speed_config()
+	var speed_lbl := str(speed_cfg.get("label", "⚡ Rapide"))
+	var eng_name := _get_active_engine_name()
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Analyser ou recalculer la partie"
+	dialog.dialog_text = "Cette partie possède déjà une analyse en bibliothèque.\n\n• Ré-analyser avec le moteur : recalcule l'évaluation avec %s (%s).\n• Recalculer les atomes : ré-extrait les atomes sans relancer le moteur." % [
+		eng_name, speed_lbl
+	]
+	dialog.ok_button_text = "⚡ Ré-analyser (%s)" % speed_lbl
+	dialog.cancel_button_text = "Annuler"
+	var btn_quick := dialog.add_button("⟳ Recalculer les atomes", true, "quick")
+	btn_quick.pressed.connect(func():
+		dialog.hide()
+		dialog.queue_free()
+		presenter.recalculate_game(game_id, presenter.profile_id)
 		_on_toast_requested("Partie recalculée depuis la bibliothèque.", true)
-	_update_batch_row()
+		_refresh_games_list()
+	)
+	dialog.confirmed.connect(func():
+		dialog.queue_free()
+		presenter.reanalyze_game(game_id, presenter.profile_id, {"force_analysis": true})
+		_update_batch_row()
+		_show_batch_modal()
+	)
+	add_child(dialog)
+	dialog.popup_centered()
 
 func _on_game_perspective_cycle(game_id: String) -> void:
 	presenter.cycle_game_perspective(game_id)
@@ -1287,16 +1378,28 @@ func _show_batch_modal() -> void:
 	add_child(modal)
 	var total_q: int = presenter.batch.queue.size()
 	var prof_name := presenter.active_profile_name()
-	modal.open("Mise à jour du carnet", total_q, "Profil : %s" % prof_name)
+	var speed_cfg := CarnetConfig.get_analysis_speed_config()
+	var speed_lbl := str(speed_cfg.get("label", "⚡ Rapide"))
+	var eng_name := _get_active_engine_name()
+	modal.open("Mise à jour du carnet", total_q, "Profil : %s • Moteur : %s (%s)" % [prof_name, eng_name, speed_lbl])
 
+	var cur_game_title := ""
 	var on_progress_conn := func(done: int, total: int, gid: String):
 		if is_instance_valid(modal):
 			var db := presenter._db()
 			var gdata: Dictionary = db.get_game(gid) if db != null else {}
 			var white := str(gdata.get("white_name", "?"))
 			var black := str(gdata.get("black_name", "?"))
-			var gtitle := "%s vs %s" % [white, black] if white != "?" else "Partie %s" % gid
-			modal.update_progress(done, total, gtitle, "Partie synchronisée")
+			cur_game_title = "%s vs %s" % [white, black] if white != "?" else "Partie %s" % gid
+			modal.update_progress(done, total, cur_game_title, "Partie synchronisée")
+
+	var on_ply_conn := func(ply: int, total_plies: int):
+		if is_instance_valid(modal):
+			var cur_done: int = presenter.batch.processed if presenter.batch != null else 0
+			var cur_tot: int = presenter.batch.queue.size() if presenter.batch != null else 1
+			var pct := (float(ply) / maxi(1, total_plies)) * 100.0
+			var substep := "Moteur %s (%s) : coup %d/%d (%.0f%%)" % [eng_name, speed_lbl, ply, total_plies, pct]
+			modal.update_progress(cur_done, cur_tot, cur_game_title, substep)
 
 	var on_state_conn := func(state: String):
 		if is_instance_valid(modal):
@@ -1308,6 +1411,7 @@ func _show_batch_modal() -> void:
 				modal.finish("Erreur lors du traitement du lot.")
 
 	presenter.batch_progress.connect(on_progress_conn)
+	presenter.batch_ply_progress.connect(on_ply_conn)
 	presenter.batch_state.connect(on_state_conn)
 	modal.cancelled.connect(func():
 		presenter.cancel_batch()
@@ -1318,11 +1422,43 @@ func _on_recalculate_profile() -> void:
 	if presenter == null:
 		return
 
+	var games := presenter.get_profile_games()
+	if games.is_empty():
+		_on_toast_requested("Aucune partie dans ce carnet à recalculer.", false)
+		return
+
+	var speed_cfg := CarnetConfig.get_analysis_speed_config()
+	var speed_lbl := str(speed_cfg.get("label", "⚡ Rapide"))
+	var eng_name := _get_active_engine_name()
+
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Recalculer le carnet"
+	dialog.dialog_text = "Souhaitez-vous recalculer rapidement les atomes ou relancer une analyse complète avec le moteur ?\n\n• Recalcul rapide : met à jour instantanément les atomes depuis les analyses en bibliothèque.\n• Ré-analyser avec le moteur : recalcule l'intégralité des parties avec %s (%s, prof. %d)." % [
+		eng_name, speed_lbl, int(speed_cfg.get("depth", 8))
+	]
+	dialog.ok_button_text = "⚡ Ré-analyser tout (%s)" % speed_lbl
+	dialog.cancel_button_text = "Annuler"
+	var btn_quick := dialog.add_button("⟳ Recalcul rapide (atomes)", true, "quick_recalc")
+	btn_quick.pressed.connect(func():
+		dialog.hide()
+		dialog.queue_free()
+		_launch_algorithmic_recalculate()
+	)
+	dialog.confirmed.connect(func():
+		dialog.queue_free()
+		_launch_full_reanalysis()
+	)
+	add_child(dialog)
+	dialog.popup_centered()
+
+func _launch_algorithmic_recalculate() -> void:
+	if presenter == null:
+		return
 	var modal := CarnetProgressModal.new()
 	add_child(modal)
 	var games := presenter.get_profile_games()
 	var prof_name := presenter.active_profile_name()
-	modal.open("Recalcul du carnet", games.size(), "Profil : %s" % prof_name)
+	modal.open("Recalcul du carnet", games.size(), "Profil : %s • Algorithmique" % prof_name)
 
 	var res = await presenter.recalculate_profile_async("", func(done: int, total: int, gid: String, gdata: Dictionary, atoms_cnt: int):
 		if is_instance_valid(modal):
@@ -1341,6 +1477,21 @@ func _on_recalculate_profile() -> void:
 	_on_toast_requested("Carnet recalculé : %d parties, %d atomes mis à jour." % [count, atoms], true)
 	_refresh_header()
 	_rebuild_content()
+
+func _launch_full_reanalysis() -> void:
+	if presenter == null:
+		return
+	var games := presenter.get_profile_games()
+	var game_ids: Array = []
+	for g in games:
+		var gid := str(g.get("game_id", ""))
+		if gid != "":
+			game_ids.append(gid)
+	if game_ids.is_empty():
+		return
+	presenter.start_batch(game_ids, {"force_analysis": true})
+	_update_batch_row()
+	_show_batch_modal()
 
 func _on_game_remove(game_id: String) -> void:
 	var dialog = ConfirmationDialog.new()
@@ -1369,3 +1520,23 @@ func _on_toast_requested(msg: String, is_success: bool) -> void:
 		var main = tree.root.get_node("Main")
 		if main.has_method("_show_toast"):
 			main._show_toast(msg, is_success)
+
+func _get_setting(key: String, default_val: Variant) -> Variant:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("SettingsManager"):
+		return tree.root.get_node("SettingsManager").get_setting(key, default_val)
+	return default_val
+
+func _set_setting(key: String, val: Variant) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("SettingsManager"):
+		tree.root.get_node("SettingsManager").set_setting(key, val)
+
+func _get_active_engine_name() -> String:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		var em = tree.root.get_node("EngineManager")
+		if em.has_method("get_engine_display_name"):
+			return em.get_engine_display_name()
+	return "Stockfish"
+

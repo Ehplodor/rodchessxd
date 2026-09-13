@@ -159,6 +159,20 @@ func _test_sync_tab_structure(overlay: CarnetOverlay) -> void:
 			filter_count += 1
 	_check(filter_count >= 4, "4 filtres de liste de parties présents (%d trouvés)" % filter_count)
 
+	var speed_opt: OptionButton = overlay._content.find_child("AnalysisSpeedOption", true, false) as OptionButton
+	_check(speed_opt != null, "sélecteur de vitesse d'analyse 'AnalysisSpeedOption' présent")
+	if speed_opt != null:
+		_check(speed_opt.item_count == 3, "3 préréglages de vitesse disponibles (Rapide, Standard, Approfondie)")
+		speed_opt.item_selected.emit(1)
+		var sm = overlay.get_tree().root.get_node_or_null("SettingsManager")
+		if sm != null:
+			_check(str(sm.get_setting("carnet_analysis_speed", "")) == "balanced", "changement vers standard persisté dans SettingsManager")
+			speed_opt.item_selected.emit(0)
+			_check(str(sm.get_setting("carnet_analysis_speed", "")) == "fast", "retour vers rapide persisté dans SettingsManager")
+		var engine_name: String = overlay._get_active_engine_name()
+		var speed_title: Label = speed_opt.get_parent().get_child(0) as Label
+		_check(speed_title != null and speed_title.text.find(engine_name) != -1, "titre de la carte d'effort mentionne le moteur actif (%s)" % engine_name)
+
 func _find_buttons_in(node: Node) -> Dictionary:
 	var out := {}
 	for child in node.get_children():

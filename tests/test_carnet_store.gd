@@ -36,6 +36,7 @@ func _process(_delta: float) -> bool:
 	_test_sync_status_and_dedup()
 	_test_chesscom_dedup_and_keys()
 	_test_batch_runner()
+	_test_analysis_speed_config()
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -282,3 +283,20 @@ func _test_batch_runner() -> void:
 	var reloaded := CarnetBatchRunner.load_job(profile_id)
 	_check(int(reloaded.get("cursor", -1)) == 0, "lot reprisable rechargé")
 	CarnetBatchRunner.clear_job_for(profile_id)
+
+func _test_analysis_speed_config() -> void:
+	var cfg_fast := CarnetConfig.get_analysis_speed_config(CarnetConfig.ANALYSIS_SPEED_FAST)
+	_check(int(cfg_fast.get("depth", 0)) == 8, "vitesse rapide: profondeur 8")
+	_check(is_equal_approx(float(cfg_fast.get("dynamic_base", 0.0)), 0.05), "vitesse rapide: base 0.05s")
+	_check(is_equal_approx(float(cfg_fast.get("dynamic_max", 0.0)), 0.20), "vitesse rapide: max 0.20s")
+
+	var cfg_std := CarnetConfig.get_analysis_speed_config(CarnetConfig.ANALYSIS_SPEED_BALANCED)
+	_check(int(cfg_std.get("depth", 0)) == 12, "vitesse standard: profondeur 12")
+	_check(is_equal_approx(float(cfg_std.get("dynamic_base", 0.0)), 0.10), "vitesse standard: base 0.10s")
+	_check(is_equal_approx(float(cfg_std.get("dynamic_max", 0.0)), 0.40), "vitesse standard: max 0.40s")
+
+	var cfg_deep := CarnetConfig.get_analysis_speed_config(CarnetConfig.ANALYSIS_SPEED_DEEP)
+	_check(int(cfg_deep.get("depth", 0)) == 16, "vitesse approfondie: profondeur 16")
+	_check(is_equal_approx(float(cfg_deep.get("dynamic_base", 0.0)), 0.20), "vitesse approfondie: base 0.20s")
+	_check(is_equal_approx(float(cfg_deep.get("dynamic_max", 0.0)), 0.80), "vitesse approfondie: max 0.80s")
+
