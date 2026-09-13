@@ -4,7 +4,7 @@
 // Incrementing CACHE_VERSION will kick off the install event and force
 // previously cached resources to be updated from the network.
 /** @type {string} */
-const CACHE_VERSION = '1789043762|3045790';
+const CACHE_VERSION = '1789284964|3873872';
 /** @type {string} */
 const CACHE_PREFIX = 'RodChessXD-sw-cache-';
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
