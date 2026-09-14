@@ -52,7 +52,13 @@ func _init() -> void:
 	graph.set_evaluations(test_data)
 	assert(graph.evaluations.size() == 5, "Le graphe doit contenir 5 évaluations")
 	
-	# Forcer un redessin
+	# 3. Test de cas limites : valeurs colinéaires ou dégénérées qui échouaient à la triangulation
+	var flat_data = [
+		{"ply": 0, "score_cp": 0, "ci_margin": 0.0},
+		{"ply": 1, "score_cp": 0, "ci_margin": 0.0},
+		{"ply": 2, "score_cp": 0, "ci_margin": 0.0}
+	]
+	graph.set_evaluations(flat_data)
 	graph.queue_redraw()
 	await process_frame
 	await process_frame

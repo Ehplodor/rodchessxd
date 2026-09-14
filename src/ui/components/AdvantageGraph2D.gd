@@ -396,22 +396,30 @@ func _draw() -> void:
 	var fill_black = _cached_fill_black
 
 	# 5. Bande d'intervalle de confiance (IC 95% ombré doux)
-	draw_colored_polygon(ci_poly, Color(0.22, 0.74, 0.97, 0.12))
-	draw_polyline(ci_upper_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
-	draw_polyline(ci_lower_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
+	if ci_poly.size() >= 3 and not Geometry2D.triangulate_polygon(ci_poly).is_empty():
+		draw_colored_polygon(ci_poly, Color(0.22, 0.74, 0.97, 0.12))
+	if ci_upper_points.size() >= 2:
+		draw_polyline(ci_upper_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
+	if ci_lower_points.size() >= 2:
+		draw_polyline(ci_lower_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
 
 	# 6. Polygones de remplissage distinctifs :
 	# Aire blanche pure et soignée du côté blanc (au-dessus de mid_y),
 	# Aire noire profonde du côté noir (en-dessous de mid_y).
-	draw_colored_polygon(fill_white, Color(0.95, 0.96, 0.98, 0.35))
-	draw_colored_polygon(fill_black, Color(0.02, 0.03, 0.06, 0.70))
+	if fill_white.size() >= 3 and not Geometry2D.triangulate_polygon(fill_white).is_empty():
+		draw_colored_polygon(fill_white, Color(0.95, 0.96, 0.98, 0.35))
+	if fill_black.size() >= 3 and not Geometry2D.triangulate_polygon(fill_black).is_empty():
+		draw_colored_polygon(fill_black, Color(0.02, 0.03, 0.06, 0.70))
 
 	# Liseré doux séparateur sur les contours des aires
-	draw_polyline(fill_white, Color(1.0, 1.0, 1.0, 0.25), 1.0, true)
-	draw_polyline(fill_black, Color(0.0, 0.0, 0.0, 0.50), 1.0, true)
+	if fill_white.size() >= 2:
+		draw_polyline(fill_white, Color(1.0, 1.0, 1.0, 0.25), 1.0, true)
+	if fill_black.size() >= 2:
+		draw_polyline(fill_black, Color(0.0, 0.0, 0.0, 0.50), 1.0, true)
 
 	# 7. Tracé de la courbe principale
-	draw_polyline(points, Color("#38bdf8"), 2.2, true)
+	if points.size() >= 2:
+		draw_polyline(points, Color("#38bdf8"), 2.2, true)
 
 	# 8. Pastilles pour les coups remarquables (alignées sur la taxonomie du rapport :
 	#    brillants, coups uniques, imprécisions, erreurs, gaffes / occasions manquées).
@@ -542,4 +550,3 @@ func _commit_scrub() -> void:
 func _on_move_navigated(move_idx: int) -> void:
 	active_ply = move_idx
 	queue_redraw()
-
