@@ -13,10 +13,14 @@ var settings := {
 	"engine_hash_mb": 32,
 	"engine_depth": 16,
 	"analysis_depth": 14,
-	"analysis_mode": "dynamic", # "depth", "time", "dynamic"
+	"analysis_mode": "budget", # "depth", "time", "dynamic", "budget"
 	"analysis_time_per_move": 0.2, # secondes par coup en mode time
 	"analysis_dynamic_base": 0.08, # temps de base en mode dynamique (secondes)
 	"analysis_dynamic_max": 0.25, # plafond en mode dynamique (secondes)
+	"analysis_budget_base_depth": 8, # passe A peu profonde (mode budget)
+	"analysis_budget_deep_depth": 14, # passe B profonde sur les coups critiques
+	"analysis_budget_max_deep": 6, # nombre max de coups approfondis
+	"analysis_budget_min_criticality": 12.0, # seuil de win% pour approfondir (mode budget)
 	"engine_multipv": 1,
 	"engine_path": "",
 	"active_engine": "Stockfish",
@@ -66,6 +70,9 @@ func _ready() -> void:
 		settings["engine_depth"] = 12
 		settings["analysis_depth"] = 12
 		settings["engine_multipv"] = 1
+		settings["analysis_budget_base_depth"] = 6
+		settings["analysis_budget_deep_depth"] = 12
+		settings["analysis_budget_max_deep"] = 4
 	load_settings()
 	# Mise à niveau automatique des anciennes configurations avec threads/hash/multipv non optimisés
 	if not (OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")):

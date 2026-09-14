@@ -127,13 +127,15 @@ func _setup_ui() -> void:
 	mode_opt.add_item("⚡ Dynamique adaptatif", 0)
 	mode_opt.add_item("⏱️ Temps fixe", 1)
 	mode_opt.add_item("🎯 Profondeur fixe", 2)
+	mode_opt.add_item("🚀 Budget (rapide)", 3)
 
-	var cur_mode = SettingsManager.get_setting("analysis_mode", "dynamic")
+	var cur_mode = SettingsManager.get_setting("analysis_mode", "budget")
 	match cur_mode:
 		"dynamic": mode_opt.selected = 0
 		"time": mode_opt.selected = 1
 		"depth": mode_opt.selected = 2
-		_: mode_opt.selected = 0
+		"budget": mode_opt.selected = 3
+		_: mode_opt.selected = 3
 	mode_card_vbox.add_child(mode_opt)
 
 	# --- 1. Paramètres Mode Dynamique ---
@@ -252,11 +254,27 @@ func _setup_ui() -> void:
 	anal_depth_row.add_child(anal_depth_spin)
 	mode_card_vbox.add_child(anal_depth_row)
 
+	# --- 4. Paramètres Mode Budget (passe A large + passe B profonde sur les coups critiques) ---
+	var budget_header = Label.new()
+	budget_header.text = "🚀 Paramètres Mode Budget (rapide) :"
+	budget_header.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	budget_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	budget_header.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	mode_card_vbox.add_child(budget_header)
+
+	var budget_base_spin = _make_setting_spin("• Profondeur passe A (tous) :", "analysis_budget_base_depth", 8, 4, 16, 1, true)
+	mode_card_vbox.add_child(budget_base_spin)
+	var budget_deep_spin = _make_setting_spin("• Profondeur passe B (critiques) :", "analysis_budget_deep_depth", 14, 8, 24, 1, true)
+	mode_card_vbox.add_child(budget_deep_spin)
+	var budget_max_spin = _make_setting_spin("• Coups approfondis (max) :", "analysis_budget_max_deep", 6, 0, 20, 1, true)
+	mode_card_vbox.add_child(budget_max_spin)
+
 	mode_opt.item_selected.connect(func(idx):
 		match idx:
 			0: SettingsManager.set_setting("analysis_mode", "dynamic")
 			1: SettingsManager.set_setting("analysis_mode", "time")
 			2: SettingsManager.set_setting("analysis_mode", "depth")
+			3: SettingsManager.set_setting("analysis_mode", "budget")
 	)
 
 	vbox.add_child(mode_card)
@@ -674,3 +692,28 @@ func _add_api_key_field(parent: Node, label_text: String, setting_key: String) -
 	edit_box.add_child(show_btn)
 
 	parent.add_child(row)
+
+## Ligne de réglage générique : libellé + SpinBox lié à une clé de SettingsManager.
+func _make_setting_spin(label_text: String, setting_key: String, default_val: int,
+		min_val: int, max_val: int, step: int, as_int: bool) -> HBoxContainer:
+	var row = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var lbl = Label.new()
+	lbl.text = label_text
+	lbl.custom_minimum_size = Vector2(50, 0)
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	row.add_child(lbl)
+	var spin = SpinBox.new()
+	spin.min_value = min_val
+	spin.max_value = max_val
+	spin.step = step
+	spin.value = SettingsManager.get_setting(setting_key, default_val)
+	spin.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_MIN)
+	spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	if spin.get_line_edit():
+		spin.get_line_edit().alignment = HORIZONTAL_ALIGNMENT_CENTER
+	spin.value_changed.connect(func(val): SettingsManager.set_setting(setting_key, int(val) if as_int else float(val)))
+	row.add_child(spin)
+	return row

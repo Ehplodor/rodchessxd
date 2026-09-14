@@ -1513,6 +1513,10 @@ func _on_btn_analyze_game_pressed() -> void:
 	var time_per_move: float = sm.get_setting("analysis_time_per_move", 0.2) if sm else 0.2
 	var dynamic_base: float = sm.get_setting("analysis_dynamic_base", 0.08) if sm else 0.08
 	var dynamic_max: float = sm.get_setting("analysis_dynamic_max", 0.25) if sm else 0.25
+	var budget_base: int = sm.get_setting("analysis_budget_base_depth", 8) if sm else 8
+	var budget_deep: int = sm.get_setting("analysis_budget_deep_depth", 14) if sm else 14
+	var budget_max: int = sm.get_setting("analysis_budget_max_deep", 6) if sm else 6
+	var budget_crit: float = sm.get_setting("analysis_budget_min_criticality", 12.0) if sm else 12.0
 	var a_depth: int = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
 
 	# Verrouillage immédiat du mode analyse et arrêt du Live avant toute manipulation de l'échiquier
@@ -1545,6 +1549,11 @@ func _on_btn_analyze_game_pressed() -> void:
 		"time_per_move": time_per_move,
 		"dynamic_base": dynamic_base,
 		"dynamic_max": dynamic_max,
+		"base_depth": budget_base,
+		"deep_depth": budget_deep,
+		"max_deep": budget_max,
+		"min_criticality": budget_crit,
+		"deep_movetime_ms": 250,
 		"wait_for_display": true
 	}
 
