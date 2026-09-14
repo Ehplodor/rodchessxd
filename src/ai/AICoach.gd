@@ -5,6 +5,7 @@ extends Node
 signal coach_thinking_started
 signal coach_response_received(response: String)
 signal coach_response_with_meta(response: String, cost_label: String, elapsed_sec: float)
+signal coach_response_detailed(response: String, reasoning: String, cost_label: String, elapsed_sec: float)
 signal coach_error(error_msg: String)
 
 var http_client: HTTPRequest
@@ -171,16 +172,20 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
      * Principes stratégiques : contrôle des cases centrales (e4, d4, e5, d5), sécurité du roi et statut du roque, colonnes ouvertes/semi-ouvertes pour les tours, avant-postes protégés pour les cavaliers, affaiblissement de cases de même couleur, paire de fous, structure de pions (pions doublés, isolés, arriérés, passés).
 3. STRUCTURE DE RÉPONSE OBLIGATOIRE (LISIBLE SUR SMARTPHONE) :
    Formate systématiquement ta réponse avec ces 3 rubriques courtes et aérées en Markdown :
-   - 🎯 **Diagnostic** : En 1 ou 2 phrases percutantes, qualifie l'impact du coup joué et résume l'état de l'évaluation du point de vue du camp conseillé (%s).
-   - 💡 **Analyse & Réfutation** : Explique pourquoi ce coup est bon ou mauvais, ce qu'il permet ou néglige, et détaille le mécanisme de la variante calculée par le moteur (PV).
+   - 🎯 **Diagnostic** : En 1 phrase percutante, qualifie l'impact du coup joué et résume l'état de l'évaluation du point de vue du camp conseillé (%s).
+   - 💡 **Analyse & Réfutation** : En 1 ou 2 phrases concises, explique pourquoi ce coup est bon ou mauvais, ce qu'il permet ou néglige, et détaille le mécanisme de la variante calculée par le moteur (PV).
    - 📌 **Plan conseillé** : Donne 1 ou 2 conseils pratiques clairs et concrets pour guider le camp conseillé (%s).
-4. TON ET VOCABULAIRE :
+4. RÈGLE D'OR DE CONCISION (LISIBILITÉ MOBILE) :
+   - Sois ULTRA-CONCIS : 100 à 150 mots au total (format concis : 150 à 220 mots au total). Zéro bavardage ni politesse introductive. Va droit au but dès le premier mot.
    - Langue : Français soigné, dynamique et motivant.
    - Notation : Notation algébrique standard (ex: 1. e4, 2... Cf6, 3. Fb5).
-   - Format concis : 150 à 220 mots au total (2 à 4 paragraphes percutants).
 5. ACTIONS NATURELLES DÉCODÉES (AIDE AU CALCUL) :
    - Tous les coups d'échecs (dernier coup joué, meilleur coup recommandé et suite de coups calculée par Stockfish) te sont fournis DÉJÀ DÉCODÉS en actions humaines explicites (ex: 'Dame blanche en c3 prend la Tour noire en e3', 'Cavalier blanc se déplace de g1 en f3').
-   - Appuie-toi sur ces actions déjà formulées pour expliquer les gains de matériel, les clouages, les fourchettes et les réfutations sans risque d'erreur sur l'identité des pièces ou des cases.""" % [perspective_instruction, perspective_label, perspective_label]
+   - Appuie-toi sur ces actions déjà formulées pour expliquer les gains de matériel, les clouages, les fourchettes et les réfutations sans risque d'erreur sur l'identité des pièces ou des cases.
+6. RÈGLE CRITIQUE D'ENTRÉE DIRECTE (ANTI-BROUILLON) :
+   - Démarre DIRECTEMENT ton texte par la balise '🎯 **Diagnostic** :'.
+   - INTERDICTION STRICTE : Ne commence JAMAIS par décoder l'échiquier rangée par rangée (aucun 'Rank 8:', 'Rank 7:', 'White Pawn...', etc.).
+   - N'énumère pas la position : les pièces et coups utiles te sont déjà formulés en français dans la fiche technique. Concentre 100%% de ta réponse sur l'explication humaine des 3 rubriques.""" % [perspective_instruction, perspective_label, perspective_label]
 
 	match personality:
 		"blunder_hunter":
@@ -192,7 +197,7 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 
 	var is_comeback = extra_context.get("prompt_type", "") == "comeback" or "remonter la pente" in user_question.to_lower()
 	if is_comeback:
-		system_prompt += "\n\n6. DIRECTIVE SPÉCIALE « REMONTER LA PENTE » (SANS SPOILER LE COUP DIRECT) :\n" \
+		system_prompt += "\n\n7. DIRECTIVE SPÉCIALE « REMONTER LA PENTE » (SANS SPOILER LE COUP DIRECT) :\n" \
 			+ "- Le camp conseillé (%s) est sous pression ou cherche à renverser la tendance.\n" % perspective_label \
 			+ "- RÈGLE STRICTE : Tu as l'interdiction de lui révéler directement le coup exact ('Jouez %s') ou d'écrire la solution sous forme de recette toute faite.\n" % best_move \
 			+ "- À la place, donne-lui les clés fondamentales pour remonter la pente par lui-même :\n" \
@@ -217,7 +222,7 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 - **Perspective d'analyse demandée** : %s (Conseiller ce camp en priorité)
 - **Dernier coup joué** : %s
 - **Trait actuel au jeu** : %s
-- **Position FEN** : `%s`
+- **Position FEN (Référence)** : `%s` (inutile de décoder les rangées, utilise directement les actions ci-dessous)
 - **Phase de la partie** : %s
 - **Équilibre matériel** : %s
 - **Qualification du coup** : %s
@@ -251,11 +256,60 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 			motif_labels.append(str(motif))
 		user_prompt += "- **Motifs tactiques détectés (vérifiés par l'analyseur)** : %s. Utilise-les tels quels, ne les invente pas.\n" % ", ".join(motif_labels)
 
+	# Extension de contexte : Séquence récente de coups (dynamique de jeu)
+	var recent_moves_str = str(extra_context.get("recent_moves", ""))
+	if recent_moves_str == "":
+		var gc = _get_game_controller()
+		if gc and gc.game and not gc.game.move_history.is_empty():
+			var cur_ply = int(extra_context.get("ply_index", gc.current_ply_index))
+			if cur_ply >= 0:
+				var start_ply = maxi(0, cur_ply - 7)
+				var moves_tokens: Array[String] = []
+				for p in range(start_ply, cur_ply + 1):
+					if p < gc.game.move_history.size():
+						var mv = gc.game.move_history[p]
+						var num = (p / 2) + 1
+						if p % 2 == 0:
+							moves_tokens.append("%d. %s" % [num, mv.san])
+						else:
+							if p == start_ply:
+								moves_tokens.append("%d... %s" % [num, mv.san])
+							else:
+								moves_tokens.append(mv.san)
+				if not moves_tokens.is_empty():
+					recent_moves_str = " ".join(moves_tokens)
+	if recent_moves_str != "":
+		user_prompt += "- **Enchaînement récent des coups** : %s\n" % recent_moves_str
+
+	# Extension de contexte : Détection d'ouverture
+	var opening_name = str(extra_context.get("opening_name", ""))
+	if opening_name == "":
+		var gc_op = _get_game_controller()
+		if gc_op and gc_op.game and gc_op.game.pgn_headers.has("Opening"):
+			opening_name = str(gc_op.game.pgn_headers["Opening"])
+	if opening_name != "":
+		user_prompt += "- **Ouverture répertoriée** : %s\n" % opening_name
+
+	# Extension de contexte : Dynamique récente d'évaluation
+	if cp_loss > 150:
+		user_prompt += "- **Dynamique récente** : Choc tactique brutal (perte de %.2f pions sur ce coup)\n" % (cp_loss / 100.0)
+	elif cp_loss > 40:
+		user_prompt += "- **Dynamique récente** : Légère dégradation de la position (imprécision)\n"
+	elif abs(eval_cp) <= 25:
+		user_prompt += "- **Dynamique récente** : Équilibre stratégique soutenu et haute tension\n"
+	else:
+		user_prompt += "- **Dynamique récente** : Trajectoire stable\n"
+
 	user_prompt += "\n---\n"
 	if user_question != "":
 		user_prompt += "### 💬 QUESTION DU JOUEUR :\n\"%s\"\n\nRéponds précisément à la question en t'appuyant rigoureusement sur les données objectives ci-dessus." % user_question
 	else:
 		user_prompt += "### 🎯 MISSION DU COACH :\nAnalyse le coup joué, explique pourquoi le meilleur coup recommandé par Stockfish est supérieur et quel est le plan stratégique conseillé pour la suite."
+
+	user_prompt += "\n\n⚠️ DIRECTIVE DE RESTITUTION STRICTE :\n" \
+		+ "- Démarre DIRECTEMENT ton texte par '🎯 **Diagnostic** :'.\n" \
+		+ "- INTERDICTION FORMELLE d'écrire un brouillon d'échiquier (pas de 'Rank 8', 'Rank 7', etc.).\n" \
+		+ "- Respecte impérativement les 3 rubriques Markdown : 🎯 **Diagnostic**, 💡 **Analyse & Réfutation**, 📌 **Plan conseillé** (100 à 180 mots au total)."
 
 	var full_text = system_prompt + "\n\n" + user_prompt
 
@@ -406,7 +460,7 @@ func ask_coach(
 	current_query_start_time = Time.get_ticks_msec() / 1000.0
 	coach_thinking_started.emit()
 
-	var active_model_id = _get_setting("active_model_id", "z-ai/glm-5.3-flash:free")
+	var active_model_id = _get_setting("active_model_id", "openrouter/free")
 	active_query_model_id = active_model_id
 
 	var model_info = _find_model(active_model_id)
@@ -417,18 +471,6 @@ func ask_coach(
 			_request_native_slm(prompt_data, model_info)
 		"ollama":
 			_request_local_ollama(prompt_data, model_info)
-		"groq":
-			_request_groq(prompt_data, model_info)
-		"gemini":
-			_request_gemini(prompt_data, model_info)
-		"openrouter":
-			_request_openrouter(prompt_data, model_info)
-		"deepseek":
-			_request_deepseek(prompt_data, model_info)
-		"openai":
-			_request_openai(prompt_data, model_info)
-		"anthropic":
-			_request_anthropic(prompt_data, model_info)
 		_:
 			_request_openrouter(prompt_data, model_info)
 
@@ -492,138 +534,68 @@ func _request_local_ollama(prompt_data: Dictionary, model_info: Dictionary) -> v
 	var headers = ["Content-Type: application/json"]
 	_send_http_request(base_url, headers, body, "Ollama Local")
 
-func _request_groq(prompt_data: Dictionary, model_info: Dictionary) -> void:
-	var key = _get_setting("api_key_groq", "")
-	if key.strip_edges() == "":
-		_fallback_offline_explanation("Groq")
-		return
-
-	var raw_id = model_info.get("id", "llama-3.3-70b-versatile").replace("groq/", "")
-	var url = "https://api.groq.com/openai/v1/chat/completions"
-	var body = JSON.stringify({
-		"model": raw_id,
-		"messages": [
-			{"role": "system", "content": prompt_data.get("system", "")},
-			{"role": "user", "content": prompt_data.get("user", "")}
-		]
-	})
-	var headers = [
-		"Content-Type: application/json",
-		"Authorization: Bearer " + key
-	]
-	_send_http_request(url, headers, body, "Groq Cloud")
-
-func _request_gemini(prompt_data: Dictionary, model_info: Dictionary) -> void:
-	var key = _get_setting("api_key_gemini", "")
-	if key.strip_edges() == "":
-		_fallback_offline_explanation("Google Gemini")
-		return
-
-	var model_name = model_info.get("id", "gemini-2.0-flash").replace("google/", "")
-	if model_name.ends_with(":free"):
-		model_name = model_name.replace(":free", "")
-	var url = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s" % [model_name, key]
-	var body = JSON.stringify({
-		"system_instruction": {
-			"parts": [{"text": prompt_data.get("system", "")}]
-		},
-		"contents": [{
-			"parts": [{"text": prompt_data.get("user", "")}]
-		}]
-	})
-	var headers = ["Content-Type: application/json"]
-	_send_http_request(url, headers, body, "Google Gemini")
-
 func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> void:
-	var key = _get_setting("api_key_openrouter", "")
-	if key.strip_edges() == "":
+	var key = str(_get_setting("api_key_openrouter", "")).strip_edges()
+	var model_id = model_info.get("id", "openrouter/free")
+	var is_free = bool(model_info.get("free_tier", false)) or model_id.ends_with(":free") or model_id == "openrouter/free"
+
+	# Si aucune clé n'est renseignée et qu'un modèle payant est sélectionné
+	if key == "" and not is_free:
 		_fallback_offline_explanation("OpenRouter")
 		return
 
-	var model_id = model_info.get("id", "z-ai/glm-5.3-flash:free")
-	
+	var cat = _get_catalog()
+	var is_reasoning = false
+	if cat and cat.has_method("is_reasoning_model"):
+		is_reasoning = cat.is_reasoning_model(model_id)
+	else:
+		var low = model_id.to_lower()
+		is_reasoning = low.contains("r1") or low.contains("qwq") or low.contains("thinking") or low.contains("reasoning")
+
 	var url = "https://openrouter.ai/api/v1/chat/completions"
-	var body = JSON.stringify({
+	var body_dict = {
 		"model": model_id,
 		"messages": [
 			{"role": "system", "content": prompt_data.get("system", "")},
 			{"role": "user", "content": prompt_data.get("user", "")}
 		],
-		"max_tokens": 750,
-		"temperature": 0.5
-	})
+		"max_tokens": 1800,
+		"temperature": 0.3
+	}
+
+	if is_reasoning:
+		# Configuration normalisée OpenRouter pour canaliser la réflexion sans débordement
+		body_dict["reasoning"] = {
+			"effort": "low",
+			"exclude": false
+		}
+		body_dict["include_reasoning"] = true
+
+	var body = JSON.stringify(body_dict)
 	var headers = [
 		"Content-Type: application/json",
-		"Authorization: Bearer " + key,
 		"HTTP-Referer: https://rodchessxd.app",
 		"X-Title: RodChessXD"
 	]
+	if key != "":
+		headers.append("Authorization: Bearer " + key)
+
 	_send_http_request(url, headers, body, "OpenRouter")
 
-func _request_deepseek(prompt_data: Dictionary, model_info: Dictionary) -> void:
-	var key = _get_setting("api_key_deepseek", "")
-	if key.strip_edges() == "":
-		_fallback_offline_explanation("DeepSeek")
-		return
+func _request_groq(prompt_data: Dictionary, model_info: Dictionary) -> void:
+	_request_openrouter(prompt_data, model_info)
 
-	var raw_id = model_info.get("id", "deepseek-chat").replace("deepseek/", "")
-	var url = "https://api.deepseek.com/chat/completions"
-	var body = JSON.stringify({
-		"model": raw_id,
-		"messages": [
-			{"role": "system", "content": prompt_data.get("system", "")},
-			{"role": "user", "content": prompt_data.get("user", "")}
-		]
-	})
-	var headers = [
-		"Content-Type: application/json",
-		"Authorization: Bearer " + key
-	]
-	_send_http_request(url, headers, body, "DeepSeek")
+func _request_gemini(prompt_data: Dictionary, model_info: Dictionary) -> void:
+	_request_openrouter(prompt_data, model_info)
+
+func _request_deepseek(prompt_data: Dictionary, model_info: Dictionary) -> void:
+	_request_openrouter(prompt_data, model_info)
 
 func _request_openai(prompt_data: Dictionary, model_info: Dictionary) -> void:
-	var key = _get_setting("api_key_openai", "")
-	if key.strip_edges() == "":
-		_fallback_offline_explanation("OpenAI")
-		return
-
-	var raw_id = model_info.get("id", "gpt-4o-mini").replace("openai/", "")
-	var url = "https://api.openai.com/v1/chat/completions"
-	var body = JSON.stringify({
-		"model": raw_id,
-		"messages": [
-			{"role": "system", "content": prompt_data.get("system", "")},
-			{"role": "user", "content": prompt_data.get("user", "")}
-		]
-	})
-	var headers = [
-		"Content-Type: application/json",
-		"Authorization: Bearer " + key
-	]
-	_send_http_request(url, headers, body, "OpenAI")
+	_request_openrouter(prompt_data, model_info)
 
 func _request_anthropic(prompt_data: Dictionary, model_info: Dictionary) -> void:
-	var key = _get_setting("api_key_anthropic", "")
-	if key.strip_edges() == "":
-		_fallback_offline_explanation("Anthropic")
-		return
-
-	var raw_id = model_info.get("id", "claude-3-5-haiku-20241022").replace("anthropic/", "")
-	var url = "https://api.anthropic.com/v1/messages"
-	var body = JSON.stringify({
-		"model": raw_id,
-		"max_tokens": 1024,
-		"system": prompt_data.get("system", ""),
-		"messages": [
-			{"role": "user", "content": prompt_data.get("user", "")}
-		]
-	})
-	var headers = [
-		"Content-Type: application/json",
-		"x-api-key: " + key,
-		"anthropic-version: 2023-06-01"
-	]
-	_send_http_request(url, headers, body, "Anthropic")
+	_request_openrouter(prompt_data, model_info)
 
 func _fallback_offline_explanation(provider_name: String) -> void:
 	var last_move = last_query_context.get("last_move_san", "")
@@ -643,20 +615,11 @@ func _fallback_offline_explanation(provider_name: String) -> void:
 		reply += "• **Ligne principale** : `%s`\n" % pv_str.strip_edges()
 
 	reply += "\n---\n"
-	reply += "🔑 **Pour activer les explications complètes en langage naturel** avec [b]%s[/b] (100%% gratuit, 0 € sans carte bancaire) :\n\n" % provider_name
-	reply += "1. Cliquez sur le badge [b]⚡[/b] du Coach en haut (ou sur ⚙️ Paramètres).\n"
-	if provider_name == "OpenRouter":
-		reply += "2. Obtenez une clé gratuite en 30s sur [b]https://openrouter.ai/keys[/b]\n"
-		reply += "3. Collez-la dans le champ [i]Clé OpenRouter[/i] et validez.\n\n"
-	elif provider_name == "Google Gemini":
-		reply += "2. Obtenez une clé gratuite en 30s sur [b]https://aistudio.google.com[/b]\n"
-		reply += "3. Collez-la dans le champ [i]Clé Google Gemini[/i] et validez.\n\n"
-	elif provider_name == "Groq":
-		reply += "2. Obtenez une clé gratuite en 30s sur [b]https://console.groq.com/keys[/b]\n"
-		reply += "3. Collez-la dans le champ [i]Clé Groq[/i] et validez.\n\n"
-	else:
-		reply += "2. Renseignez votre clé API dans le champ correspondant et validez.\n\n"
-	reply += "💡 *Astuce : Vous pouvez aussi lancer un modèle local 100% hors-ligne (ex: Ollama) sans aucune clé requise !*"
+	reply += "🔑 **Pour activer les analyses en langage naturel avec [b]OpenRouter[/b]** (100%% gratuit, 0 € sans carte bancaire) :\n\n"
+	reply += "1. Cliquez sur le badge [b]⚡ Modèle[/b] du Coach en haut (ou sur ⚙️ Paramètres).\n"
+	reply += "2. Obtenez votre clé universelle en 30 secondes sur [b]https://openrouter.ai/keys[/b]\n"
+	reply += "3. Collez-la dans le champ [i]Clé OpenRouter[/i] et testez-la en 1 clic !\n\n"
+	reply += "💡 *Astuce : Vous pouvez aussi sélectionner un modèle 100% gratuit (:free) ou un SLM local hors-ligne (ex: Ollama).* "
 
 	# 1. Archivage dans DatabaseManager pour le mode local
 	var dm = _get_database_manager()
@@ -764,19 +727,58 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 		return
 
 	var answer = ""
-	# Parsing selon le format du fournisseur
-	if json.has("candidates") and json["candidates"].size() > 0: # Gemini
-		var cand = json["candidates"][0]
-		if cand.has("content") and cand["content"].has("parts") and cand["content"]["parts"].size() > 0:
-			answer = cand["content"]["parts"][0].get("text", "")
-	elif json.has("choices") and json["choices"].size() > 0: # OpenAI / Groq / DeepSeek / OpenRouter
+	var reasoning_text = ""
+	var finish_reason = ""
+
+	# Parsing selon le format OpenRouter / OpenAI
+	if json.has("choices") and json["choices"].size() > 0:
 		var choice = json["choices"][0]
-		if choice.has("message") and choice["message"].has("content"):
-			answer = choice["message"]["content"]
-	elif json.has("content") and json["content"] is Array and json["content"].size() > 0: # Anthropic
-		answer = json["content"][0].get("text", "")
+		finish_reason = str(choice.get("finish_reason", ""))
+		if choice.has("message"):
+			var msg_obj = choice["message"]
+			if msg_obj.has("content") and msg_obj["content"] != null:
+				answer = str(msg_obj["content"])
+			if msg_obj.has("reasoning") and msg_obj["reasoning"] != null:
+				reasoning_text = str(msg_obj["reasoning"]).strip_edges()
+			elif msg_obj.has("reasoning_content") and msg_obj["reasoning_content"] != null:
+				reasoning_text = str(msg_obj["reasoning_content"]).strip_edges()
+	elif json.has("candidates") and json["candidates"].size() > 0: # Gemini direct
+		var cand = json["candidates"][0]
+		finish_reason = str(cand.get("finishReason", ""))
+		if cand.has("content") and cand["content"].has("parts") and cand["content"]["parts"].size() > 0:
+			answer = str(cand["content"]["parts"][0].get("text", ""))
+	elif json.has("content") and json["content"] is Array and json["content"].size() > 0: # Anthropic direct
+		answer = str(json["content"][0].get("text", ""))
 	elif json.has("response"): # Ollama SLM
-		answer = json["response"]
+		answer = str(json["response"])
+
+	# Détection et extraction des balises de réflexion (<think>, <thought>, etc.)
+	var split_think = extract_reasoning_from_text(answer)
+	if split_think.reasoning != "":
+		if reasoning_text == "":
+			reasoning_text = split_think.reasoning
+		else:
+			reasoning_text += "\n" + split_think.reasoning
+		answer = split_think.content
+
+	# Détection et extraction d'un éventuel brouillon FEN parasite (ex: 'Rank 8: ...') avant le 🎯 Diagnostic
+	var diag_pos = answer.find("🎯")
+	if diag_pos > 0:
+		var preamble = answer.substr(0, diag_pos).strip_edges()
+		if preamble.contains("Rank ") or preamble.contains("Pawn ") or preamble.contains("piece") or preamble.length() > 60:
+			if reasoning_text == "":
+				reasoning_text = preamble
+			else:
+				reasoning_text = (preamble + "\n\n" + reasoning_text).strip_edges()
+			answer = answer.substr(diag_pos).strip_edges()
+
+	# Récupération de secours si le modèle a été interrompu en pleine réflexion avant d'avoir écrit le contenu final
+	if answer.strip_edges() == "" and reasoning_text != "":
+		answer = "⚠️ *Le modèle a atteint sa limite de jetons pendant sa réflexion préliminaire. Voici sa réflexion brute :*\n\n" + reasoning_text
+		reasoning_text = ""
+	elif finish_reason == "length" and answer.strip_edges() != "":
+		if not answer.ends_with(".") and not answer.ends_with("!") and not answer.ends_with("?"):
+			answer += "\n\n*(Analyse écourtée par la limite de jetons du modèle)*"
 
 	if answer != "":
 		session_queries_count += 1
@@ -788,7 +790,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 		var cost_label: String = cost_info.get("label_per_query", "Gratuit")
 
-		# 1. ARCHIVAGE EN PREMIER DANS DATABASEMANAGER POUR DISPONIBILITÉ IMMÉDIATE
+		# 1. ARCHIVAGE DANS DATABASEMANAGER (avec le raisonnement)
 		var dm = _get_database_manager()
 		var gc = _get_game_controller()
 		if dm and gc:
@@ -804,14 +806,62 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 					"provider": model_info.get("provider", "openrouter"),
 					"user_question": last_query_context.get("user_question", ""),
 					"response_text": answer.strip_edges(),
+					"reasoning_text": reasoning_text.strip_edges(),
 					"elapsed_sec": elapsed,
 					"cost_label": cost_label
 				}
 				dm.add_coach_analysis(gid, coach_record)
 
-		# 2. PUIS ÉMISSION DES SIGNAUX
+		# 2. ÉMISSION DES SIGNAUX
 		coach_response_received.emit(answer.strip_edges())
 		coach_response_with_meta.emit(answer.strip_edges(), cost_label, elapsed)
+		coach_response_detailed.emit(answer.strip_edges(), reasoning_text.strip_edges(), cost_label, elapsed)
 	else:
-		var raw_preview = text.strip_edges().substr(0, 350)
-		coach_error.emit("Impossible d'extraire le texte de la réponse du modèle.\nRéponse brute reçue du serveur :\n%s" % raw_preview)
+		if finish_reason == "length":
+			coach_error.emit("Le modèle '%s' a atteint sa limite de jetons ('finish_reason: length') avant de produire sa réponse.\n\n💡 Conseil : Choisissez un modèle plus véloce (ex: Google Gemini 2.5 Flash, DeepSeek V3) ou une question plus ciblée." % active_query_model_id)
+		else:
+			var raw_preview = text.strip_edges().substr(0, 350)
+			coach_error.emit("Impossible d'extraire le texte de la réponse du modèle.\nRéponse brute reçue du serveur :\n%s" % raw_preview)
+
+## Extrait et sépare les balises de réflexion (<think>, <thought>, etc.) du texte d'analyse final,
+## y compris lorsque la balise fermante a été tronquée par la limite de tokens.
+static func extract_reasoning_from_text(raw_text: String) -> Dictionary:
+	var answer = raw_text
+	var reasoning_text = ""
+
+	var tags = [
+		["<think>", "</think>"],
+		["<thought>", "</thought>"],
+		["<thinking>", "</thinking>"],
+		["[THINKING]", "[/THINKING]"]
+	]
+
+	for pair in tags:
+		var open_tag: String = pair[0]
+		var close_tag: String = pair[1]
+
+		if open_tag in answer:
+			if close_tag in answer:
+				var start_idx = answer.find(open_tag)
+				var end_idx = answer.find(close_tag)
+				if end_idx > start_idx:
+					var extracted_think = answer.substr(start_idx + open_tag.length(), end_idx - (start_idx + open_tag.length())).strip_edges()
+					if reasoning_text == "":
+						reasoning_text = extracted_think
+					else:
+						reasoning_text += "\n" + extracted_think
+					answer = (answer.substr(0, start_idx) + answer.substr(end_idx + close_tag.length())).strip_edges()
+			else:
+				# Balise ouvrante présente mais JAMAIS fermée (coupure par limite de tokens)
+				var start_idx = answer.find(open_tag)
+				var unclosed_think = answer.substr(start_idx + open_tag.length()).strip_edges()
+				if reasoning_text == "":
+					reasoning_text = unclosed_think
+				else:
+					reasoning_text += "\n" + unclosed_think
+				answer = answer.substr(0, start_idx).strip_edges()
+
+	return {
+		"content": answer,
+		"reasoning": reasoning_text
+	}

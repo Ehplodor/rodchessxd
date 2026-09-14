@@ -41,7 +41,7 @@ func _process(_delta: float) -> bool:
 		assert(modal.size.x <= 420, "%s est trop large pour un écran 450px !" % name)
 
 		# Vérifier qu'aucun conteneur horizontal ne force une largeur démesurée
-		_check_node_responsiveness(modal, name)
+		_check_node_responsiveness(modal, name, float(modal.size.x))
 
 		modal.queue_free()
 		print("  -> %s : OK ✓" % name)
@@ -53,11 +53,17 @@ func _process(_delta: float) -> bool:
 	quit(0 if _failures == 0 else 1)
 	return true
 
-func _check_node_responsiveness(node: Node, modal_name: String) -> void:
+func _check_node_responsiveness(node: Node, modal_name: String, max_w: float) -> void:
 	if node is ScrollContainer:
 		var sc = node as ScrollContainer
 		assert(sc.horizontal_scroll_mode == ScrollContainer.SCROLL_MODE_DISABLED, 
 			"%s contient un ScrollContainer avec défilement horizontal non désactivé !" % modal_name)
 
+	if node is Control:
+		var c = node as Control
+		var min_w = c.get_combined_minimum_size().x
+		assert(min_w <= max_w + 1.0,
+			"%s : Le contrôle %s (%s) impose une largeur minimale de %.1f px > max autorisée %.1f px !" % [modal_name, c.name, c.get_class(), min_w, max_w])
+
 	for child in node.get_children():
-		_check_node_responsiveness(child, modal_name)
+		_check_node_responsiveness(child, modal_name, max_w)

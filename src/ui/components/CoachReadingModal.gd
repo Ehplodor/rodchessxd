@@ -1,11 +1,17 @@
 class_name CoachReadingModal
 extends Window
 ## CoachReadingModal.gd - Fenêtre modale confortable pour la lecture des analyses du Coach IA
-## Permet une lecture immersive en plein écran ou superposée, avec copie rapide et fermeture.
+## Permet une lecture immersive, affichage du raisonnement (Reasoning/Thinking) et rendu progressif.
 
 var note_data: Dictionary = {}
 var is_error_mode: bool = false
 var error_message: String = ""
+
+var text_lbl: RichTextLabel
+var btn_skip: Button
+var _full_raw_text: String = ""
+var _is_animating: bool = false
+var _chars_shown: int = 0
 
 func _init(p_note: Dictionary = {}, p_is_error: bool = false, p_error_msg: String = "") -> void:
 	note_data = p_note
@@ -15,6 +21,10 @@ func _init(p_note: Dictionary = {}, p_is_error: bool = false, p_error_msg: Strin
 func _ready() -> void:
 	_configure_window()
 	_setup_ui()
+	set_process(false)
+	if not is_error_mode:
+		var raw_resp = note_data.get("response_text", "")
+		_start_progressive_reveal(raw_resp)
 
 func _configure_window() -> void:
 	exclusive = true
@@ -105,9 +115,9 @@ func _setup_ui() -> void:
 			meta_row.add_child(m_lbl)
 
 		var model_lbl = Label.new()
-		var elapsed = note_data.get("elapsed_sec", 0.0)
-		var cost_lbl = note_data.get("cost_label", "")
-		var model_id = note_data.get("model_id", "Modèle")
+		var elapsed = float(note_data.get("elapsed_sec", 0.0))
+		var cost_lbl = str(note_data.get("cost_label", ""))
+		var model_id = str(note_data.get("model_id", "Modèle"))
 		model_lbl.text = "⚡ %s (%.1fs)" % [model_id, elapsed]
 		if cost_lbl != "":
 			model_lbl.text += " • %s" % cost_lbl
@@ -127,7 +137,56 @@ func _setup_ui() -> void:
 			q_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
 			header_vbox.add_child(q_lbl)
 
-	# --- 2. ZONE DE LECTURE PRINCIPALE (SCROLLABLE & TOUCH) ---
+	# --- 2. ACCORDÉON DE RAISONNEMENT (REASONING / THINKING) ---
+	var raw_reasoning = str(note_data.get("reasoning_text", "")).strip_edges()
+	if raw_reasoning != "":
+		var reasoning_card = PanelContainer.new()
+		reasoning_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var r_style = DesignTokens.flat(DesignTokens.BG_DEEP, DesignTokens.RADIUS_SMALL,
+				Color("#6366f1"), 1, Vector2(8, 6))
+		reasoning_card.add_theme_stylebox_override("panel", r_style)
+		root_vbox.add_child(reasoning_card)
+
+		var r_vbox = VBoxContainer.new()
+		r_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		r_vbox.add_theme_constant_override("separation", 4)
+		reasoning_card.add_child(r_vbox)
+
+		var r_btn = Button.new()
+		r_btn.text = "🧠 Voir la réflexion interne du modèle (Reasoning)"
+		r_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		r_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+		r_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		r_btn.add_theme_color_override("font_color", Color("#c7d2fe"))
+		r_vbox.add_child(r_btn)
+
+		var r_scroll = ScrollContainer.new()
+		r_scroll.custom_minimum_size = Vector2(0, 110)
+		r_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		r_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		r_scroll.visible = false
+		DesignTokens.touch_scroll(r_scroll)
+		r_vbox.add_child(r_scroll)
+
+		var r_lbl = RichTextLabel.new()
+		r_lbl.bbcode_enabled = true
+		r_lbl.fit_content = true
+		r_lbl.scroll_active = false
+		r_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		r_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		r_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
+		r_lbl.text = "[color=#cbd5e1][i]%s[/i][/color]" % bbcode_escape(raw_reasoning)
+		r_scroll.add_child(r_lbl)
+
+		r_btn.pressed.connect(func():
+			r_scroll.visible = not r_scroll.visible
+			if r_scroll.visible:
+				r_btn.text = "🧠 Masquer la réflexion interne du modèle"
+			else:
+				r_btn.text = "🧠 Voir la réflexion interne du modèle (Reasoning)"
+		)
+
+	# --- 3. ZONE DE LECTURE PRINCIPALE (SCROLLABLE & TOUCH) ---
 	var scroll = ScrollContainer.new()
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -136,7 +195,7 @@ func _setup_ui() -> void:
 	DesignTokens.touch_scroll(scroll)
 	root_vbox.add_child(scroll)
 
-	var text_lbl = RichTextLabel.new()
+	text_lbl = RichTextLabel.new()
 	text_lbl.bbcode_enabled = true
 	text_lbl.fit_content = true
 	text_lbl.scroll_active = false
@@ -148,21 +207,27 @@ func _setup_ui() -> void:
 		var err_bbcode = "[color=%s][b]⚠️ Diagnostic de l'erreur du Coach IA :[/b][/color]\n\n" % DesignTokens.DANGER.to_html()
 		err_bbcode += "[color=%s]%s[/color]\n\n" % [Color("#fca5a5").to_html(), bbcode_escape(error_message)]
 		err_bbcode += "[color=%s][i]💡 Conseils pratiques :\n" % DesignTokens.TEXT_MUTED.to_html()
-		err_bbcode += "• Si le message indique un dépassement de quota (HTTP 429), patientez 5 à 10 secondes.\n"
-		err_bbcode += "• Vous pouvez changer de modèle à tout moment en cliquant sur le badge ⚡ en haut.\n"
-		err_bbcode += "• Vous pouvez vérifier ou saisir une clé API valide dans les Réglages ⚙️.[/i][/color]"
+		err_bbcode += "• Si le message indique un quota dépassé (HTTP 429), patientez 5 à 10 secondes.\n"
+		err_bbcode += "• Vérifiez ou saisissez votre clé OpenRouter universelle en haut du Coach.\n"
+		err_bbcode += "• Vous pouvez basculer en 1 clic sur un modèle gratuit (:free) ou local.[/i][/color]"
 		text_lbl.text = err_bbcode
-	else:
-		var raw_response = note_data.get("response_text", "")
-		text_lbl.text = format_markdown_to_bbcode(raw_response)
 
 	scroll.add_child(text_lbl)
 
-	# --- 3. BARRE D'ACTIONS INFÉRIEURE ---
+	# --- 4. BARRE D'ACTIONS INFÉRIEURE ---
 	var actions_row = HBoxContainer.new()
 	actions_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	actions_row.add_theme_constant_override("separation", 8)
 	root_vbox.add_child(actions_row)
+
+	btn_skip = Button.new()
+	btn_skip.text = "⏩ Tout afficher"
+	btn_skip.visible = false
+	btn_skip.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_skip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_skip.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	btn_skip.pressed.connect(_finish_progressive_reveal)
+	actions_row.add_child(btn_skip)
 
 	if not is_error_mode:
 		var btn_copy = Button.new()
@@ -182,7 +247,28 @@ func _setup_ui() -> void:
 						btn_copy.text = "📋 Copier l'analyse"
 				)
 		)
-		actions_row.add_child(btn_copy)
+	if is_error_mode:
+		var btn_hub = Button.new()
+		btn_hub.text = "🔑 Hub & Clé OpenRouter"
+		btn_hub.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+		btn_hub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn_hub.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+		var hub_style = DesignTokens.flat(DesignTokens.PRIMARY_BG, DesignTokens.RADIUS_SMALL, DesignTokens.PRIMARY_BORDER, 1)
+		btn_hub.add_theme_stylebox_override("normal", hub_style)
+		btn_hub.add_theme_color_override("font_color", DesignTokens.ON_PRIMARY)
+		btn_hub.pressed.connect(func():
+			queue_free()
+			var tree = Engine.get_main_loop() as SceneTree
+			if tree and tree.root:
+				var main = tree.root.get_node_or_null("Main")
+				if main and main.has_method("_open_modal"):
+					main._open_modal(ModelHubModal.new())
+				else:
+					var m = ModelHubModal.new()
+					tree.root.add_child(m)
+					m.popup_centered()
+		)
+		actions_row.add_child(btn_hub)
 
 	var btn_close = Button.new()
 	btn_close.text = "Fermer"
@@ -191,6 +277,35 @@ func _setup_ui() -> void:
 	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_close.pressed.connect(queue_free)
 	actions_row.add_child(btn_close)
+
+func _start_progressive_reveal(raw_text: String) -> void:
+	_full_raw_text = raw_text
+	if is_error_mode or raw_text.length() < 60:
+		text_lbl.text = format_markdown_to_bbcode(raw_text)
+		return
+	_is_animating = true
+	_chars_shown = 0
+	if btn_skip:
+		btn_skip.visible = true
+	set_process(true)
+
+func _process(_delta: float) -> void:
+	if not _is_animating:
+		set_process(false)
+		return
+	_chars_shown += 16
+	if _chars_shown >= _full_raw_text.length():
+		_finish_progressive_reveal()
+	else:
+		var partial = _full_raw_text.substr(0, _chars_shown)
+		text_lbl.text = format_markdown_to_bbcode(partial) + " [color=#38bdf8]▋[/color]"
+
+func _finish_progressive_reveal() -> void:
+	_is_animating = false
+	set_process(false)
+	text_lbl.text = format_markdown_to_bbcode(_full_raw_text)
+	if btn_skip:
+		btn_skip.visible = false
 
 static func bbcode_escape(s: String) -> String:
 	return s.replace("[", "[lb]").replace("]", "[rb]")

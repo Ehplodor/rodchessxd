@@ -37,6 +37,7 @@ var last_error_message: String = ""
 var last_error_ply: int = -1
 
 var current_ply_index: int = -1
+var thinking_card_lbl: Label = null
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(0, 200)
@@ -87,7 +88,29 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if is_thinking:
 		var elapsed = (Time.get_ticks_msec() / 1000.0) - thinking_start_time
-		status_label.text = "⏳ Réflexion... (%.1fs)" % elapsed
+		var step_short = "Réflexion"
+		var step_long = "Réflexion en cours"
+		if elapsed < 1.2:
+			step_short = "Évaluation"
+			step_long = "1/4 Évaluation tactique de la position"
+		elif elapsed < 2.8:
+			step_short = "Calcul variantes"
+			step_long = "2/4 Analyse des variantes et menaces"
+		elif elapsed < 5.5:
+			step_short = "Appel OpenRouter"
+			step_long = "3/4 Consultation du modèle OpenRouter"
+		else:
+			step_short = "Synthèse Coach"
+			step_long = "4/4 Synthèse pédagogique du Coach"
+
+		status_label.text = "⏳ %s... (%.1fs)" % [step_short, elapsed]
+		if thinking_card_lbl and is_instance_valid(thinking_card_lbl):
+			thinking_card_lbl.text = "⏳ [%s] %s\n• %s (%.1fs)" % [
+				_perspective_badge_char(active_perspective),
+				active_query_title,
+				step_long,
+				elapsed
+			]
 	else:
 		set_process(false)
 
@@ -386,7 +409,7 @@ func _update_model_badge() -> void:
 	if not model_badge_btn:
 		return
 	var sm = _get_settings_manager()
-	var active_id = sm.get_setting("active_model_id", "z-ai/glm-5.3-flash:free") if sm else "z-ai/glm-5.3-flash:free"
+	var active_id = sm.get_setting("active_model_id", "openrouter/free") if sm else "openrouter/free"
 	var mc = _get_model_catalog()
 	var model_info = mc.find_model_by_id(active_id) if mc else {}
 	var name_short = model_info.get("name", active_id)
@@ -587,14 +610,16 @@ func _populate_conversation_buttons() -> void:
 				DesignTokens.WARNING, 1, Vector2(8, 6))
 		thinking_card.add_theme_stylebox_override("panel", t_style)
 		
-		var t_lbl = Label.new()
-		t_lbl.text = "⏳ [%s] %s • Réflexion en cours..." % [_perspective_badge_char(active_perspective), active_query_title]
-		t_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		t_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		t_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		t_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
-		thinking_card.add_child(t_lbl)
+		thinking_card_lbl = Label.new()
+		thinking_card_lbl.text = "⏳ [%s] %s • Réflexion en cours..." % [_perspective_badge_char(active_perspective), active_query_title]
+		thinking_card_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		thinking_card_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		thinking_card_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		thinking_card_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
+		thinking_card.add_child(thinking_card_lbl)
 		conv_list_vbox.add_child(thinking_card)
+	else:
+		thinking_card_lbl = null
 
 	# 2. Si une erreur est survenue pour ce coup, afficher une bannière explicative avec bouton d'aide
 	if last_error_ply == current_ply_index and last_error_message != "":
@@ -610,7 +635,7 @@ func _populate_conversation_buttons() -> void:
 		err_card.add_child(err_hbox)
 
 		var e_lbl = Label.new()
-		e_lbl.text = "⚠️ Erreur IA pour ce coup"
+		e_lbl.text = "⚠️ Erreur IA"
 		e_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		e_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		e_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -625,6 +650,14 @@ func _populate_conversation_buttons() -> void:
 			_open_error_modal(last_error_message)
 		)
 		err_hbox.add_child(btn_err_detail)
+
+		var btn_err_hub = Button.new()
+		btn_err_hub.text = "🔑 Clé / Hub"
+		btn_err_hub.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+		btn_err_hub.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		btn_err_hub.pressed.connect(_open_model_hub)
+		err_hbox.add_child(btn_err_hub)
+
 		conv_list_vbox.add_child(err_card)
 
 	# 3. État vide
@@ -719,6 +752,15 @@ func _execute_prompt(label_text: String, query_text: String, prompt_type: String
 
 	active_query_title = label_text
 	active_query_ply = current_ply_index
+
+	var sm = _get_settings_manager()
+	var prov = sm.get_setting("ai_provider", "openrouter") if sm else "openrouter"
+	var active_model = sm.get_setting("active_model_id", "openrouter/free") if sm else "openrouter/free"
+	var openrouter_key = sm.get_setting("api_key_openrouter", "") if sm else ""
+	var is_free = active_model.begins_with("openrouter/free") or active_model.ends_with(":free") or active_model == "local"
+	if prov != "local_slm" and not is_free and openrouter_key.strip_edges() == "":
+		_open_error_modal("Une clé API OpenRouter est requise pour utiliser ce modèle (%s).\n\nCliquez ci-dessous pour configurer votre clé dans le Hub des Modèles, ou choisissez un modèle avec le badge Gratuit 🆓." % active_model)
+		return
 
 	var gc = _get_game_controller()
 	var game = gc.game if gc else null

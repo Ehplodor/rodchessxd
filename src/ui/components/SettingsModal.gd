@@ -373,14 +373,17 @@ func _setup_ui() -> void:
 	param_note.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	vbox.add_child(param_note)
 
-	_add_section_header(vbox, "🤖 Intelligence Artificielle & Coach")
+	_add_section_header(vbox, "🤖 Intelligence Artificielle & Coach (OpenRouter)")
 
 	var hub_btn = Button.new()
-	hub_btn.text = "⚡ Gérer les Modèles IA & Coûts..."
+	hub_btn.text = "🌟 Explorer le Hub des Modèles IA..."
 	hub_btn.clip_text = true
 	hub_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	hub_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hub_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	hub_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	var hub_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL, DesignTokens.ACCENT, 1)
+	hub_btn.add_theme_stylebox_override("normal", hub_style)
+	hub_btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	hub_btn.pressed.connect(func():
 		hide()
 		var hub = ModelHubModal.new()
@@ -399,7 +402,7 @@ func _setup_ui() -> void:
 
 	# Fournisseur IA
 	var prov_lbl = Label.new()
-	prov_lbl.text = "Mode de Coach IA :"
+	prov_lbl.text = "Fournisseur de Modèles :"
 	prov_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	prov_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	vbox.add_child(prov_lbl)
@@ -410,21 +413,20 @@ func _setup_ui() -> void:
 	prov_opt.fit_to_longest_item = false
 	prov_opt.clip_text = true
 	prov_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	prov_opt.add_item("Cloud Gratuit (OpenRouter)", 0)
-	prov_opt.add_item("SLM Local (Ollama)", 1)
-	prov_opt.add_item("Clés API Directes", 2)
+	prov_opt.add_item("OpenRouter (Cloud / BYOK universel)", 0)
+	prov_opt.add_item("SLM Local (Ollama / Hors-ligne)", 1)
 	
-	var cur_prov = SettingsManager.get_setting("ai_provider", "free_cloud")
-	match cur_prov:
-		"free_cloud": prov_opt.selected = 0
-		"local_slm": prov_opt.selected = 1
-		"api_key": prov_opt.selected = 2
+	var cur_prov = SettingsManager.get_setting("ai_provider", "openrouter")
+	if cur_prov == "local_slm":
+		prov_opt.selected = 1
+	else:
+		prov_opt.selected = 0
 	
 	prov_opt.item_selected.connect(func(idx):
-		match idx:
-			0: SettingsManager.set_setting("ai_provider", "free_cloud")
-			1: SettingsManager.set_setting("ai_provider", "local_slm")
-			2: SettingsManager.set_setting("ai_provider", "api_key")
+		if idx == 1:
+			SettingsManager.set_setting("ai_provider", "local_slm")
+		else:
+			SettingsManager.set_setting("ai_provider", "openrouter")
 	)
 	vbox.add_child(prov_opt)
 
@@ -459,13 +461,8 @@ func _setup_ui() -> void:
 	)
 	vbox.add_child(pers_opt)
 
-	# Clés API
-	_add_api_key_field(vbox, "Clé OpenRouter (Gratuit/Économique) :", "api_key_openrouter")
-	_add_api_key_field(vbox, "Clé Google Gemini (Gratuite) :", "api_key_gemini")
-	_add_api_key_field(vbox, "Clé Groq Cloud (Gratuite) :", "api_key_groq")
-	_add_api_key_field(vbox, "Clé DeepSeek (V4 Flash / R1) :", "api_key_deepseek")
-	_add_api_key_field(vbox, "Clé OpenAI (GPT-4o) :", "api_key_openai")
-	_add_api_key_field(vbox, "Clé Anthropic (Claude 3.5) :", "api_key_anthropic")
+	# Clé API OpenRouter avec test live et lien direct
+	_add_openrouter_key_section(vbox)
 
 	# --- SECTION APPARENCE & AUDIO ---
 	_add_section_header(vbox, "🎨 Thème & Sons")
@@ -653,6 +650,125 @@ func _persist_api_key(key: String, raw: String) -> void:
 	if v == "" and str(SettingsManager.get_setting(key, "")) != "":
 		return
 	SettingsManager.set_setting(key, v)
+
+func _add_openrouter_key_section(parent: Node) -> void:
+	var card = PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var c_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			DesignTokens.BORDER, 1, Vector2(10, 8))
+	card.add_theme_stylebox_override("panel", c_style)
+
+	var v_box = VBoxContainer.new()
+	v_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v_box.add_theme_constant_override("separation", 6)
+	card.add_child(v_box)
+
+	var lbl = Label.new()
+	lbl.text = "Clé API OpenRouter (BYOK universel) :"
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	v_box.add_child(lbl)
+
+	var desc_lbl = Label.new()
+	desc_lbl.text = "Une seule clé donne accès à tous les modèles IA (DeepSeek R1, Claude 3.7, GPT-4o, modèles gratuits et économiques)."
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	desc_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	v_box.add_child(desc_lbl)
+
+	var edit_box = HBoxContainer.new()
+	edit_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	edit_box.add_theme_constant_override("separation", 4)
+	v_box.add_child(edit_box)
+
+	var input = LineEdit.new()
+	input.secret = true
+	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	input.custom_minimum_size = Vector2(50, DesignTokens.TOUCH_MIN)
+	input.text = SettingsManager.get_setting("api_key_openrouter", "")
+	input.placeholder_text = "sk-or-v1-..."
+	input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	input.text_changed.connect(func(t): _persist_api_key("api_key_openrouter", t))
+	input.text_submitted.connect(func(_t): _persist_api_key("api_key_openrouter", input.text))
+	input.focus_exited.connect(func(): _persist_api_key("api_key_openrouter", input.text))
+	edit_box.add_child(input)
+
+	var show_btn = Button.new()
+	show_btn.text = "👁️"
+	show_btn.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_MIN)
+	show_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	show_btn.pressed.connect(func(): input.secret = not input.secret)
+	edit_box.add_child(show_btn)
+
+	var test_feedback_lbl = Label.new()
+	test_feedback_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	test_feedback_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	test_feedback_lbl.visible = false
+	v_box.add_child(test_feedback_lbl)
+
+	var actions_row = HBoxContainer.new()
+	actions_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	actions_row.add_theme_constant_override("separation", 6)
+	v_box.add_child(actions_row)
+
+	var btn_test = Button.new()
+	btn_test.text = "🔍 Tester la clé"
+	btn_test.clip_text = true
+	btn_test.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_test.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_test.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	btn_test.pressed.connect(func():
+		var k = input.text.strip_edges()
+		if k == "":
+			test_feedback_lbl.text = "⚠️ Saisissez une clé avant de tester."
+			test_feedback_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
+			test_feedback_lbl.visible = true
+			return
+		test_feedback_lbl.text = "⏳ Vérification de la clé auprès d'OpenRouter..."
+		test_feedback_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		test_feedback_lbl.visible = true
+
+		var tree = Engine.get_main_loop() as SceneTree
+		var mc = tree.root.get_node_or_null("ModelCatalog") if tree and tree.root else null
+		if mc and mc.has_method("test_openrouter_key"):
+			var cb: Callable
+			cb = func(is_valid: bool, data: Dictionary, err: String):
+				if not is_instance_valid(test_feedback_lbl):
+					return
+				if is_valid:
+					var usage = data.get("usage", 0.0)
+					var limit = data.get("limit", 0.0)
+					var is_free = data.get("is_free_tier", false)
+					if limit > 0.0:
+						var rem = maxf(0.0, limit - usage)
+						test_feedback_lbl.text = "✅ Clé active ! Solde : $%.2f (Utilisé : $%.2f)" % [rem, usage]
+					elif is_free:
+						test_feedback_lbl.text = "✅ Clé valide (Tier gratuit OpenRouter)"
+					else:
+						test_feedback_lbl.text = "✅ Clé active et reconnue"
+					test_feedback_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+				else:
+					test_feedback_lbl.text = "❌ Clé invalide : %s" % (err if err != "" else "Erreur d'authentification")
+					test_feedback_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+			mc.key_test_completed.connect(cb, CONNECT_ONE_SHOT)
+			mc.test_openrouter_key(k)
+		else:
+			test_feedback_lbl.text = "⚠️ Catalogue indisponible pour le test immédiat."
+			test_feedback_lbl.visible = true
+	)
+	actions_row.add_child(btn_test)
+
+	var btn_get = Button.new()
+	btn_get.text = "🔗 Obtenir une clé"
+	btn_get.clip_text = true
+	btn_get.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_get.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_get.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	btn_get.pressed.connect(func(): OS.shell_open("https://openrouter.ai/keys"))
+	actions_row.add_child(btn_get)
+
+	parent.add_child(card)
 
 func _add_api_key_field(parent: Node, label_text: String, setting_key: String) -> void:
 	var row = VBoxContainer.new()

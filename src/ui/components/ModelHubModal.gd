@@ -1,14 +1,15 @@
 class_name ModelHubModal
 extends Window
-## ModelHubModal.gd - Interface ergonomique de gestion et configuration des modèles IA (Gratuit, API, Local)
-## Permet la mise à jour dynamique du catalogue, l'affichage des coûts de revient et le test de connexion.
+## ModelHubModal.gd - Interface ergonomique de gestion et configuration des modèles IA (OpenRouter BYOK + Local)
+## Recherche en temps réel, filtres par critères, test de clé API en 1 clic et conformité mobile.
 
 signal model_selected(model_id: String)
 
 const ModelCatalogScript = preload("res://src/ai/ModelCatalog.gd")
 
-var active_tab_index: int = 0
 var current_active_id: String = ""
+var active_filters: Array[String] = []
+var search_query: String = ""
 
 # Éléments d'interface
 var active_badge_lbl: Label
@@ -16,21 +17,21 @@ var update_btn: Button
 var update_status_lbl: Label
 var session_stats_lbl: Label
 
-# Boutons d'onglets segmentés
-var btn_tab_free: Button
-var btn_tab_paid: Button
-var btn_tab_local: Button
+# Clé OpenRouter
+var key_input: LineEdit
+var key_status_lbl: Label
+var btn_test_key: Button
+var key_edit_row: HBoxContainer
+var btn_toggle_key: Button
 
-# Conteneurs de défilement pour chaque onglet
-var scroll_free: ScrollContainer
-var scroll_paid: ScrollContainer
-var scroll_local: ScrollContainer
+# Recherche et filtres
+var search_input: LineEdit
+var filter_buttons: Dictionary = {}
+var models_container: VBoxContainer
+var main_scroll: ScrollContainer
 
-var free_models_container: VBoxContainer
-var paid_models_container: VBoxContainer
-var local_models_container: VBoxContainer
+# Composants SLM Local
 var ollama_status_lbl: Label
-
 var download_progress_bars: Dictionary = {}
 var download_status_labels: Dictionary = {}
 
@@ -65,19 +66,20 @@ func _get_slm_manager() -> Node:
 	return null
 
 func _ready() -> void:
-	title = "⚡ Hub des Modèles IA"
+	title = "⚡ Hub des Modèles IA (OpenRouter)"
 	DesignTokens.adapt_modal_size(self, 410, 650)
 	exclusive = true
 	close_requested.connect(queue_free)
 
 	var sm = _get_settings()
-	current_active_id = sm.get_setting("active_model_id", "z-ai/glm-5.3-flash:free") if sm else "z-ai/glm-5.3-flash:free"
+	current_active_id = sm.get_setting("active_model_id", "openrouter/free") if sm else "openrouter/free"
 
 	var cat = _get_catalog()
 	if cat:
 		cat.catalog_updated.connect(_on_catalog_updated)
 		cat.catalog_update_failed.connect(_on_catalog_update_failed)
 		cat.local_ollama_detected.connect(_on_ollama_detected)
+		cat.key_test_completed.connect(_on_key_test_completed)
 
 	var dl = _get_downloader()
 	if dl:
@@ -88,28 +90,41 @@ func _ready() -> void:
 
 	_setup_ui()
 	_refresh_active_badge()
-	_populate_all_tabs()
-	_switch_tab(0)
+	_refresh_models_list()
 
 func _setup_ui() -> void:
-	var root_panel = PanelContainer.new()
-	root_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var panel_style := DesignTokens.flat(DesignTokens.BG_DEEP, DesignTokens.RADIUS_SMALL,
-			Color.TRANSPARENT, 0, Vector2(DesignTokens.CARD_PAD_H, DesignTokens.CARD_PAD_V))
-	root_panel.add_theme_stylebox_override("panel", panel_style)
-	add_child(root_panel)
+	var root_vbox = VBoxContainer.new()
+	root_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root_vbox.offset_left = 10
+	root_vbox.offset_top = 10
+	root_vbox.offset_right = -10
+	root_vbox.offset_bottom = -10
+	root_vbox.clip_contents = true
+	root_vbox.add_theme_constant_override("separation", 6)
+	add_child(root_vbox)
 
-	var main_vbox = VBoxContainer.new()
-	main_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	main_vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	main_vbox.add_theme_constant_override("separation", 8)
-	root_panel.add_child(main_vbox)
+	# --- CONTENEUR DE DÉFILEMENT PLEINE HAUTEUR ---
+	# Permet à l'intégralité du contenu (en-tête, clé, recherche, filtres et liste des modèles)
+	# de défiler sur toute la hauteur de l'écran sans étranglement.
+	main_scroll = ScrollContainer.new()
+	DesignTokens.touch_scroll(main_scroll)
+	main_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	main_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	main_scroll.clip_contents = true
+	root_vbox.add_child(main_scroll)
 
-	# 1. EN-TÊTE & BADGE MODÈLE ACTIF
+	var scroll_content = VBoxContainer.new()
+	scroll_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll_content.clip_contents = true
+	scroll_content.add_theme_constant_override("separation", 8)
+	main_scroll.add_child(scroll_content)
+
+	# --- 1. EN-TÊTE : Modèle Actif & Actualiser ---
 	var header_box = VBoxContainer.new()
 	header_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header_box.add_theme_constant_override("separation", 4)
-	main_vbox.add_child(header_box)
+	header_box.add_theme_constant_override("separation", 2)
+	scroll_content.add_child(header_box)
 
 	var top_row = HBoxContainer.new()
 	top_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -117,6 +132,7 @@ func _setup_ui() -> void:
 
 	var title_lbl = Label.new()
 	title_lbl.text = "🤖 Modèle Actif :"
+	title_lbl.custom_minimum_size = Vector2(50, 0)
 	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	top_row.add_child(title_lbl)
@@ -127,8 +143,10 @@ func _setup_ui() -> void:
 
 	update_btn = Button.new()
 	update_btn.text = "🔄 Actualiser"
-	update_btn.tooltip_text = "Rafraîchir les modèles et tarifs en ligne"
-	DesignTokens.style_button(update_btn)
+	update_btn.tooltip_text = "Synchroniser avec l'API OpenRouter"
+	update_btn.clip_text = true
+	update_btn.custom_minimum_size = Vector2(90, DesignTokens.TOUCH_DENSE)
+	DesignTokens.style_button(update_btn, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
 	update_btn.pressed.connect(_on_refresh_catalog_pressed)
 	top_row.add_child(update_btn)
 
@@ -136,6 +154,7 @@ func _setup_ui() -> void:
 	active_badge_lbl.text = "Chargement..."
 	active_badge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	active_badge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_badge_lbl.custom_minimum_size = Vector2(50, 0)
 	active_badge_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	active_badge_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	header_box.add_child(active_badge_lbl)
@@ -144,92 +163,170 @@ func _setup_ui() -> void:
 	var sm = _get_settings()
 	var last_sync = sm.get_setting("last_catalog_sync", "Jamais") if sm else "Jamais"
 	update_status_lbl.text = "Dernière synchro : %s" % (last_sync if last_sync != "" else "Catalogue initial")
-	update_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	update_status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	update_status_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	update_status_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	update_status_lbl.custom_minimum_size = Vector2(50, 0)
+	update_status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
 	update_status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	header_box.add_child(update_status_lbl)
 
-	# 2. ONGLETS SEGMENTÉS MODERNES & RESPONSIVES (Garanti sans débordement)
-	# M1 : rangée dense
-	var tab_bar = HBoxContainer.new()
-	tab_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tab_bar.add_theme_constant_override("separation", 6)
-	main_vbox.add_child(tab_bar)
+	# --- 2. BANDEAU CLÉ OPENROUTER (BYOK COMPACT / DÉPLIABLE) ---
+	var cur_key = sm.get_setting("api_key_openrouter", "") if sm else ""
+	var has_key = cur_key.strip_edges() != ""
 
-	btn_tab_free = Button.new()
-	btn_tab_free.text = "⚡ Gratuit"
-	btn_tab_free.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DesignTokens.style_button(btn_tab_free, DesignTokens.FONT_BODY, DesignTokens.TOUCH_DENSE)
-	btn_tab_free.pressed.connect(func(): _switch_tab(0))
-	tab_bar.add_child(btn_tab_free)
+	var key_card = PanelContainer.new()
+	key_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var key_style := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_SMALL,
+			DesignTokens.BORDER, 1, Vector2(8, 6))
+	key_card.add_theme_stylebox_override("panel", key_style)
+	scroll_content.add_child(key_card)
 
-	btn_tab_paid = Button.new()
-	btn_tab_paid.text = "🔑 Clés API"
-	btn_tab_paid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DesignTokens.style_button(btn_tab_paid, DesignTokens.FONT_BODY, DesignTokens.TOUCH_DENSE)
-	btn_tab_paid.pressed.connect(func(): _switch_tab(1))
-	tab_bar.add_child(btn_tab_paid)
+	var key_vbox = VBoxContainer.new()
+	key_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key_vbox.clip_contents = true
+	key_vbox.add_theme_constant_override("separation", 4)
+	key_card.add_child(key_vbox)
 
-	btn_tab_local = Button.new()
-	btn_tab_local.text = "💻 Local"
-	btn_tab_local.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	DesignTokens.style_button(btn_tab_local, DesignTokens.FONT_BODY, DesignTokens.TOUCH_DENSE)
-	btn_tab_local.pressed.connect(func(): _switch_tab(2))
-	tab_bar.add_child(btn_tab_local)
+	var key_head_row = HBoxContainer.new()
+	key_head_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key_vbox.add_child(key_head_row)
 
-	# 3. CONTENEURS D'ONGLETS INDÉPENDANTS (Scrollable sans défilement horizontal)
-	var tabs_content_area = PanelContainer.new()
-	tabs_content_area.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tabs_content_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var tab_bg := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_SMALL,
-			Color.TRANSPARENT, 0, Vector2(DesignTokens.SPACE_XS, DesignTokens.SPACE_XS))
-	tabs_content_area.add_theme_stylebox_override("panel", tab_bg)
-	main_vbox.add_child(tabs_content_area)
+	var key_lbl = Label.new()
+	key_lbl.text = "🔑 Clé OpenRouter :"
+	key_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key_lbl.custom_minimum_size = Vector2(50, 0)
+	key_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	key_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	key_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	key_head_row.add_child(key_lbl)
 
-	# --- ONGLET 1 : GRATUIT ---
-	scroll_free = ScrollContainer.new()
-	DesignTokens.touch_scroll(scroll_free)
-	scroll_free.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll_free.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll_free.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	tabs_content_area.add_child(scroll_free)
+	btn_toggle_key = Button.new()
+	btn_toggle_key.text = "⚙️ Modifier" if has_key else "▲ Masquer"
+	btn_toggle_key.tooltip_text = "Afficher/Masquer le champ de clé OpenRouter"
+	btn_toggle_key.clip_text = true
+	btn_toggle_key.custom_minimum_size = Vector2(75, 28)
+	DesignTokens.style_button(btn_toggle_key, DesignTokens.FONT_CAPTION - 1, 28)
+	btn_toggle_key.pressed.connect(func():
+		key_edit_row.visible = not key_edit_row.visible
+		btn_toggle_key.text = "▲ Replier" if key_edit_row.visible else "⚙️ Modifier"
+		_update_key_status_preview()
+	)
+	key_head_row.add_child(btn_toggle_key)
 
-	free_models_container = VBoxContainer.new()
-	free_models_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	free_models_container.add_theme_constant_override("separation", 8)
-	scroll_free.add_child(free_models_container)
+	var btn_get_key = Button.new()
+	btn_get_key.text = "🔗 Clé 0 €"
+	btn_get_key.tooltip_text = "Ouvrir openrouter.ai/keys pour générer une clé gratuite sans CB"
+	btn_get_key.clip_text = true
+	btn_get_key.custom_minimum_size = Vector2(65, 28)
+	DesignTokens.style_button(btn_get_key, DesignTokens.FONT_CAPTION - 1, 28)
+	btn_get_key.pressed.connect(func():
+		OS.shell_open("https://openrouter.ai/keys")
+	)
+	key_head_row.add_child(btn_get_key)
 
-	# --- ONGLET 2 : CLÉ API ---
-	scroll_paid = ScrollContainer.new()
-	DesignTokens.touch_scroll(scroll_paid)
-	scroll_paid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll_paid.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll_paid.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	tabs_content_area.add_child(scroll_paid)
+	key_edit_row = HBoxContainer.new()
+	key_edit_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key_edit_row.add_theme_constant_override("separation", 4)
+	key_edit_row.visible = not has_key
+	key_vbox.add_child(key_edit_row)
 
-	paid_models_container = VBoxContainer.new()
-	paid_models_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	paid_models_container.add_theme_constant_override("separation", 8)
-	scroll_paid.add_child(paid_models_container)
+	key_input = LineEdit.new()
+	key_input.secret = true
+	key_input.placeholder_text = "sk-or-v1-..."
+	key_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key_input.custom_minimum_size = Vector2(50, DesignTokens.TOUCH_DENSE)
+	key_input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	key_input.text = cur_key
+	key_input.text_changed.connect(func(val):
+		var s = _get_settings()
+		if s:
+			s.set_setting("api_key_openrouter", val.strip_edges())
+		_update_key_status_preview()
+	)
+	key_edit_row.add_child(key_input)
 
-	# --- ONGLET 3 : SLM LOCAL ---
-	scroll_local = ScrollContainer.new()
-	DesignTokens.touch_scroll(scroll_local)
-	scroll_local.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll_local.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll_local.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	tabs_content_area.add_child(scroll_local)
+	var show_key_btn = Button.new()
+	show_key_btn.text = "👁️"
+	show_key_btn.tooltip_text = "Afficher/Masquer la clé"
+	show_key_btn.custom_minimum_size = Vector2(36, DesignTokens.TOUCH_DENSE)
+	show_key_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	show_key_btn.pressed.connect(func(): key_input.secret = not key_input.secret)
+	key_edit_row.add_child(show_key_btn)
 
-	local_models_container = VBoxContainer.new()
-	local_models_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	local_models_container.add_theme_constant_override("separation", 8)
-	scroll_local.add_child(local_models_container)
+	btn_test_key = Button.new()
+	btn_test_key.text = "🔍 Tester"
+	btn_test_key.tooltip_text = "Valider la clé auprès d'OpenRouter (/api/v1/auth/key)"
+	btn_test_key.clip_text = true
+	btn_test_key.custom_minimum_size = Vector2(60, DesignTokens.TOUCH_DENSE)
+	DesignTokens.style_button(btn_test_key, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
+	btn_test_key.pressed.connect(_on_test_key_pressed)
+	key_edit_row.add_child(btn_test_key)
 
-	# 4. STATISTIQUES DE SESSION & BOUTON FERMER
+	key_status_lbl = Label.new()
+	key_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	key_status_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key_status_lbl.custom_minimum_size = Vector2(50, 0)
+	key_status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
+	key_vbox.add_child(key_status_lbl)
+	_update_key_status_preview()
+
+	# --- 3. BARRE DE RECHERCHE TEMPS RÉEL ---
+	search_input = LineEdit.new()
+	search_input.placeholder_text = "🔍 Rechercher un modèle (DeepSeek, Claude, R1, Flash...)"
+	search_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	search_input.custom_minimum_size = Vector2(50, DesignTokens.TOUCH_DENSE)
+	search_input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	search_input.text_changed.connect(func(val):
+		search_query = val
+		_refresh_models_list()
+	)
+	scroll_content.add_child(search_input)
+
+	# --- 4. FILTRES PAR CATÉGORIE (GridContainer 3 colonnes) ---
+	var filter_grid = GridContainer.new()
+	filter_grid.columns = 3
+	filter_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	filter_grid.add_theme_constant_override("h_separation", 4)
+	filter_grid.add_theme_constant_override("v_separation", 4)
+	scroll_content.add_child(filter_grid)
+
+	var categories = [
+		["all", "Tous"],
+		["free", "🆓 Gratuits"],
+		["reasoning", "🧠 Raison."],
+		["fast_eco", "⚡ Éco"],
+		["frontier", "👑 Frontier"],
+		["local", "💻 Local"]
+	]
+
+	for cat_info in categories:
+		var cat_key = cat_info[0]
+		var cat_title = cat_info[1]
+		var b = Button.new()
+		b.text = cat_title
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+		DesignTokens.style_button(b, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
+		b.pressed.connect(func():
+			_toggle_filter(cat_key)
+		)
+		filter_buttons[cat_key] = b
+		filter_grid.add_child(b)
+	_update_filter_buttons_style()
+
+	# --- 5. CONTENEUR DES CARTES DE MODÈLES ---
+	models_container = VBoxContainer.new()
+	models_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	models_container.add_theme_constant_override("separation", 6)
+	scroll_content.add_child(models_container)
+
+	# --- 6. PIED DE PAGE FIXE : Statistiques de Session & Fermer ---
 	var footer_box = HBoxContainer.new()
 	footer_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	footer_box.add_theme_constant_override("separation", 8)
-	main_vbox.add_child(footer_box)
+	root_vbox.add_child(footer_box)
 
 	session_stats_lbl = Label.new()
 	var coach = _get_coach()
@@ -237,6 +334,7 @@ func _setup_ui() -> void:
 	var q_cst = coach.session_estimated_cost_usd if coach else 0.0
 	session_stats_lbl.text = "Session : %d req | ~%.4f $" % [q_cnt, q_cst]
 	session_stats_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	session_stats_lbl.custom_minimum_size = Vector2(50, 0)
 	session_stats_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	session_stats_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	session_stats_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
@@ -244,36 +342,83 @@ func _setup_ui() -> void:
 
 	var close_btn = Button.new()
 	close_btn.text = "Fermer"
-	close_btn.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_MIN)
-	close_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	close_btn.clip_text = true
+	close_btn.custom_minimum_size = Vector2(70, DesignTokens.TOUCH_MIN)
+	DesignTokens.style_button(close_btn)
 	close_btn.pressed.connect(queue_free)
 	footer_box.add_child(close_btn)
 
-func _switch_tab(idx: int) -> void:
-	active_tab_index = idx
-	scroll_free.visible = (idx == 0)
-	scroll_paid.visible = (idx == 1)
-	scroll_local.visible = (idx == 2)
-
-	# Mise à jour visuelle des boutons d'onglets
-	_style_tab_button(btn_tab_free, idx == 0)
-	_style_tab_button(btn_tab_paid, idx == 1)
-	_style_tab_button(btn_tab_local, idx == 2)
-
-func _style_tab_button(btn: Button, is_selected: bool) -> void:
-	var style = StyleBoxFlat.new()
-	style.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
-	if is_selected:
-		style.bg_color = DesignTokens.SURFACE_ELEVATED
-		style.border_width_bottom = 2
-		style.border_color = DesignTokens.ACCENT
-		btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
+func _toggle_filter(cat_key: String) -> void:
+	if cat_key == "all":
+		active_filters.clear()
 	else:
-		style.bg_color = DesignTokens.SURFACE
-		btn.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	btn.add_theme_stylebox_override("normal", style)
-	btn.add_theme_stylebox_override("pressed", style)
-	btn.add_theme_stylebox_override("hover", style)
+		if active_filters.has(cat_key):
+			active_filters.erase(cat_key)
+		else:
+			active_filters.append(cat_key)
+	_update_filter_buttons_style()
+	_refresh_models_list()
+
+func _update_filter_buttons_style() -> void:
+	var is_all_active = active_filters.is_empty()
+	for cat_key in filter_buttons:
+		var btn: Button = filter_buttons[cat_key]
+		var is_sel = is_all_active if cat_key == "all" else active_filters.has(cat_key)
+		var style = StyleBoxFlat.new()
+		style.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
+		if is_sel:
+			style.bg_color = DesignTokens.SURFACE_ELEVATED
+			style.border_width_bottom = 2
+			style.border_color = DesignTokens.ACCENT
+			btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
+		else:
+			style.bg_color = DesignTokens.SURFACE
+			btn.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		btn.add_theme_stylebox_override("normal", style)
+		btn.add_theme_stylebox_override("hover", style)
+		btn.add_theme_stylebox_override("pressed", style)
+
+func _update_key_status_preview() -> void:
+	var sm = _get_settings()
+	var k = sm.get_setting("api_key_openrouter", "") if sm else ""
+	if k.strip_edges() == "":
+		key_status_lbl.text = "⚪ Non configurée : les modèles gratuits (:free) restent accessibles."
+		key_status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		if btn_toggle_key:
+			btn_toggle_key.text = "▲ Replier" if (key_edit_row and key_edit_row.visible) else "⚙️ Saisir"
+	else:
+		if key_edit_row and not key_edit_row.visible:
+			key_status_lbl.text = "🔑 Clé enregistrée (active). Touchez '⚙️ Modifier' pour afficher ou tester."
+		else:
+			key_status_lbl.text = "🔑 Clé enregistrée. Touchez '🔍 Tester' pour vérifier son solde et sa validité."
+		key_status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+		if btn_toggle_key:
+			btn_toggle_key.text = "▲ Replier" if (key_edit_row and key_edit_row.visible) else "⚙️ Modifier"
+
+func _on_test_key_pressed() -> void:
+	var sm = _get_settings()
+	var k = sm.get_setting("api_key_openrouter", "") if sm else ""
+	if k.strip_edges() == "":
+		key_status_lbl.text = "⚠️ Veuillez saisir une clé OpenRouter avant de tester."
+		key_status_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
+		return
+
+	btn_test_key.disabled = true
+	key_status_lbl.text = "⏳ Vérification de la clé auprès d'OpenRouter..."
+	key_status_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
+
+	var cat = _get_catalog()
+	if cat:
+		cat.test_openrouter_key(k)
+
+func _on_key_test_completed(success: bool, _info: Dictionary, message: String) -> void:
+	btn_test_key.disabled = false
+	if success:
+		key_status_lbl.text = "✅ " + message
+		key_status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+	else:
+		key_status_lbl.text = "❌ " + message
+		key_status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
 
 func _refresh_active_badge() -> void:
 	var cat = _get_catalog()
@@ -288,127 +433,100 @@ func _refresh_active_badge() -> void:
 
 	active_badge_lbl.text = "%s  •  %s" % [model_name, cost_str]
 
-func _populate_all_tabs() -> void:
-	_populate_free_tab()
-	_populate_paid_tab()
-	_populate_local_tab()
+func _refresh_models_list() -> void:
+	if models_container == null:
+		return
 
-## 1. Onglet Cloud Gratuit
-func _populate_free_tab() -> void:
-	for child in free_models_container.get_children():
+	for child in models_container.get_children():
 		child.queue_free()
 
-	var desc = Label.new()
-	desc.text = "Modèles gratuits sans carte bancaire ni frais récurrents. Vitesse extrême et explication humaine."
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	free_models_container.add_child(desc)
-
-	var cat = _get_catalog()
-	if cat:
-		var free_list = cat.get_models_by_modality(ModelCatalogScript.Modality.CLOUD_FREE)
-		for m in free_list:
-			_add_model_card(free_models_container, m)
-
-	var sep = HSeparator.new()
-	free_models_container.add_child(sep)
-
-	var key_title = Label.new()
-	key_title.text = "🔑 Clés d'Accès Gratuites (Sans Carte Bancaire) :"
-	key_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	key_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	key_title.add_theme_color_override("font_color", DesignTokens.ACCENT)
-	free_models_container.add_child(key_title)
-
-	_add_quick_key_input(free_models_container, "Clé OpenRouter (Pour modèles gratuits :free) :", "api_key_openrouter", "https://openrouter.ai/keys")
-	_add_quick_key_input(free_models_container, "Clé Groq Cloud (Gratuit jusqu'à 14 400 req/jour) :", "api_key_groq", "https://console.groq.com/keys")
-	_add_quick_key_input(free_models_container, "Clé Google AI Studio (Gemini Free 15 req/min) :", "api_key_gemini", "https://aistudio.google.com/app/apikey")
-
-## 2. Onglet Clé API Payante / Économique
-func _populate_paid_tab() -> void:
-	for child in paid_models_container.get_children():
-		child.queue_free()
-
-	var desc = Label.new()
-	desc.text = "Modèles de pointe facturés à l'usage (quelques centièmes de centime par analyse)."
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	paid_models_container.add_child(desc)
-
-	var cat = _get_catalog()
-	if cat:
-		var paid_list = cat.get_models_by_modality(ModelCatalogScript.Modality.API_PAID)
-		for m in paid_list:
-			_add_model_card(paid_models_container, m)
-
-	var sep = HSeparator.new()
-	paid_models_container.add_child(sep)
-
-	var key_title = Label.new()
-	key_title.text = "🔑 Vos Clés API Personnelles :"
-	key_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	key_title.add_theme_color_override("font_color", DesignTokens.ACCENT)
-	paid_models_container.add_child(key_title)
-
-	_add_quick_key_input(paid_models_container, "Clé OpenRouter Universelle :", "api_key_openrouter", "https://openrouter.ai/keys")
-	_add_quick_key_input(paid_models_container, "Clé DeepSeek (V4 Flash / R1) :", "api_key_deepseek", "https://platform.deepseek.com")
-	_add_quick_key_input(paid_models_container, "Clé OpenAI (GPT-4o) :", "api_key_openai", "https://platform.openai.com")
-	_add_quick_key_input(paid_models_container, "Clé Anthropic (Claude 3.5) :", "api_key_anthropic", "https://console.anthropic.com")
-
-## 3. Onglet SLM Local Hors-Ligne
-func _populate_local_tab() -> void:
 	download_progress_bars.clear()
 	download_status_labels.clear()
 
-	for child in local_models_container.get_children():
-		child.queue_free()
+	var cat = _get_catalog()
+	if not cat:
+		return
 
-	# --- SECTION A : COACH AUTONOME EMBARQUÉ (SANS OLLAMA) ---
+	# Si le seul filtre actif est "local" et aucune recherche active, afficher les sections dédiées
+	if active_filters.size() == 1 and active_filters.has("local") and search_query.strip_edges() == "":
+		_populate_local_special_view()
+		return
+
+	# Si le catalogue ne contient que le routeur initial par défaut, afficher une invitation conviviale
+	if cat.models.size() <= 1 and search_query.strip_edges() == "" and active_filters.is_empty():
+		_add_first_launch_notice(models_container)
+
+	var results: Array[Dictionary] = cat.search_models(search_query, active_filters)
+	if results.is_empty():
+		var empty_lbl = Label.new()
+		empty_lbl.text = "Aucun modèle ne correspond à votre recherche."
+		empty_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		empty_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		empty_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		models_container.add_child(empty_lbl)
+		return
+
+	for m in results:
+		if m.get("provider") == "native_slm":
+			_add_native_slm_card(models_container, m)
+		else:
+			_add_openrouter_model_card(models_container, m)
+
+func _add_first_launch_notice(parent: Control) -> void:
+	var notice_card = PanelContainer.new()
+	notice_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var card_style := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			DesignTokens.ACCENT, 1, Vector2(10, 8))
+	notice_card.add_theme_stylebox_override("panel", card_style)
+	parent.add_child(notice_card)
+
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 4)
+	notice_card.add_child(vbox)
+
+	var title_lbl = Label.new()
+	title_lbl.text = "✨ Démarrage Rapide (Modèle Gratuit Configuré)"
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	vbox.add_child(title_lbl)
+
+	var desc_lbl = Label.new()
+	desc_lbl.text = "Le Routeur Gratuit OpenRouter est prêt à l'emploi sans clé API requise.\n\n💡 Pour explorer des centaines d'autres modèles (DeepSeek, Claude, Llama...) avec leurs caractéristiques complètes, touchez le bouton '🔄 Actualiser' ci-dessus."
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	desc_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	desc_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	vbox.add_child(desc_lbl)
+
+func _populate_local_special_view() -> void:
+	var cat = _get_catalog()
+
+	# Section SLM Embarqués
 	var native_title = Label.new()
-	native_title.text = "📦 Coach Autonome Embarqué (Sans Ollama) :"
+	native_title.text = "📦 Modèles Embarqués Autonomes (GGUF - Sans Logiciel Externe) :"
 	native_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	native_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	native_title.add_theme_color_override("font_color", DesignTokens.ACCENT)
-	local_models_container.add_child(native_title)
+	models_container.add_child(native_title)
 
-	var native_desc = Label.new()
-	native_desc.text = "Modèles d'IA légers (GGUF) stockés sur votre appareil. 100% privé, 0 € à vie, sans connexion Internet et sans logiciel externe requis."
-	native_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	native_desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	native_desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	local_models_container.add_child(native_desc)
-
-	var cat = _get_catalog()
 	if cat:
-		var local_list = cat.get_models_by_modality(ModelCatalogScript.Modality.LOCAL_SLM)
-		for m in local_list:
+		for m in cat.models:
 			if m.get("provider") == "native_slm":
-				_add_native_slm_card(local_models_container, m)
+				_add_native_slm_card(models_container, m)
 
-	var sep_ollama = HSeparator.new()
-	local_models_container.add_child(sep_ollama)
+	var sep = HSeparator.new()
+	models_container.add_child(sep)
 
-	# --- SECTION B : SERVEUR OLLAMA EXTERNE ---
+	# Section Serveur Ollama
 	var ollama_title = Label.new()
-	ollama_title.text = "🌐 Serveur Externe Ollama (Utilisateurs Avancés) :"
+	ollama_title.text = "🌐 Modèles Serveur Ollama (127.0.0.1:11434) :"
 	ollama_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	ollama_title.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	ollama_title.add_theme_color_override("font_color", Color("#c084fc"))
-	local_models_container.add_child(ollama_title)
-
-	var ollama_desc = Label.new()
-	ollama_desc.text = "Connectez RodChessXD à votre instance Ollama locale (127.0.0.1:11434)."
-	ollama_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	ollama_desc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	ollama_desc.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	local_models_container.add_child(ollama_desc)
-
-	# Bouton détection Ollama
-	var detect_box = HBoxContainer.new()
-	detect_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	local_models_container.add_child(detect_box)
+	models_container.add_child(ollama_title)
 
 	var detect_btn = Button.new()
 	detect_btn.text = "🔍 Détecter mes modèles (Ollama)"
@@ -419,41 +537,135 @@ func _populate_local_tab() -> void:
 		var c = _get_catalog()
 		if c: c.detect_local_ollama_models()
 	)
-	detect_box.add_child(detect_btn)
+	models_container.add_child(detect_btn)
 
 	ollama_status_lbl = Label.new()
-	ollama_status_lbl.text = "Cliquez ci-dessus pour scanner votre serveur Ollama local."
+	ollama_status_lbl.text = "Touchez ci-dessus pour scanner votre serveur Ollama local."
 	ollama_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	ollama_status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	ollama_status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	local_models_container.add_child(ollama_status_lbl)
+	models_container.add_child(ollama_status_lbl)
 
 	if cat:
-		var local_list = cat.get_models_by_modality(ModelCatalogScript.Modality.LOCAL_SLM)
-		for m in local_list:
+		for m in cat.models:
 			if m.get("provider") == "ollama":
-				_add_model_card(local_models_container, m)
+				_add_openrouter_model_card(models_container, m)
 
-	var sep = HSeparator.new()
-	local_models_container.add_child(sep)
+## Carte moderne de présentation d'un modèle OpenRouter / Cloud
+func _add_openrouter_model_card(parent: Control, model_dict: Dictionary) -> void:
+	var m_id = str(model_dict.get("id", ""))
+	var m_name = str(model_dict.get("name", m_id))
+	var m_desc = str(model_dict.get("description", ""))
+	var is_active = (m_id == current_active_id)
+	var is_free = bool(model_dict.get("free_tier", false)) or m_id.ends_with(":free")
+	var is_reasoning = bool(model_dict.get("is_reasoning", false))
 
-	var guide_lbl = Label.new()
-	guide_lbl.text = "💻 Commandes d'installation pour Ollama :"
-	guide_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	guide_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	guide_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
-	local_models_container.add_child(guide_lbl)
+	var card = PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var card_style := DesignTokens.flat(
+			DesignTokens.SURFACE_ELEVATED if not is_active else Color("#172554"),
+			DesignTokens.RADIUS_SMALL,
+			DesignTokens.ACCENT if is_active else DesignTokens.BORDER,
+			1, Vector2(DesignTokens.CARD_PAD_H, DesignTokens.CARD_PAD_V))
+	if is_active:
+		card_style.border_width_left = 3
+	card.add_theme_stylebox_override("panel", card_style)
+	parent.add_child(card)
 
-	_add_copyable_command(local_models_container, "GLM 5.3 Flash (18B Actifs) :", "ollama run glm-5.3-flash")
-	_add_copyable_command(local_models_container, "Qwen 3.8 27B :", "ollama run qwen3.8")
-	_add_copyable_command(local_models_container, "Nemotron 3.5 Lightning (30B) :", "ollama run nemotron-3.5-lightning")
-	_add_copyable_command(local_models_container, "SmolLM2 1.7B (Ultra-léger) :", "ollama run smollm2:1.7b")
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 3)
+	card.add_child(vbox)
 
-## Carte pour les modèles SLM autonomes avec gestionnaire de téléchargement et suppression
+	# Ligne 1 : Nom + Badges + Bouton 'Choisir'
+	var title_row = HBoxContainer.new()
+	title_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(title_row)
+
+	var name_lbl = Label.new()
+	var rec_prefix = "⭐ " if model_dict.get("recommended", false) else ""
+	name_lbl.text = rec_prefix + m_name
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.custom_minimum_size = Vector2(50, 0)
+	name_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	name_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	title_row.add_child(name_lbl)
+
+	# Badges indicatifs
+	if is_free:
+		var b_free = Label.new()
+		b_free.text = "🆓 Gratuit"
+		b_free.custom_minimum_size = Vector2(36, 0)
+		b_free.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
+		b_free.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+		title_row.add_child(b_free)
+
+	if is_reasoning:
+		var b_reas = Label.new()
+		b_reas.text = "🧠 Think"
+		b_reas.custom_minimum_size = Vector2(36, 0)
+		b_reas.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
+		b_reas.add_theme_color_override("font_color", Color("#a5b4fc"))
+		title_row.add_child(b_reas)
+
+	var btn_select = Button.new()
+	btn_select.text = "✓ Actif" if is_active else "Choisir"
+	btn_select.disabled = is_active
+	btn_select.clip_text = true
+	btn_select.custom_minimum_size = Vector2(60, DesignTokens.TOUCH_DENSE)
+	btn_select.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	btn_select.pressed.connect(func(): _select_model(m_id))
+	title_row.add_child(btn_select)
+
+	# Ligne 2 : Contexte & Coût
+	var meta_row = HBoxContainer.new()
+	meta_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	meta_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(meta_row)
+
+	var ctx_len = int(model_dict.get("context_length", 0))
+	var ctx_str = "%dk ctx" % (ctx_len / 1024) if ctx_len >= 1024 else "%d ctx" % ctx_len
+	var ctx_lbl = Label.new()
+	ctx_lbl.text = "📖 " + ctx_str
+	ctx_lbl.custom_minimum_size = Vector2(40, 0)
+	ctx_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
+	ctx_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	meta_row.add_child(ctx_lbl)
+
+	var cost_lbl = Label.new()
+	cost_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cost_lbl.custom_minimum_size = Vector2(50, 0)
+	cost_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	var cat = _get_catalog()
+	if cat:
+		var cost_info = cat.get_cost_estimate(model_dict)
+		if cost_info.per_query_usd == 0.0:
+			cost_lbl.text = "🟢 0,00 € (Gratuit)"
+			cost_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+		else:
+			cost_lbl.text = "🟡 %s (~%s / 1k)" % [cost_info.label_per_query, cost_info.label_per_1000]
+			cost_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
+	cost_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
+	meta_row.add_child(cost_lbl)
+
+	# Ligne 3 : Description
+	if m_desc != "":
+		var desc_lbl = Label.new()
+		desc_lbl.text = m_desc
+		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		desc_lbl.custom_minimum_size = Vector2(50, 0)
+		desc_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
+		desc_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		vbox.add_child(desc_lbl)
+
+## Carte pour les modèles SLM autonomes (GGUF)
 func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
-	var m_id = model_dict.get("id", "")
-	var m_name = model_dict.get("name", m_id)
-	var m_desc = model_dict.get("description", "")
+	var m_id = str(model_dict.get("id", ""))
+	var m_name = str(model_dict.get("name", m_id))
+	var m_desc = str(model_dict.get("description", ""))
 	var is_active = (m_id == current_active_id)
 
 	var downloader = _get_downloader()
@@ -468,7 +680,7 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 			DesignTokens.ACCENT if is_active else DesignTokens.BORDER,
 			1, Vector2(DesignTokens.CARD_PAD_H, DesignTokens.CARD_PAD_V))
 	if is_active:
-		card_style.border_width_left = 2
+		card_style.border_width_left = 3
 	card.add_theme_stylebox_override("panel", card_style)
 	parent.add_child(card)
 
@@ -477,7 +689,6 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 	vbox.add_theme_constant_override("separation", 3)
 	card.add_child(vbox)
 
-	# Ligne 1 : Nom à gauche, Action à droite
 	var top_row = HBoxContainer.new()
 	top_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(top_row)
@@ -485,6 +696,7 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 	var name_lbl = Label.new()
 	name_lbl.text = ("⭐ " if model_dict.get("recommended", false) else "") + m_name
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.custom_minimum_size = Vector2(50, 0)
 	name_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	name_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
@@ -494,7 +706,8 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 		var btn_select = Button.new()
 		btn_select.text = "✓ Actif" if is_active else "Choisir"
 		btn_select.disabled = is_active
-		btn_select.custom_minimum_size = Vector2(64, DesignTokens.TOUCH_MIN)
+		btn_select.clip_text = true
+		btn_select.custom_minimum_size = Vector2(60, DesignTokens.TOUCH_DENSE)
 		btn_select.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 		btn_select.pressed.connect(func(): _select_model(m_id))
 		top_row.add_child(btn_select)
@@ -502,7 +715,7 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 		var btn_del = Button.new()
 		btn_del.text = "🗑️"
 		btn_del.tooltip_text = "Supprimer du disque"
-		btn_del.custom_minimum_size = Vector2(48, DesignTokens.TOUCH_MIN) # M1 : bouton icône
+		btn_del.custom_minimum_size = Vector2(36, DesignTokens.TOUCH_DENSE)
 		btn_del.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 		btn_del.pressed.connect(func():
 			if downloader: downloader.delete_model(m_id)
@@ -510,8 +723,9 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 		top_row.add_child(btn_del)
 	elif is_currently_downloading:
 		var btn_cancel = Button.new()
-		btn_cancel.text = "❌ Annuler"
-		btn_cancel.custom_minimum_size = Vector2(75, DesignTokens.TOUCH_MIN)
+		btn_cancel.text = "❌ Stop"
+		btn_cancel.clip_text = true
+		btn_cancel.custom_minimum_size = Vector2(64, DesignTokens.TOUCH_DENSE)
 		btn_cancel.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 		btn_cancel.pressed.connect(func():
 			if downloader: downloader.cancel_download()
@@ -519,18 +733,18 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 		top_row.add_child(btn_cancel)
 	else:
 		var btn_dl = Button.new()
-		var size_lbl = "Télécharger"
+		var size_lbl = "⬇️ Installer"
 		if downloader and downloader.DOWNLOADABLE_SLM.has(m_id):
-			size_lbl = "⬇️ Installer (%s)" % downloader.DOWNLOADABLE_SLM[m_id].get("size_label", "")
+			size_lbl = "⬇️ %s" % downloader.DOWNLOADABLE_SLM[m_id].get("size_label", "")
 		btn_dl.text = size_lbl
-		btn_dl.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_MIN)
-		btn_dl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+		btn_dl.clip_text = true
+		btn_dl.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_DENSE)
+		btn_dl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		btn_dl.pressed.connect(func():
 			if downloader: downloader.start_download(m_id)
 		)
 		top_row.add_child(btn_dl)
 
-	# Ligne 2 : Statut & Jauge de progression
 	if is_currently_downloading:
 		var pbar = ProgressBar.new()
 		pbar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -542,92 +756,26 @@ func _add_native_slm_card(parent: Control, model_dict: Dictionary) -> void:
 		var status_lbl = Label.new()
 		status_lbl.text = "⬇️ Téléchargement en cours..."
 		status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		status_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		status_lbl.custom_minimum_size = Vector2(50, 0)
 		status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		status_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 		vbox.add_child(status_lbl)
 		download_status_labels[m_id] = status_lbl
 	else:
 		var status_lbl = Label.new()
+		status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		status_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		status_lbl.custom_minimum_size = Vector2(50, 0)
 		if is_installed:
 			status_lbl.text = "🟢 Installé sur l'appareil (100% hors-ligne • 0,00 €)"
-			status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 		else:
-			status_lbl.text = "⚪ Non installé • 0 € à vie (aucun abonnement ni clé API)"
-			status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			status_lbl.text = "⚪ Non installé • 0 € à vie (sans abonnement ni clé API)"
 			status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		vbox.add_child(status_lbl)
 
-	# Ligne 3 : Description
-	if m_desc != "":
-		var desc_lbl = Label.new()
-		desc_lbl.text = m_desc
-		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		desc_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		desc_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-		vbox.add_child(desc_lbl)
-
-## Carte de présentation d'un modèle avec disposition multi-lignes 100% responsive
-func _add_model_card(parent: Control, model_dict: Dictionary) -> void:
-	var m_id = model_dict.get("id", "")
-	var m_name = model_dict.get("name", m_id)
-	var m_desc = model_dict.get("description", "")
-	var is_active = (m_id == current_active_id)
-
-	var card = PanelContainer.new()
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var card_style := DesignTokens.flat(
-			DesignTokens.SURFACE_ELEVATED if not is_active else Color("#172554"),
-			DesignTokens.RADIUS_SMALL,
-			DesignTokens.ACCENT if is_active else DesignTokens.BORDER,
-			1, Vector2(DesignTokens.CARD_PAD_H, DesignTokens.CARD_PAD_V))
-	if is_active:
-		card_style.border_width_left = 2
-	card.add_theme_stylebox_override("panel", card_style)
-	parent.add_child(card)
-
-	var vbox = VBoxContainer.new()
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 3)
-	card.add_child(vbox)
-
-	# Ligne 1 : Titre à gauche, Bouton 'Choisir' à droite (TOUJOURS visible et aligné)
-	var title_row = HBoxContainer.new()
-	title_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_child(title_row)
-
-	var name_lbl = Label.new()
-	name_lbl.text = ("⭐ " if model_dict.get("recommended", false) else "") + m_name
-	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	name_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	name_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	title_row.add_child(name_lbl)
-
-	var btn_select = Button.new()
-	btn_select.text = "✓ Actif" if is_active else "Choisir"
-	btn_select.disabled = is_active
-	btn_select.custom_minimum_size = Vector2(64, DesignTokens.TOUCH_MIN)
-	btn_select.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
-	btn_select.pressed.connect(func(): _select_model(m_id))
-	title_row.add_child(btn_select)
-
-	# Ligne 2 : Coût indicatif
-	var cost_lbl = Label.new()
-	var cat = _get_catalog()
-	if cat:
-		var cost_info = cat.get_cost_estimate(model_dict)
-		if cost_info.per_query_usd == 0.0:
-			cost_lbl.text = "🟢 0,00 € (Gratuit)"
-			cost_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
-		else:
-			cost_lbl.text = "🟡 %s (%s / 1000)" % [cost_info.label_per_query, cost_info.label_per_1000]
-			cost_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
-	cost_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	vbox.add_child(cost_lbl)
-
-	# Ligne 3 : Description avec retour à la ligne
 	if m_desc != "":
 		var desc_lbl = Label.new()
 		desc_lbl.text = m_desc
@@ -646,93 +794,18 @@ func _select_model(m_id: String) -> void:
 	if cat:
 		var model_info = cat.find_model_by_id(m_id)
 		var modality = int(model_info.get("modality", 0))
-		match modality:
-			ModelCatalogScript.Modality.CLOUD_FREE:
-				if sm: sm.set_setting("ai_provider", "free_cloud")
-			ModelCatalogScript.Modality.API_PAID:
-				if sm: sm.set_setting("ai_provider", "api_key")
-			ModelCatalogScript.Modality.LOCAL_SLM:
-				if sm: sm.set_setting("ai_provider", "local_slm")
+		if modality == ModelCatalogScript.Modality.LOCAL_SLM:
+			if sm: sm.set_setting("ai_provider", "local_slm")
+		else:
+			if sm: sm.set_setting("ai_provider", "openrouter")
 
 	_refresh_active_badge()
-	_populate_all_tabs()
+	_refresh_models_list()
 	model_selected.emit(m_id)
-
-func _add_quick_key_input(parent: Control, label_text: String, setting_key: String, _url_hint: String = "") -> void:
-	var box = VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 2)
-	parent.add_child(box)
-
-	var lbl = Label.new()
-	lbl.text = label_text
-	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
-	box.add_child(lbl)
-
-	var edit_row = HBoxContainer.new()
-	edit_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_child(edit_row)
-
-	var input = LineEdit.new()
-	input.secret = true
-	input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	input.custom_minimum_size.y = DesignTokens.TOUCH_MIN
-	input.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	var sm = _get_settings()
-	input.text = sm.get_setting(setting_key, "") if sm else ""
-	input.text_changed.connect(func(val):
-		var s = _get_settings()
-		if s:
-			s.set_setting(setting_key, val.strip_edges())
-	)
-	edit_row.add_child(input)
-
-	var show_btn = Button.new()
-	show_btn.text = "👁️"
-	show_btn.tooltip_text = "Afficher/Masquer la clé"
-	show_btn.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_MIN) # M1 : bouton icône
-	show_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
-	show_btn.pressed.connect(func(): input.secret = not input.secret)
-	edit_row.add_child(show_btn)
-
-func _add_copyable_command(parent: Control, label_text: String, command_text: String) -> void:
-	var box = VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 2)
-	parent.add_child(box)
-
-	var lbl = Label.new()
-	lbl.text = label_text
-	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
-	box.add_child(lbl)
-
-	var cmd_row = HBoxContainer.new()
-	cmd_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_child(cmd_row)
-
-	var cmd_lbl = LineEdit.new()
-	cmd_lbl.editable = false
-	cmd_lbl.text = command_text
-	cmd_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cmd_lbl.custom_minimum_size.y = DesignTokens.TOUCH_MIN
-	cmd_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	cmd_row.add_child(cmd_lbl)
-
-	var copy_btn = Button.new()
-	copy_btn.text = "📋 Copier"
-	DesignTokens.style_button(copy_btn)
-	copy_btn.pressed.connect(func(): DisplayServer.clipboard_set(command_text))
-	cmd_row.add_child(copy_btn)
-
-# --- SIGNAUX & MISES À JOUR ---
 
 func _on_refresh_catalog_pressed() -> void:
 	update_btn.disabled = true
-	update_status_lbl.text = "⏳ Téléchargement des derniers modèles et tarifs..."
+	update_status_lbl.text = "⏳ Téléchargement des derniers modèles OpenRouter..."
 	update_status_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
 	var cat = _get_catalog()
 	if cat:
@@ -740,9 +813,9 @@ func _on_refresh_catalog_pressed() -> void:
 
 func _on_catalog_updated(count: int) -> void:
 	update_btn.disabled = false
-	update_status_lbl.text = "✓ %d modèles synchronisés à l'instant !" % count
+	update_status_lbl.text = "✓ %d modèles OpenRouter synchronisés à l'instant !" % count
 	update_status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
-	_populate_all_tabs()
+	_refresh_models_list()
 	_refresh_active_badge()
 
 func _on_catalog_update_failed(err_msg: String) -> void:
@@ -751,13 +824,14 @@ func _on_catalog_update_failed(err_msg: String) -> void:
 	update_status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
 
 func _on_ollama_detected(models_found: Array) -> void:
-	if models_found.size() > 0:
-		ollama_status_lbl.text = "✓ En ligne (%d modèles détectés)" % models_found.size()
-		ollama_status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
-		_populate_local_tab()
-	else:
-		ollama_status_lbl.text = "Ollama non détecté (Démarrer avec 'ollama serve')"
-		ollama_status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+	if ollama_status_lbl:
+		if models_found.size() > 0:
+			ollama_status_lbl.text = "✓ En ligne (%d modèles détectés)" % models_found.size()
+			ollama_status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
+		else:
+			ollama_status_lbl.text = "Ollama non détecté (Démarrer avec 'ollama serve')"
+			ollama_status_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
+	_refresh_models_list()
 
 func _on_slm_download_progress(model_id: String, received_bytes: int, total_bytes: int, percentage: float, speed_mb_s: float) -> void:
 	if download_progress_bars.has(model_id):
@@ -770,12 +844,12 @@ func _on_slm_download_progress(model_id: String, received_bytes: int, total_byte
 		lbl.text = "⬇️ %.1f%% • %.1f / %.1f Mo (%.2f Mo/s)" % [percentage, rec_mb, tot_mb, speed_mb_s]
 
 func _on_slm_download_completed(_model_id: String, _file_path: String) -> void:
-	_populate_local_tab()
+	_refresh_models_list()
 	_refresh_active_badge()
 
 func _on_slm_download_failed(_model_id: String, _error_msg: String) -> void:
-	_populate_local_tab()
+	_refresh_models_list()
 
 func _on_slm_model_deleted(_model_id: String) -> void:
-	_populate_local_tab()
+	_refresh_models_list()
 	_refresh_active_badge()

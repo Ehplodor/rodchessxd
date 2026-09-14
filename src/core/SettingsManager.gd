@@ -27,10 +27,10 @@ var settings := {
 	"board_theme": "emerald",
 	"sound_enabled": true,
 	"sound_volume": 0.8,
-	"ai_provider": "free_cloud", # "local_slm", "free_cloud", "api_key"
-	"ai_free_service": "gemini_free", # "gemini_free", "groq_free"
-	"ai_api_service": "deepseek", # "openai", "anthropic", "deepseek", "gemini_paid"
-	"active_model_id": "z-ai/glm-5.3-flash:free",
+	"ai_provider": "openrouter", # "openrouter", "local_slm"
+	"ai_free_service": "openrouter_free",
+	"ai_api_service": "openrouter",
+	"active_model_id": "openrouter/free",
 	"api_key_openai": "",
 	"api_key_gemini": "",
 	"api_key_anthropic": "",
@@ -86,17 +86,27 @@ func _ready() -> void:
 
 func load_settings() -> void:
 	if _use_local_storage() and _load_from_local_storage():
+		_migrate_legacy_settings()
 		DesignTokens.apply_theme_mode(settings.get("app_theme_mode", "dark"))
 		return
 	# Stockage de repli : ConfigFile user:// (natif) — sur Web sert de migration
 	# vers localStorage pour les données antérieures.
 	var loaded := _load_from_config_file()
+	_migrate_legacy_settings()
 	if _use_local_storage():
 		_save_to_local_storage() # migration / création des réglages par défaut
 	else:
 		if not loaded:
 			save_settings()
 	DesignTokens.apply_theme_mode(settings.get("app_theme_mode", "dark"))
+
+func _migrate_legacy_settings() -> void:
+	var prov = str(settings.get("ai_provider", "openrouter"))
+	if prov in ["free_cloud", "api_key"]:
+		settings["ai_provider"] = "openrouter"
+	var cur_model = str(settings.get("active_model_id", ""))
+	if cur_model == "" or cur_model == "z-ai/glm-5.3-flash:free":
+		settings["active_model_id"] = "openrouter/free"
 
 func _load_from_config_file() -> bool:
 	var err = config.load(CONFIG_PATH)
