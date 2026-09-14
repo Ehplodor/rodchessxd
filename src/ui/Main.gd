@@ -408,8 +408,14 @@ func _on_game_position_changed() -> void:
 				var last_ea = ea.back()
 				var evals = last_ea.get("evaluations", [])
 				GameController.apply_evaluations(evals)
-				advantage_graph.set_evaluations(evals)
-				_update_graph_phase_boundaries(last_ea)
+				# Pendant une analyse, la courbe est pilotée en direct par
+				# _on_ply_analyzed (longueur totale de la partie préparée par
+				# prepare_live_analysis). Une analyse archivée — potentiellement
+				# partielle si la précédente a été stoppée — ne doit jamais écraser
+				# la courbe en cours, sous peine de la tronquer.
+				if analyzer == null or not analyzer.is_analyzing:
+					advantage_graph.set_evaluations(evals)
+					_update_graph_phase_boundaries(last_ea)
 				if move_list:
 					move_list.set_analysis_report(last_ea)
 					move_list.refresh()

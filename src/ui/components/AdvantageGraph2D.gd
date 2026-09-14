@@ -217,6 +217,7 @@ func _cycle_analysis() -> void:
 
 func prepare_live_analysis(total_plies: int) -> void:
 	evaluations.clear()
+	phase_boundaries.clear()
 	var n = maxi(2, total_plies)
 	for i in range(n):
 		evaluations.append({
