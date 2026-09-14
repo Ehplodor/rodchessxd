@@ -54,6 +54,10 @@ func _get_database_manager() -> Node:
 func get_or_create_game_id() -> String:
 	if current_game_id != "":
 		return current_game_id
+	# Ne pas archiver une partie initialisée automatiquement (ouverture de
+	# l'application, reset du plateau) : sans aucun coup joué, rien à enregistrer.
+	if game == null or game.move_history.is_empty():
+		return ""
 	var dm = _get_database_manager()
 	if dm:
 		current_game_id = dm.record_active_game(game)

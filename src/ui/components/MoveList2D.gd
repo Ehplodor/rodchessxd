@@ -17,6 +17,10 @@ var _active_stylebox: StyleBoxFlat = null
 # Filtre actif : 0 = TOUS, sinon un filtre par qualité (?? ? ?! ✓ ✓+ ★ ! !!)
 var _filter := 0
 
+## Largeur minimale d'un bouton de coup en mode dense (2 coups/ligne) : borne le calcul
+## de hauteur du texte replié pour éviter des lignes anormalement hautes.
+const _MOVE_MIN_W := 120.0
+
 const _FILTERS := [
 	{"label": "∅", "mode": 0, "tip": "Aucun filtre (tous les coups)"},  # TOUS
 	{"label": "??", "mode": 1, "tip": "Gaffes"},   # BLUNDER / MISS
@@ -185,10 +189,15 @@ func _build_parallel_stats_table() -> void:
 	vbox.add_child(grid)
 
 	# Ligne d'en-tête (Blancs, Libellé, Noirs)
+	# Noms de joueurs dynamiques : tronqués à l'ellipse pour ne jamais imposer une largeur
+	# minimale supérieure à l'écran (sinon toute la carte déborde, cf. §2 du skill UI mobile).
 	var head_w = Label.new()
 	head_w.text = "⚪ " + names["white"]
+	head_w.tooltip_text = str(names["white"])
 	head_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head_w.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	head_w.clip_text = true
+	head_w.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	head_w.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	head_w.add_theme_color_override("font_color", Color("#f8fafc"))
 	grid.add_child(head_w)
@@ -197,14 +206,19 @@ func _build_parallel_stats_table() -> void:
 	head_m.text = "📊 Indicateur"
 	head_m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head_m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head_m.clip_text = true
+	head_m.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	head_m.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	head_m.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	grid.add_child(head_m)
 
 	var head_b = Label.new()
 	head_b.text = "⚫ " + names["black"]
+	head_b.tooltip_text = str(names["black"])
 	head_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head_b.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	head_b.clip_text = true
+	head_b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	head_b.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	head_b.add_theme_color_override("font_color", Color("#cbd5e1"))
 	grid.add_child(head_b)
@@ -316,6 +330,8 @@ func _build_summary_card() -> void:
 
 	var outcome_lbl = Label.new()
 	outcome_lbl.text = outcome_text
+	outcome_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outcome_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	outcome_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outcome_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	outcome_lbl.add_theme_color_override("font_color", outcome_color)
@@ -339,6 +355,7 @@ func _build_summary_card() -> void:
 
 		var qual_lbl = Label.new()
 		qual_lbl.text = "⭐ Qualité globale : %s (Précision moy. %.1f%%)" % [qual_label, avg_acc]
+		qual_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		qual_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		qual_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		qual_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -355,6 +372,7 @@ func _build_summary_card() -> void:
 
 		var elo_lbl = Label.new()
 		elo_lbl.text = "📈 Différentiel : Δ %+d ELO en faveur de %s • %s %s" % [abs(diff_elo), favored_name, p_str, stars]
+		elo_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		elo_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		elo_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		elo_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -374,6 +392,7 @@ func _build_summary_card() -> void:
 		b_s.get("blunder", 0) + b_s.get("mistake", 0)
 	]
 	breakdown_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	breakdown_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	breakdown_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	breakdown_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	breakdown_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
@@ -388,6 +407,7 @@ func _build_moves_header() -> void:
 		var eco := str(opening.get("eco", ""))
 		var open_lbl := Label.new()
 		open_lbl.text = "📖 %s%s" % [("%s — " % eco) if eco != "" else "", opening_name]
+		open_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		open_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		open_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		open_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
@@ -395,6 +415,8 @@ func _build_moves_header() -> void:
 
 	var lbl = Label.new()
 	lbl.text = "📜 Feuille des Coups & Navigation Interactive :"
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 	container.add_child(lbl)
@@ -478,6 +500,9 @@ func _build_dense(moves: Array, cur_ply: int) -> void:
 			current_row.add_child(num_lbl)
 
 		var btn := _make_move_button(m, i)
+		# Largeur minimale bornée : le repli du texte est calculé pour cette largeur (et
+		# non pour la plus longue « mot »), ce qui évite une hauteur de ligne démesurée.
+		btn.custom_minimum_size.x = _MOVE_MIN_W
 		current_row.add_child(btn)
 		if i == cur_ply:
 			_highlight_active(btn)
@@ -504,6 +529,9 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 	btn.flat = true
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.custom_minimum_size = Vector2(0, 48)
+	# Texte dynamique (SAN + qualité + horloge + motifs) : replié sur plusieurs lignes
+	# pour que toute l'information reste lisible sur mobile (aucun survol/tooltip).
+	btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	btn.set_meta("ply", ply)
 

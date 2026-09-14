@@ -1,18 +1,47 @@
 class_name LibraryModal
 extends Window
 ## LibraryModal.gd - Fenêtre modale de consultation et gestion de la bibliothèque locale
-## Permet de rechercher, filtrer, charger et exporter les parties et analyses archivées
+## Permet de rechercher, filtrer (filtres cumulables), charger, exporter et
+## supprimer en lot les parties analysées archivées.
 
 signal game_selected(game_id: String)
 
+const SOURCE_LABELS := {
+	"chess_com": "Chess.com",
+	"pgn_import": "PGN",
+	"manual_play": "Jeu libre",
+	"fen_import": "FEN",
+	"ocr_scan": "Scan OCR"
+}
+
+const MOVES_ALL := 0
+const MOVES_LESS := 1
+const MOVES_MORE := 2
+const MOVES_BETWEEN := 3
+
 var search_input: LineEdit
-var active_filter: String = "all"
 var games_container: VBoxContainer
 var status_lbl: Label
+var btn_delete_visible: Button
+
+# Filtres cumulables
+var selected_sources: Array[String] = []
+var analyzed_only: bool = false
+var moves_op: int = MOVES_ALL
+
+var moves_option: OptionButton
+var moves_a: SpinBox
+var moves_b: SpinBox
+var moves_sep: Label
+
+var _chip_all: Button
+var _chip_analyzed: Button
+var _source_chips: Dictionary = {}
+var _visible_ids: Array[String] = []
 
 func _ready() -> void:
 	title = "📚 Bibliothèque des Parties & Analyses"
-	DesignTokens.adapt_modal_size(self, 410, 560)
+	DesignTokens.adapt_modal_size(self, 410, 640)
 	exclusive = true
 	close_requested.connect(queue_free)
 	_setup_ui()
@@ -59,26 +88,93 @@ func _setup_ui() -> void:
 	)
 	search_row.add_child(btn_clear)
 
-	# 2. Puces de filtres
-	var filters_row = HBoxContainer.new()
-	filters_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	filters_row.add_theme_constant_override("separation", 6)
-	vbox.add_child(filters_row)
+	# 2. Filtres de source / analyse (cumulables, retour à la ligne automatique)
+	var chips = HFlowContainer.new()
+	chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chips.add_theme_constant_override("h_separation", 6)
+	chips.add_theme_constant_override("v_separation", 6)
+	vbox.add_child(chips)
 
-	_add_filter_btn(filters_row, "Toutes", "all")
-	_add_filter_btn(filters_row, "Chess.com", "chess_com")
-	_add_filter_btn(filters_row, "PGN", "pgn_import")
-	_add_filter_btn(filters_row, "⚡ Analysées", "analyzed")
+	_chip_all = _make_chip("Toutes")
+	_chip_all.pressed.connect(func():
+		selected_sources.clear()
+		analyzed_only = false
+		_update_chip_styles()
+		_refresh_games_list()
+	)
+	chips.add_child(_chip_all)
+
+	for raw_key in SOURCE_LABELS.keys():
+		var key: String = str(raw_key)
+		var chip := _make_chip(str(SOURCE_LABELS[key]))
+		chip.pressed.connect(func(): _toggle_source(key))
+		_source_chips[key] = chip
+		chips.add_child(chip)
+
+	_chip_analyzed = _make_chip("⚡ Analysées")
+	_chip_analyzed.pressed.connect(func():
+		analyzed_only = not analyzed_only
+		_update_chip_styles()
+		_refresh_games_list()
+	)
+	chips.add_child(_chip_analyzed)
+
+	# 3. Filtre sur le nombre de coups
+	var moves_row = HBoxContainer.new()
+	moves_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	moves_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(moves_row)
+
+	var moves_lbl = Label.new()
+	moves_lbl.text = "Coups"
+	moves_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	moves_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	moves_row.add_child(moves_lbl)
+
+	moves_option = OptionButton.new()
+	moves_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	moves_option.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+	moves_option.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	moves_option.add_item("tous")
+	moves_option.add_item("moins de")
+	moves_option.add_item("plus de")
+	moves_option.add_item("entre")
+	moves_option.item_selected.connect(func(idx):
+		moves_op = idx
+		_update_moves_visibility()
+		_refresh_games_list()
+	)
+	moves_row.add_child(moves_option)
+
+	moves_a = _make_move_spin()
+	moves_a.value_changed.connect(func(_v): _refresh_games_list())
+	moves_row.add_child(moves_a)
+
+	moves_sep = Label.new()
+	moves_sep.text = "à"
+	moves_sep.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	moves_sep.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	moves_row.add_child(moves_sep)
+
+	moves_b = _make_move_spin()
+	moves_b.value = 40
+	moves_b.value_changed.connect(func(_v): _refresh_games_list())
+	moves_row.add_child(moves_b)
+
+	moves_lbl.tooltip_text = "Nombre de coups joués (une valeur de 999 vaut « illimité »)"
+	_update_moves_visibility()
 
 	status_lbl = Label.new()
 	status_lbl.text = ""
+	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	vbox.add_child(status_lbl)
 
-	# 3. Liste des parties avec défilement
+	# 4. Liste des parties avec défilement
 	var scroll = ScrollContainer.new()
 	DesignTokens.touch_scroll(scroll)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(scroll)
@@ -88,34 +184,126 @@ func _setup_ui() -> void:
 	games_container.add_theme_constant_override("separation", 8)
 	scroll.add_child(games_container)
 
-	# 4. Pied de page
+	# 5. Pied de page : suppression groupée + fermeture
+	var footer = HBoxContainer.new()
+	footer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	footer.add_theme_constant_override("separation", 8)
+	vbox.add_child(footer)
+
+	btn_delete_visible = Button.new()
+	btn_delete_visible.text = "🗑️ Supprimer"
+	btn_delete_visible.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_delete_visible.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	btn_delete_visible.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	btn_delete_visible.add_theme_color_override("font_color", DesignTokens.DANGER)
+	btn_delete_visible.add_theme_stylebox_override("normal",
+			DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+					DesignTokens.DANGER, 1, Vector2(10, 6)))
+	btn_delete_visible.pressed.connect(_on_delete_visible_pressed)
+	footer.add_child(btn_delete_visible)
+
 	var btn_close = Button.new()
 	btn_close.text = "Fermer"
+	btn_close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_close.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_close.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	btn_close.pressed.connect(queue_free)
-	vbox.add_child(btn_close)
+	footer.add_child(btn_close)
 
-func _add_filter_btn(parent: Node, label_text: String, filter_key: String) -> void:
+	_update_chip_styles()
+
+func _make_chip(label_text: String) -> Button:
 	var btn = Button.new()
 	btn.text = label_text
-	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
 	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	btn.pressed.connect(func():
-		active_filter = filter_key
-		_refresh_games_list()
-	)
-	parent.add_child(btn)
+	return btn
+
+func _make_move_spin() -> SpinBox:
+	var spin = SpinBox.new()
+	spin.min_value = 0
+	spin.max_value = 999
+	spin.step = 1
+	spin.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_DENSE)
+	spin.suffix = ""
+	spin.allow_greater = false
+	return spin
+
+func _update_moves_visibility() -> void:
+	moves_a.visible = moves_op != MOVES_ALL
+	moves_sep.visible = moves_op == MOVES_BETWEEN
+	moves_b.visible = moves_op == MOVES_BETWEEN
+
+func _toggle_source(key: String) -> void:
+	if selected_sources.has(key):
+		selected_sources.erase(key)
+	else:
+		selected_sources.append(key)
+	_update_chip_styles()
+	_refresh_games_list()
+
+func _update_chip_styles() -> void:
+	var none_selected := selected_sources.is_empty() and not analyzed_only
+	_style_chip(_chip_all, none_selected)
+	for key in _source_chips.keys():
+		_style_chip(_source_chips[key], selected_sources.has(key))
+	_style_chip(_chip_analyzed, analyzed_only)
+
+func _style_chip(btn: Button, active: bool) -> void:
+	if active:
+		btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
+		btn.add_theme_stylebox_override("normal",
+				DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+						DesignTokens.ACCENT, 1, Vector2(10, 4)))
+	else:
+		btn.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		btn.add_theme_stylebox_override("normal",
+				DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+						DesignTokens.BORDER, 1, Vector2(10, 4)))
+
+func _get_db() -> Node:
+	var tree = Engine.get_main_loop() as SceneTree
+	return tree.root.get_node_or_null("DatabaseManager") if (tree and tree.root) else null
+
+func _passes_filters(item: Dictionary) -> bool:
+	if analyzed_only:
+		var eng = int(item.get("engine_analyses_count", 0))
+		var coach = int(item.get("coach_analyses_count", 0))
+		if eng <= 0 and coach <= 0:
+			return false
+	if not selected_sources.is_empty():
+		if not selected_sources.has(str(item.get("source", ""))):
+			return false
+
+	var moves := int(item.get("moves_count", 0)) / 2
+	match moves_op:
+		MOVES_LESS:
+			if moves >= int(moves_a.value):
+				return false
+		MOVES_MORE:
+			if moves <= int(moves_a.value):
+				return false
+		MOVES_BETWEEN:
+			if moves < int(moves_a.value) or moves > int(moves_b.value):
+				return false
+	return true
+
+func _has_active_filters() -> bool:
+	if selected_sources.size() > 0 or analyzed_only:
+		return true
+	if moves_op != MOVES_ALL:
+		return true
+	return search_input != null and search_input.text.strip_edges() != ""
 
 func _refresh_games_list() -> void:
 	for child in games_container.get_children():
 		child.queue_free()
 
-	var tree = Engine.get_main_loop() as SceneTree
-	var dm = tree.root.get_node_or_null("DatabaseManager") if (tree and tree.root) else null
+	var dm = _get_db()
 	if not dm:
 		status_lbl.text = "Base de données non initialisée."
+		_visible_ids.clear()
+		_update_delete_button()
 		return
 
 	var q = search_input.text.strip_edges()
@@ -123,15 +311,21 @@ func _refresh_games_list() -> void:
 
 	var filtered: Array[Dictionary] = []
 	for it in all_items:
-		if active_filter == "all":
-			filtered.append(it)
-		elif active_filter == "analyzed":
-			if it.get("engine_analyses_count", 0) > 0 or it.get("coach_analyses_count", 0) > 0:
-				filtered.append(it)
-		elif it.get("source", "") == active_filter:
+		if _passes_filters(it):
 			filtered.append(it)
 
-	status_lbl.text = "%d partie(s) archivée(s) trouvée(s)" % filtered.size()
+	_visible_ids.clear()
+	for item in filtered:
+		_visible_ids.append(str(item.get("id", "")))
+
+	var total_cnt: int = all_items.size()
+	if _has_active_filters():
+		status_lbl.text = "%d partie(s) affichée(s) sur %d — %s" % [
+			filtered.size(), total_cnt, _describe_filters()
+		]
+	else:
+		status_lbl.text = "%d partie(s) archivée(s) au total" % total_cnt
+	_update_delete_button()
 
 	if filtered.is_empty():
 		var empty_lbl = Label.new()
@@ -144,6 +338,14 @@ func _refresh_games_list() -> void:
 
 	for item in filtered:
 		_create_game_card(item)
+
+func _update_delete_button() -> void:
+	if btn_delete_visible == null:
+		return
+	var count := _visible_ids.size()
+	btn_delete_visible.disabled = count == 0
+	var prefix := "tout " if not _has_active_filters() else ""
+	btn_delete_visible.text = "🗑️ Supprimer %s(%d)" % [prefix, count]
 
 func _create_game_card(item: Dictionary) -> void:
 	var card = PanelContainer.new()
@@ -225,20 +427,114 @@ func _create_game_card(item: Dictionary) -> void:
 	btn_del.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_MIN)
 	btn_del.tooltip_text = "Supprimer définitivement cette partie et ses analyses"
 	btn_del.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
-	btn_del.pressed.connect(func():
-		var tree = Engine.get_main_loop() as SceneTree
-		var dm = tree.root.get_node_or_null("DatabaseManager") if (tree and tree.root) else null
-		if dm:
-			dm.delete_game(gid)
-			_refresh_games_list()
-	)
+	btn_del.pressed.connect(func(): _confirm_delete_single(gid))
 	act_col.add_child(btn_del)
 
 	games_container.add_child(card)
 
+# --- SUPPRESSION ---
+
+func _confirm_delete_single(game_id: String) -> void:
+	var dm = _get_db()
+	if not dm:
+		return
+	var item: Dictionary = dm.get_game(game_id)
+	var title := str(item.get("title", "cette partie"))
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Supprimer la partie"
+	dialog.dialog_text = "⚠️ Supprimer définitivement « %s » ?\n\nSes analyses moteur/coach et ses traces dans les carnets seront également effacées." % title
+	dialog.ok_button_text = "🗑️ Supprimer"
+	dialog.cancel_button_text = "Annuler"
+	dialog.confirmed.connect(func():
+		dm.delete_game(game_id)
+		_refresh_games_list()
+	)
+	add_child(dialog)
+	dialog.popup_centered()
+
+func _on_delete_visible_pressed() -> void:
+	if _visible_ids.is_empty():
+		return
+	var ids := _visible_ids.duplicate()
+	var count := ids.size()
+	var criteria := _describe_filters()
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Supprimer des parties"
+	dialog.dialog_text = "⚠️ Supprimer %d partie(s) ?\n\nCritères d'affichage :\n%s\n\nLa suppression est définitive : les parties, leurs analyses moteur et coach ainsi que leurs traces dans les carnets seront effacées." % [count, criteria]
+	dialog.ok_button_text = "🗑️ Supprimer (%d)" % count
+	dialog.cancel_button_text = "Annuler"
+	dialog.confirmed.connect(func():
+		var dm = _get_db()
+		if not dm:
+			return
+		var removed := 0
+		if dm.has_method("delete_games"):
+			removed = dm.delete_games(ids)
+		else:
+			for gid in ids:
+				dm.delete_game(gid)
+				removed += 1
+		_refresh_games_list()
+		_toast("🗑️ %d partie(s) supprimée(s)." % removed)
+	)
+	add_child(dialog)
+	dialog.popup_centered()
+
+func _toast(msg: String) -> void:
+	var tree = Engine.get_main_loop() as SceneTree
+	if not tree or not tree.root:
+		return
+	var main = tree.root.get_node_or_null("Main")
+	if main and main.has_method("_show_toast"):
+		main._show_toast(msg)
+
+# --- DESCRIPTION EN LANGAGE NATUREL DES FILTRES ---
+
+func _source_label(key: String) -> String:
+	return str(SOURCE_LABELS.get(key, key))
+
+func _join_natural(items: Array, conjunction: String) -> String:
+	if items.is_empty():
+		return ""
+	if items.size() == 1:
+		return str(items[0])
+	var head := PackedStringArray()
+	for i in range(items.size() - 1):
+		head.append(str(items[i]))
+	return "%s %s %s" % [", ".join(head), conjunction, str(items[items.size() - 1])]
+
+func _describe_moves() -> String:
+	match moves_op:
+		MOVES_LESS:
+			return "de moins de %d coups" % int(moves_a.value)
+		MOVES_MORE:
+			return "de plus de %d coups" % int(moves_a.value)
+		MOVES_BETWEEN:
+			return "de %d à %d coups" % [int(moves_a.value), int(moves_b.value)]
+	return ""
+
+func _describe_filters() -> String:
+	var parts: Array[String] = []
+	if not selected_sources.is_empty():
+		var names: Array[String] = []
+		for s in selected_sources:
+			names.append(_source_label(s))
+		parts.append("issues de %s" % _join_natural(names, "ou"))
+	if analyzed_only:
+		parts.append("déjà analysées")
+	var q := search_input.text.strip_edges() if search_input != null else ""
+	if q != "":
+		parts.append("contenant « %s »" % q)
+	var mv := _describe_moves()
+	if mv != "":
+		parts.append(mv)
+	if parts.is_empty():
+		return "TOUTES les parties de la bibliothèque"
+	return "les parties " + _join_natural(parts, "et")
+
 func _load_game(game_id: String) -> void:
 	var tree = Engine.get_main_loop() as SceneTree
-	var dm = tree.root.get_node_or_null("DatabaseManager") if (tree and tree.root) else null
+	var dm = _get_db()
 	if not dm:
 		return
 
@@ -251,7 +547,7 @@ func _load_game(game_id: String) -> void:
 		var gc = tree.root.get_node_or_null("GameController") if (tree and tree.root) else null
 		if gc:
 			gc.load_pgn(pgn, game_id)
-	
+
 	# Si la partie possède des analyses moteur, charger la plus récente dans l'interface
 	var engine_analyses = game_record.get("engine_analyses", [])
 	var main = find_parent("Main")

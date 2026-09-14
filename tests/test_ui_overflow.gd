@@ -84,11 +84,20 @@ func _process(_delta: float) -> bool:
 
 	main._close_carnet_overlay()
 
-	# Ouverture de l'Analyse : pas de débordement.
+	# Ouverture de l'Analyse : pas de débordement, y compris avec des coups annotés
+	# (SAN + qualité + horloge + motifs) qui allongent la liste des coups.
+	var gc = root.get_node_or_null("GameController")
+	if gc != null:
+		gc.load_pgn("1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. O-O d6 6. Re1 a6 7. Bb3 Ba7 8. c3 h6")
+		for mv in gc.game.move_history:
+			mv.clock_sec = 123.4
+			mv.is_theory = false
+			mv.quality = ChessMove.Quality.MISTAKE
+			mv.motifs = ["Fourchette royale", "Pièce non protégée"]
 	main._open_analyse_overlay()
 	offenders.clear()
 	_collect_offenders(main, width, offenders)
-	_check(offenders.is_empty(), "Analyse ouverte : aucun débordement")
+	_check(offenders.is_empty(), "Analyse ouverte (coups annotés) : aucun débordement")
 	for o in offenders.slice(0, 10):
 		printerr("  OVERSIZE %.0f px : %s" % [o["w"], o["path"]])
 

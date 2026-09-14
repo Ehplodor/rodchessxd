@@ -14,6 +14,8 @@ func _ready() -> void:
 	add_theme_constant_override("separation", 4)
 	_header = Label.new()
 	_header.text = "📋 Rapport de partie"
+	_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_header.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	_header.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	add_child(_header)
@@ -97,6 +99,7 @@ func set_report(report: Dictionary) -> void:
 func _add_line(text: String, color: Color) -> void:
 	var lbl := Label.new()
 	lbl.text = text
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	lbl.add_theme_color_override("font_color", color)

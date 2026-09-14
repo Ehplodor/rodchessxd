@@ -1,45 +1,57 @@
 extends SceneTree
 
-const OCREditorModal = preload("res://src/ui/components/OCREditorModal.gd")
-const ChessComImportModal = preload("res://src/ui/components/ChessComImportModal.gd")
-const PGNModal = preload("res://src/ui/components/PGNModal.gd")
-const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
-const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
-const ModelHubModal = preload("res://src/ui/components/ModelHubModal.gd")
-const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
-const PromotionModal = preload("res://src/ui/components/PromotionModal.gd")
+# Chemins chargés à l'exécution (`load`) et non via `preload` : les scripts de modales
+# référencent les autoloads (GameController, SettingsManager, EngineManager), qui ne
+# sont enregistrés qu'au démarrage. Un `preload` les compilerait trop tôt et émettrait
+# des erreurs « Identifier not found ».
+const MODAL_PATHS := [
+	{"name": "OCREditorModal", "path": "res://src/ui/components/OCREditorModal.gd"},
+	{"name": "ChessComImportModal", "path": "res://src/ui/components/ChessComImportModal.gd"},
+	{"name": "PGNModal", "path": "res://src/ui/components/PGNModal.gd"},
+	{"name": "SettingsModal", "path": "res://src/ui/components/SettingsModal.gd"},
+	{"name": "EngineHubModal", "path": "res://src/ui/components/EngineHubModal.gd"},
+	{"name": "ModelHubModal", "path": "res://src/ui/components/ModelHubModal.gd"},
+	{"name": "LibraryModal", "path": "res://src/ui/components/LibraryModal.gd"},
+	{"name": "PromotionModal", "path": "res://src/ui/components/PromotionModal.gd"}
+]
+
+var _ran := false
+var _failures := 0
 
 func _init() -> void:
 	print("[TEST] --- Démarrage du test de conformité et flexibilité des fenêtres modales ---")
-	
-	var modals = [
-		{"name": "OCREditorModal", "script": OCREditorModal},
-		{"name": "ChessComImportModal", "script": ChessComImportModal},
-		{"name": "PGNModal", "script": PGNModal},
-		{"name": "SettingsModal", "script": SettingsModal},
-		{"name": "EngineHubModal", "script": EngineHubModal},
-		{"name": "ModelHubModal", "script": ModelHubModal},
-		{"name": "LibraryModal", "script": LibraryModal},
-		{"name": "PromotionModal", "script": PromotionModal}
-	]
 
-	for m_info in modals:
+func _process(_delta: float) -> bool:
+	if _ran:
+		return true
+	_ran = true
+
+	for m_info in MODAL_PATHS:
 		var name = m_info["name"]
-		var modal: Window = m_info["script"].new()
+		var script: GDScript = load(m_info["path"])
+		if script == null:
+			_failures += 1
+			printerr("  -> %s : script introuvable (%s)" % [name, m_info["path"]])
+			continue
+		var modal: Window = script.new()
 		root.add_child(modal)
-		
+
 		# Vérifier les dimensions par défaut
 		print("  -> %s : Taille définie = %s" % [name, str(modal.size)])
 		assert(modal.size.x <= 420, "%s est trop large pour un écran 450px !" % name)
-		
+
 		# Vérifier qu'aucun conteneur horizontal ne force une largeur démesurée
 		_check_node_responsiveness(modal, name)
-		
+
 		modal.queue_free()
 		print("  -> %s : OK ✓" % name)
 
-	print("[TEST] --- Tous les tests de réactivité et d'affichage des modales ont RÉUSSI (100% conformes) ! ---")
-	quit(0)
+	if _failures == 0:
+		print("[TEST] --- Tous les tests de réactivité et d'affichage des modales ont RÉUSSI (100% conformes) ! ---")
+	else:
+		printerr("[TEST] --- ÉCHEC : %d modale(s) en erreur ---" % _failures)
+	quit(0 if _failures == 0 else 1)
+	return true
 
 func _check_node_responsiveness(node: Node, modal_name: String) -> void:
 	if node is ScrollContainer:

@@ -21,6 +21,10 @@ const _TAB_CARNET := "carnet"
 const _TAB_ANALYSE := "analyse"
 const _TAB_SYNC := "sync"
 
+## Largeur maximale d'un badge de thème : au-delà, le libellé se replie pour ne pas
+## imposer une largeur minimale supérieure à l'écran (cf. skill UI mobile).
+const _BADGE_MAX_W := 280.0
+
 var presenter: CarnetPresenter = null
 
 var _title: Label
@@ -266,19 +270,14 @@ func _rebuild_content() -> void:
 		return
 	if presenter.session.is_empty():
 		if _current_tab == _TAB_CARNET:
-			print("[Carnet] rebuild: carnet tab")
 			_build_carnet_tab()
 		elif _current_tab == _TAB_ANALYSE:
-			print("[Carnet] rebuild: analyse tab")
 			_build_analyse_tab()
 		else:
-			print("[Carnet] rebuild: sync tab")
 			_build_sync_tab()
 	elif presenter.is_session_done():
-		print("[Carnet] rebuild: summary")
 		_build_summary()
 	else:
-		print("[Carnet] rebuild: session")
 		_build_session()
 
 func _build_summary() -> void:
@@ -367,10 +366,19 @@ func _build_carnet_tab() -> void:
 
 			var b_lbl := Label.new()
 			var prefix := "✨ " if is_force else "🎯 "
-			b_lbl.text = "%s%dx %s" % [prefix, m.get("count", 1), m.get("label", "")]
+			var b_text := "%s%dx %s" % [prefix, m.get("count", 1), m.get("label", "")]
+			b_lbl.text = b_text
+			b_lbl.tooltip_text = b_text
+			# Largeur du badge bornée à la largeur utile : un libellé long se replie
+			# au lieu d'imposer une largeur minimale qui ferait déborder toute la carte.
+			b_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			b_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			b_lbl.add_theme_color_override("font_color", col)
 			badge.add_child(b_lbl)
+			var _badge_font := b_lbl.get_theme_font("font")
+			var _natural_w := _badge_font.get_string_size(b_text, HORIZONTAL_ALIGNMENT_LEFT, -1,
+					DesignTokens.FONT_CAPTION).x
+			badge.custom_minimum_size.x = minf(_natural_w + 12.0, _BADGE_MAX_W)
 			badges_flow.add_child(badge)
 		plan_box.add_child(badges_flow)
 
@@ -1137,10 +1145,8 @@ func _build_sync_tab() -> void:
 	_games_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_games_list.add_theme_constant_override("separation", DesignTokens.SPACE_S)
 	games_scroll.add_child(_games_list)
-	print("[Carnet] _build_sync_tab: games_scroll added to _content, _games_list added to games_scroll")
 
 	_refresh_games_list()
-	print("[Carnet] _build_sync_tab: _refresh_games_list called")
 
 func _update_batch_row() -> void:
 	if _batch_label == null:
@@ -1291,13 +1297,11 @@ func _on_filter_pressed(filter_id: String) -> void:
 
 func _refresh_games_list() -> void:
 	if _games_list == null:
-		print("[Carnet] _refresh_games_list: _games_list is null")
 		return
 	for child in _games_list.get_children():
 		child.queue_free()
 
 	var profile_id := presenter.profile_id if presenter != null else ""
-	print("[Carnet] _refresh_games_list: presenter=", presenter != null, " profile_id=", profile_id)
 	var games: Array = []
 	if presenter != null:
 		games = presenter.get_profile_games(profile_id)
@@ -1314,7 +1318,6 @@ func _refresh_games_list() -> void:
 		elif _current_filter == "up_to_date" and status == "up_to_date":
 			filtered.append(game)
 
-	print("[Carnet] filtered=", filtered.size(), " current_filter=", _current_filter)
 	if filtered.is_empty():
 		_games_list.add_child(_hint("Aucune partie pour ce filtre."))
 		return
@@ -1326,15 +1329,6 @@ func _refresh_games_list() -> void:
 		item.perspective_cycle_requested.connect(_on_game_perspective_cycle)
 		item.remove_requested.connect(_on_game_remove)
 		_games_list.add_child(item)
-
-	print("[Carnet] _games_list enfants après ajout: ", _games_list.get_child_count())
-	print("[Carnet] _games_list visible=", _games_list.visible, " size=", _games_list.size, " custom_minimum=", _games_list.custom_minimum_size)
-	var scroll_parent = _games_list.get_parent()
-	if scroll_parent != null:
-		print("[Carnet] scroll_parent visible=", scroll_parent.visible, " size=", scroll_parent.size, " custom_minimum=", scroll_parent.custom_minimum_size)
-	if _games_list.get_child_count() > 1:
-		var first = _games_list.get_child(1)
-		print("[Carnet] first item visible=", first.visible, " size=", first.size, " custom_minimum=", first.custom_minimum_size)
 
 func _on_game_reanalyze(game_id: String) -> void:
 	if presenter == null:

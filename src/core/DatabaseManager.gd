@@ -213,6 +213,28 @@ func delete_game(game_id: String) -> bool:
 	game_deleted.emit(game_id)
 	return true
 
+## Supprime un lot de parties en une seule passe I/O (index écrit une seule fois).
+## Renvoie le nombre de parties effectivement supprimées.
+func delete_games(game_ids: Array) -> int:
+	var removed := 0
+	for raw_id in game_ids:
+		var game_id := str(raw_id)
+		if game_id == "":
+			continue
+		var path = "%s/%s.json" % [GAMES_DIR, game_id]
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
+		_games_cache.erase(game_id)
+		_purge_carnet_game(game_id)
+		for i in range(games_index.size() - 1, -1, -1):
+			if games_index[i].get("id", "") == game_id:
+				games_index.remove_at(i)
+				break
+		game_deleted.emit(game_id)
+		removed += 1
+	_save_index()
+	return removed
+
 ## Retire les atomes et l'entrée de synchronisation d'une partie dans TOUS les profils.
 ## Évite qu'un carnet continue de consommer une partie supprimée de la bibliothèque.
 func _purge_carnet_game(game_id: String) -> void:
