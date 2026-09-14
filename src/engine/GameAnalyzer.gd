@@ -64,9 +64,9 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	
 	var sm = _get_settings_manager()
 	var mode: String = str(options.get("mode", sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"))
-	var time_per_move: float = float(options.get("time_per_move", sm.get_setting("analysis_time_per_move", 0.3) if sm else 0.3))
-	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15))
-	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8))
+	var time_per_move: float = float(options.get("time_per_move", sm.get_setting("analysis_time_per_move", 0.2) if sm else 0.2))
+	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.08) if sm else 0.08))
+	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.25) if sm else 0.25))
 	var wait_for_display: bool = bool(options.get("wait_for_display", false))
 
 	# T1.2 — Détection de l'ouverture / sortie de théorie (exclue des métriques).
@@ -293,9 +293,9 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	
 	var sm = _get_settings_manager()
 	var mode: String = str(options.get("mode", sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"))
-	var time_per_move: float = float(options.get("time_per_move", sm.get_setting("analysis_time_per_move", 0.3) if sm else 0.3))
-	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15))
-	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8))
+	var time_per_move: float = float(options.get("time_per_move", sm.get_setting("analysis_time_per_move", 0.2) if sm else 0.2))
+	var dynamic_base: float = float(options.get("dynamic_base", sm.get_setting("analysis_dynamic_base", 0.08) if sm else 0.08))
+	var dynamic_max: float = float(options.get("dynamic_max", sm.get_setting("analysis_dynamic_max", 0.25) if sm else 0.25))
 	var wait_for_display: bool = bool(options.get("wait_for_display", false))
 
 	# T1.2 — Détection de l'ouverture / sortie de théorie (exclue des métriques).
@@ -930,9 +930,9 @@ func _evaluate_move_position(fen: String, depth: int, mode: String, base_time_se
 				return first_pass
 			var score_cand = first_pass.get("score_cp", prev_score)
 			var delta_cp = abs(score_cand - prev_score)
-			# Approfondissement automatique proportionnel à la criticité du coup
-			if delta_cp >= 50 or abs(score_cand) >= 300:
-				var factor = clampf(float(delta_cp - 50) / 150.0, 0.25, 1.0)
+			# Approfondissement automatique réservé aux vraies bascules critiques / tactiques
+			if delta_cp >= 80 or abs(score_cand) >= 400:
+				var factor = clampf(float(delta_cp - 80) / 120.0, 0.25, 1.0)
 				var max_ms = int(round(max_time_sec * 1000.0))
 				var deep_ms = int(lerpf(float(base_ms), float(max_ms), factor))
 				if deep_ms > base_ms:
@@ -980,8 +980,8 @@ func _evaluate_move_position_async(fen: String, depth: int, mode: String, base_t
 				return first_pass
 			var score_cand = first_pass.get("score_cp", prev_score)
 			var delta_cp = abs(score_cand - prev_score)
-			if delta_cp >= 50 or abs(score_cand) >= 300:
-				var factor = clampf(float(delta_cp - 50) / 150.0, 0.25, 1.0)
+			if delta_cp >= 80 or abs(score_cand) >= 400:
+				var factor = clampf(float(delta_cp - 80) / 120.0, 0.25, 1.0)
 				var max_ms = int(round(max_time_sec * 1000.0))
 				var deep_ms = int(lerpf(float(base_ms), float(max_ms), factor))
 				if deep_ms > base_ms:

@@ -257,6 +257,27 @@ func set_phase_boundaries(bounds: Array) -> void:
 	phase_boundaries = bounds.duplicate()
 	queue_redraw()
 
+## Style du marqueur affiché sur la courbe pour un coup remarquable.
+## Source unique de vérité (cohérence rapport/graphe) : toute qualité non listée ici
+## n'affiche aucun marqueur. Les couleurs proviennent de `ChessMove.quality_to_color`,
+## identiques aux badges de la liste des coups et aux boutons « Moments clés » du rapport.
+## L'ensemble couvre exactement les catégories remarquables du rapport :
+## !!/! (positif), ?! (imprécision), ? (erreur), ??/X (gaffe ou occasion manquée).
+static func notable_marker_for(quality: int) -> Dictionary:
+	match quality:
+		ChessMove.Quality.BRILLIANT:
+			return {"radius": 5.0, "color": ChessMove.quality_to_color(quality), "ring": 1.2}
+		ChessMove.Quality.GREAT:
+			return {"radius": 4.5, "color": ChessMove.quality_to_color(quality), "ring": 1.0}
+		ChessMove.Quality.BLUNDER, ChessMove.Quality.MISS:
+			return {"radius": 4.5, "color": ChessMove.quality_to_color(quality), "ring": 1.0}
+		ChessMove.Quality.MISTAKE:
+			return {"radius": 3.5, "color": ChessMove.quality_to_color(quality), "ring": 0.0}
+		ChessMove.Quality.INACCURACY:
+			return {"radius": 2.5, "color": ChessMove.quality_to_color(quality), "ring": 0.0}
+		_:
+			return {}
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_update_button_positions()
@@ -391,22 +412,20 @@ func _draw() -> void:
 	# 7. Tracé de la courbe principale
 	draw_polyline(points, Color("#38bdf8"), 2.2, true)
 
-	# 8. Pastilles pour les coups marquants (seulement pour les coups analysés)
+	# 8. Pastilles pour les coups remarquables (alignées sur la taxonomie du rapport :
+	#    brillants, coups uniques, imprécisions, erreurs, gaffes / occasions manquées).
 	for i in range(total_points):
 		var record = evaluations[i]
 		if record.get("is_placeholder", false):
 			continue
-		var quality = record.get("quality", ChessMove.Quality.NONE)
+		var marker := notable_marker_for(int(record.get("quality", ChessMove.Quality.NONE)))
+		if marker.is_empty():
+			continue
 		var pt = points[i]
-
-		if quality == ChessMove.Quality.BLUNDER:
-			draw_circle(pt, 4.5, Color("#ef4444"))
-			draw_arc(pt, 4.5, 0, TAU, 16, Color("#ffffff"), 1.0)
-		elif quality == ChessMove.Quality.MISTAKE:
-			draw_circle(pt, 3.5, Color("#f97316"))
-		elif quality == ChessMove.Quality.BRILLIANT:
-			draw_circle(pt, 5.0, Color("#10b981"))
-			draw_arc(pt, 5.0, 0, TAU, 16, Color("#ffffff"), 1.2)
+		var marker_radius := float(marker["radius"])
+		draw_circle(pt, marker_radius, marker["color"])
+		if float(marker["ring"]) > 0.0:
+			draw_arc(pt, marker_radius, 0, TAU, 18, Color("#ffffff"), float(marker["ring"]))
 
 	# 8bis. T2.3 — Repères de phase (fin d'ouverture, début de finale).
 	if not points.is_empty():

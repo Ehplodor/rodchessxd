@@ -8,6 +8,11 @@ const _PromotionModal = preload("res://src/ui/components/PromotionModal.gd")
 # doit pouvoir rétrécir pour tenir dans l'espace disponible (aucun minimum 240px).
 const MIN_BOARD_SIDE := 48.0
 
+# Accélération des animations pendant l'analyse automatisée : les mouvements restent
+# pleinement visibles (glissement + rebond d'échelle + capture), mais à durée réduite
+# pour ne pas immobiliser le thread d'analyse. 0,5 => 0,14 s par coup au lieu de 0,28 s.
+const ANALYSIS_FAST_ANIM_SCALE := 0.5
+
 signal square_clicked(sq: int)
 signal navigation_forward_completed(ply_idx: int)
 
@@ -525,14 +530,17 @@ func _animate_move(move: ChessMove) -> void:
 		reset_board_visuals(true)
 	)
 
-## Animation fluide vers l'avant lors de la navigation dans l'historique (+1 demi-coup)
-func _animate_navigation_forward(move: ChessMove) -> void:
+## Animation fluide vers l'avant lors de la navigation dans l'historique (+1 demi-coup).
+## `fast_analysis_mode` : animations accélérées (mais pleinement fonctionnelles) pendant
+## l'analyse automatisée, afin de ne pas immobiliser le thread d'analyse.
+func _animate_navigation_forward(move: ChessMove, fast_analysis_mode: bool = false) -> void:
 	_clear_active_tweens()
 	is_animating_move = true
 	_clear_ghost_sprites()
 	
 	last_move_from = move.from_sq
 	last_move_to = move.to_sq
+	var anim_scale := ANALYSIS_FAST_ANIM_SCALE if fast_analysis_mode else 1.0
 	
 	var start_pos = _get_square_screen_pos(move.from_sq)
 	var end_pos = _get_square_screen_pos(move.to_sq)
@@ -546,15 +554,15 @@ func _animate_navigation_forward(move: ChessMove) -> void:
 	if move.to_sq in piece_sprites:
 		piece_sprites[move.to_sq].visible = false
 	
-	# Effet d'explosion vibrante de capture
+	# Effet d'explosion vibrante de capture (accéléré en analyse)
 	if move.captured_piece != ChessPiece.Type.NONE:
 		var cap_sq = move.to_sq
 		if move.is_en_passant:
 			cap_sq = move.to_sq - 8 if move.color == ChessPiece.PieceColor.WHITE else move.to_sq + 8
-		_spawn_capture_fx(cap_sq, move.captured_piece, move.color)
+		_spawn_capture_fx(cap_sq, move.captured_piece, move.color, anim_scale)
 	
 	if move.is_castling:
-		_animate_castling_rook(move)
+		_animate_castling_rook(move, anim_scale)
 	
 	flying_piece.texture = tex
 	flying_piece.size = Vector2(square_size, square_size)
@@ -564,18 +572,19 @@ func _animate_navigation_forward(move: ChessMove) -> void:
 	flying_piece.modulate = Color.WHITE
 	flying_piece.visible = true
 	
-	var anim_time = move_anim_duration
+	var anim_time = move_anim_duration * anim_scale
 	
 	var tween_pos = create_tween()
 	active_tweens.append(tween_pos)
 	tween_pos.tween_property(flying_piece, "position", end_pos, anim_time).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	
+	# Glissement vertical léger et rebond d'atterrissage (accéléré en analyse)
 	var tween_scale = create_tween()
 	active_tweens.append(tween_scale)
 	tween_scale.tween_property(flying_piece, "scale", Vector2(1.14, 1.14), anim_time * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tween_scale.chain().tween_property(flying_piece, "scale", Vector2.ONE, anim_time * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween_scale.chain().tween_property(flying_piece, "scale", Vector2(1.04, 0.96), 0.04)
-	tween_scale.chain().tween_property(flying_piece, "scale", Vector2.ONE, 0.06)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2(1.04, 0.96), 0.04 * anim_scale)
+	tween_scale.chain().tween_property(flying_piece, "scale", Vector2.ONE, 0.06 * anim_scale)
 	
 	tween_pos.chain().tween_callback(func():
 		is_animating_move = false
@@ -652,8 +661,9 @@ func _animate_navigation_backward(move: ChessMove) -> void:
 	)
 	queue_redraw()
 
-## Effet d'explosion vibrante, onde de choc et micro-étincelles lors d'une capture
-func _spawn_capture_fx(sq: int, cap_type: int, attacker_color: int) -> void:
+## Effet d'explosion vibrante, onde de choc et micro-étincelles lors d'une capture.
+## `time_scale` accélère l'ensemble des durées (analyse automatisée).
+func _spawn_capture_fx(sq: int, cap_type: int, attacker_color: int, time_scale: float = 1.0) -> void:
 	var target_center = _get_square_screen_pos(sq) + Vector2(square_size * 0.5, square_size * 0.5)
 	
 	# 1. Onde de choc et micro-étincelles sur fx_layer
@@ -664,8 +674,8 @@ func _spawn_capture_fx(sq: int, cap_type: int, attacker_color: int) -> void:
 		var fx_tween = create_tween()
 		active_tweens.append(fx_tween)
 		fx_tween.set_parallel(true)
-		fx_tween.tween_property(fx, "ring_progress", 1.0, 0.32).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		fx_tween.tween_property(fx, "spark_progress", 1.0, 0.36).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		fx_tween.tween_property(fx, "ring_progress", 1.0, 0.32 * time_scale).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		fx_tween.tween_property(fx, "spark_progress", 1.0, 0.36 * time_scale).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		fx_tween.chain().tween_callback(func():
 			if is_instance_valid(fx):
 				if fx.get_parent():
@@ -700,21 +710,21 @@ func _spawn_capture_fx(sq: int, cap_type: int, attacker_color: int) -> void:
 	var ghost_tween = create_tween()
 	active_tweens.append(ghost_tween)
 	
-	# Étape 1 : Vibration tactile (4 secousses de 0.025s)
-	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(3.5, -2.0), 0.025)
-	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(-3.0, 2.5), 0.025)
-	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(2.0, 1.0), 0.025)
-	ghost_tween.tween_property(ghost, "position", origin_pos, 0.025)
+	# Étape 1 : Vibration tactile (4 secousses)
+	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(3.5, -2.0), 0.025 * time_scale)
+	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(-3.0, 2.5), 0.025 * time_scale)
+	ghost_tween.tween_property(ghost, "position", origin_pos + Vector2(2.0, 1.0), 0.025 * time_scale)
+	ghost_tween.tween_property(ghost, "position", origin_pos, 0.025 * time_scale)
 	
 	# Étape 2 : Dissipation élégante (pop puis rétrécissement et envolée)
-	ghost_tween.tween_property(ghost, "scale", Vector2(1.15, 1.15), 0.06).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	ghost_tween.tween_property(ghost, "scale", Vector2(1.15, 1.15), 0.06 * time_scale).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	
 	var diss_tween = create_tween()
 	active_tweens.append(diss_tween)
 	diss_tween.set_parallel(true)
-	diss_tween.tween_property(ghost, "scale", Vector2(0.35, 0.35), 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	diss_tween.tween_property(ghost, "modulate:a", 0.0, 0.24).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	diss_tween.tween_property(ghost, "position:y", origin_pos.y - 10.0, 0.24).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	diss_tween.tween_property(ghost, "scale", Vector2(0.35, 0.35), 0.22 * time_scale).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	diss_tween.tween_property(ghost, "modulate:a", 0.0, 0.24 * time_scale).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	diss_tween.tween_property(ghost, "position:y", origin_pos.y - 10.0, 0.24 * time_scale).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	
 	diss_tween.chain().tween_callback(func():
 		if is_instance_valid(ghost):
@@ -724,7 +734,7 @@ func _spawn_capture_fx(sq: int, cap_type: int, attacker_color: int) -> void:
 			ghost.queue_free()
 	)
 
-func _animate_castling_rook(move: ChessMove) -> void:
+func _animate_castling_rook(move: ChessMove, time_scale: float = 1.0) -> void:
 	var rook_from: int = -1
 	var rook_to: int = -1
 	
@@ -743,7 +753,7 @@ func _animate_castling_rook(move: ChessMove) -> void:
 		rook_sprite.z_index = 18
 		var r_tween = create_tween()
 		active_tweens.append(r_tween)
-		r_tween.tween_property(rook_sprite, "position", r_end_pos, move_anim_duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		r_tween.tween_property(rook_sprite, "position", r_end_pos, move_anim_duration * time_scale).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		r_tween.chain().tween_callback(func():
 			rook_sprite.z_index = 1
 		)

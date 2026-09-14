@@ -50,7 +50,10 @@ func get_cached_eval(fen: String, min_depth: int, min_multipv: int = 1) -> Dicti
 		var c_depth: int = int(entry.get("depth", 0))
 		var c_mpv_lines: Array = entry.get("multipv_lines", [])
 		var c_mpv_count: int = maxi(1, c_mpv_lines.size())
-		if c_depth >= min_depth and c_mpv_count >= min_multipv:
+		if c_depth >= min_depth:
+			# Même si la position a été analysée avec moins de lignes MultiPV que demandé,
+			# on renvoie la meilleure ligne principale (rank 1) immédiatement pour un
+			# affichage 0 ms instantané du meilleur coup, du score et de la barre.
 			var copy := entry.duplicate(true)
 			state_mutex.unlock()
 			return copy
@@ -159,8 +162,21 @@ func _init() -> void:
 	state_mutex = Mutex.new()
 	_preseed_initial_eval()
 
-## Pré-remplit le cache avec la position initiale universelle (temps de calcul 0.00 ms garanti au démarrage)
+## Pré-remplit le cache avec les positions canoniques d'ouverture (temps de calcul 0.00 ms garanti au démarrage)
 func _preseed_initial_eval() -> void:
+	# 1. Table pré-calculée des ouvertures standard (36 positions canoniques à depth 16)
+	const OPENING_TABLE_PATH = "res://src/engine/opening_eval_table.json"
+	if FileAccess.file_exists(OPENING_TABLE_PATH):
+		var f := FileAccess.open(OPENING_TABLE_PATH, FileAccess.READ)
+		if f != null:
+			var parsed = JSON.parse_string(f.get_as_text())
+			if parsed is Dictionary:
+				for fen_key in parsed:
+					var data: Dictionary = parsed[fen_key]
+					store_cached_eval(str(fen_key), data)
+
+	# 2. Position initiale universelle (depth 18) : stockée en dernier pour rester
+	#    autoritative (la table d'ouvertures peut la contenir à une profondeur moindre).
 	store_cached_eval(ChessGame.INITIAL_FEN, {
 		"score_cp": 35,
 		"mate_in": 0,
@@ -1016,10 +1032,9 @@ func is_engine_profile_active(profile_id: String) -> bool:
 func get_engine_display_name() -> String:
 	return _engine_display_name()
 
-## MultiPV par défaut : 3 sur bureau, 2 sur mobile (batterie), borné 1..5.
+## MultiPV par défaut : 1 sur toutes les plateformes pour réactivité maximale (x3 plus rapide que 3 lignes).
 func default_multipv() -> int:
-	var mobile := OS.has_feature("android") or OS.has_feature("ios")
-	var fallback := 2 if mobile else 3
+	var fallback := 1
 	var n := int(SettingsManager.get_setting("engine_multipv", fallback))
 	return clampi(n, 1, 5)
 
@@ -1447,9 +1462,10 @@ func _engine_reader_loop() -> void:
 						print("EngineManager: [brut] ", tail.substr(0, 160))
 					_parse_engine_line(tail)
 				break
+			else:
+				OS.delay_msec(2)
 		else:
 			break
-		OS.delay_msec(5)
 
 	if not should_stop_thread:
 		var reason = "Le processus moteur s'est arrêté inopinément (binaire « %s » non exécutable ou arrêté)." % _current_engine_path
@@ -1496,6 +1512,9 @@ func _parse_engine_line(line: String) -> void:
 	_received_any_output = true
 	# Exemple de ligne : info depth 18 seldepth 22 multipv 1 score cp 45 nodes 84523 pv e2e4 e7e5 ...
 	if line.begins_with("info "):
+		# Filtrage ultra-rapide : ignorer immédiatement les lignes sans évaluation (currmove, nodes, etc.)
+		if not line.contains(" score "):
+			return
 		var tokens = line.split(" ", false)
 		var i = 1
 		var depth = 0

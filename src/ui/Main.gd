@@ -1436,7 +1436,7 @@ func _on_analysis_position_ready(ply_idx: int) -> void:
 			_on_play_sound("check")
 		else:
 			_on_play_sound("move")
-		chess_board._animate_navigation_forward(move)
+		chess_board._animate_navigation_forward(move, true)
 	else:
 		analyzer.confirm_analysis_position_displayed(ply_idx)
 
@@ -1510,9 +1510,9 @@ func _on_btn_analyze_game_pressed() -> void:
 	var sm = get_node_or_null("/root/SettingsManager")
 	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
 	var mode: String = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
-	var time_per_move: float = sm.get_setting("analysis_time_per_move", 0.3) if sm else 0.3
-	var dynamic_base: float = sm.get_setting("analysis_dynamic_base", 0.15) if sm else 0.15
-	var dynamic_max: float = sm.get_setting("analysis_dynamic_max", 0.8) if sm else 0.8
+	var time_per_move: float = sm.get_setting("analysis_time_per_move", 0.2) if sm else 0.2
+	var dynamic_base: float = sm.get_setting("analysis_dynamic_base", 0.08) if sm else 0.08
+	var dynamic_max: float = sm.get_setting("analysis_dynamic_max", 0.25) if sm else 0.25
 	var a_depth: int = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
 
 	# Verrouillage immédiat du mode analyse et arrêt du Live avant toute manipulation de l'échiquier

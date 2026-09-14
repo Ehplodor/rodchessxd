@@ -300,7 +300,7 @@ func _setup_ui() -> void:
 	mpv_spin.min_value = 1
 	mpv_spin.max_value = 5
 	mpv_spin.step = 1
-	mpv_spin.value = SettingsManager.get_setting("engine_multipv", 2)
+	mpv_spin.value = SettingsManager.get_setting("engine_multipv", 1)
 	mpv_spin.value_changed.connect(func(val):
 		SettingsManager.set_setting("engine_multipv", int(val))
 		if EngineManager != null and EngineManager.has_method("set_multipv"):

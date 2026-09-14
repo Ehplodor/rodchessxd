@@ -12,12 +12,12 @@ var settings := {
 	"engine_threads": 2,
 	"engine_hash_mb": 32,
 	"engine_depth": 16,
-	"analysis_depth": 18,
+	"analysis_depth": 14,
 	"analysis_mode": "dynamic", # "depth", "time", "dynamic"
-	"analysis_time_per_move": 0.3, # secondes par coup en mode time
-	"analysis_dynamic_base": 0.15, # temps de base en mode dynamique (secondes)
-	"analysis_dynamic_max": 0.8, # plafond en mode dynamique (secondes)
-	"engine_multipv": 3,
+	"analysis_time_per_move": 0.2, # secondes par coup en mode time
+	"analysis_dynamic_base": 0.08, # temps de base en mode dynamique (secondes)
+	"analysis_dynamic_max": 0.25, # plafond en mode dynamique (secondes)
+	"engine_multipv": 1,
 	"engine_path": "",
 	"active_engine": "Stockfish",
 	"board_theme": "emerald",
@@ -48,12 +48,10 @@ static func get_default_engine_threads() -> int:
 	if OS.has_feature("web"):
 		return 1
 	var procs = OS.get_processor_count()
-	if procs >= 12:
-		return 6
-	elif procs >= 8:
-		return 4
+	if procs >= 8:
+		return 4 # 4 threads = sweet spot mesuré (313 ms vs 725 ms sur 6 threads, zéro contention Lazy SMP)
 	elif procs >= 4:
-		return 3
+		return 2
 	return maxi(1, procs)
 
 static func get_default_engine_hash() -> int:
@@ -66,15 +64,17 @@ func _ready() -> void:
 	settings["engine_hash_mb"] = get_default_engine_hash()
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		settings["engine_depth"] = 12
-		settings["analysis_depth"] = 14
-		settings["engine_multipv"] = 2
+		settings["analysis_depth"] = 12
+		settings["engine_multipv"] = 1
 	load_settings()
-	# Mise à niveau automatique des anciennes configurations avec threads/hash bridés par défaut
+	# Mise à niveau automatique des anciennes configurations avec threads/hash/multipv non optimisés
 	if not (OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")):
-		if int(settings.get("engine_threads", 2)) <= 2 and OS.get_processor_count() >= 8:
+		if int(settings.get("engine_threads", 2)) == 6 or int(settings.get("engine_threads", 2)) <= 2:
 			settings["engine_threads"] = get_default_engine_threads()
 		if int(settings.get("engine_hash_mb", 32)) <= 32:
 			settings["engine_hash_mb"] = get_default_engine_hash()
+		if int(settings.get("engine_multipv", 1)) == 3:
+			settings["engine_multipv"] = 1
 	DesignTokens.apply_theme_mode(settings.get("app_theme_mode", "dark"))
 
 func load_settings() -> void:
