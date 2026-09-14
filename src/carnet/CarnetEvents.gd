@@ -27,6 +27,19 @@ const POLARITE_NEGATIVE := CarnetConfig.POLARITE_NEGATIVE
 const POLARITE_POSITIVE := CarnetConfig.POLARITE_POSITIVE
 const POLARITE_CURIEUSE := CarnetConfig.POLARITE_CURIEUSE
 
+static var _scratch_info_game: ChessGame = null
+static var _scratch_pv_game: ChessGame = null
+
+static func _get_scratch_info_game() -> ChessGame:
+	if _scratch_info_game == null:
+		_scratch_info_game = ChessGame.new()
+	return _scratch_info_game
+
+static func _get_scratch_pv_game() -> ChessGame:
+	if _scratch_pv_game == null:
+		_scratch_pv_game = ChessGame.new()
+	return _scratch_pv_game
+
 # ── API publique ────────────────────────────────────────────────────────────────
 
 ## Identité stable d'un atome (§4.3) : idempotence et dédoublonnage.
@@ -66,14 +79,19 @@ static func annotate(coup: Dictionary) -> Dictionary:
 
 	# Nombre de coups légaux : un coup forcé n'est jamais une faute (§4.3 A.1.5).
 	var nb_legaux: int = int(coup.get("nb_coups_legaux", -1))
-	var move_info := _move_info(fen_avant, uci)
+	var move_info: Dictionary = coup.get("_pre_move_info", {})
+	if move_info.is_empty():
+		move_info = _move_info(fen_avant, uci)
 	if nb_legaux < 0:
 		nb_legaux = _legal_count(fen_avant)
 
-	var features := _features(fen_avant, couleur, move_info)
+	var features: Dictionary = coup.get("_pre_feat_before", {})
+	if features.is_empty():
+		features = _features(fen_avant, couleur, move_info)
 	var schemas := compute_schemas(coup, {
 		"played": move_info,
 		"feat_before": features,
+		"feat_after": coup.get("_pre_feat_after", null),
 	})
 	features["schemas"] = schemas
 	var is_obvious := bool(move_info.get("obvious", false))
@@ -87,6 +105,7 @@ static func annotate(coup: Dictionary) -> Dictionary:
 	var markers := _markers(coup, fen_avant, uci, meilleur, pv, is_white_mover,
 			win_before, win_after, eval_avant, eval_apres, quality, second_gap, pluralite_count,
 			non_obvious, ply, dans_theorie)
+	markers["_balance"] = int(features.get("balance", 0))
 
 	var indices := _indices(fen_avant, couleur, win_before, win_after, eval_avant,
 			second_gap, pluralite_count, markers, coup)
@@ -182,12 +201,37 @@ static func annotate_game(game_data: Dictionary, analysis: Dictionary, options: 
 		var rec: Dictionary = evals[i]
 		var uci: String = str(rec.get("uci", mv.get("uci", "")))
 		var is_white: bool = bool(rec.get("is_white", mv.get("is_white", i % 2 == 0)))
+		var color_str: String = "white" if is_white else "black"
 		var fen_before: String = prev_fen
 		var played := sim.find_move(uci)
 		if played == null:
 			break
+
+		var feat_before := _features_from_game(sim, fen_before, color_str, int(played.piece))
+		var mover := played.color
+		var opponent := ChessPiece.PieceColor.BLACK if mover == ChessPiece.PieceColor.WHITE else ChessPiece.PieceColor.WHITE
+
 		sim.make_move(played)
 		var fen_after: String = sim.get_fen()
+
+		var gives_check := sim.is_in_check(opponent)
+		var mate := gives_check and not sim.has_any_legal_move(opponent)
+		var obvious := int(played.captured_piece) != ChessPiece.Type.NONE or played.promotion != ChessPiece.Type.NONE \
+				or played.is_castling or gives_check
+		var pre_move_info := {
+			"piece": int(played.piece),
+			"color": mover,
+			"capture": int(played.captured_piece) != ChessPiece.Type.NONE,
+			"promotion": played.promotion != ChessPiece.Type.NONE,
+			"castling": played.is_castling,
+			"check": gives_check,
+			"mate": mate,
+			"obvious": obvious,
+		}
+
+		var feat_after := {}
+		if int(played.piece) == ChessPiece.Type.PAWN:
+			feat_after = _features_from_game(sim, fen_after, color_str, int(played.piece))
 
 		var quality: int = int(rec.get("quality", ChessMove.Quality.NONE))
 		var phase: String = GamePhaseService.phase_for(fen_before, i, theory_plies)
@@ -199,7 +243,7 @@ static func annotate_game(game_data: Dictionary, analysis: Dictionary, options: 
 			"game_id": game_id,
 			"ply": i,
 			"date_iso": date_iso,
-			"couleur": "white" if is_white else "black",
+			"couleur": color_str,
 			"couleur_joueur": couleur_joueur,
 			"mode_analyse": mode_analyse,
 			"san": str(rec.get("san", mv.get("san", ""))),
@@ -221,6 +265,9 @@ static func annotate_game(game_data: Dictionary, analysis: Dictionary, options: 
 			"eco": str(opening.get("eco", game_data.get("eco", ""))),
 			"ply_sortie_theorie": theory_plies,
 			"nb_plies_partie": nb_plies,
+			"_pre_move_info": pre_move_info,
+			"_pre_feat_before": feat_before,
+			"_pre_feat_after": feat_after,
 		}
 		var atom := annotate(coup)
 		if not atom.is_empty():
@@ -422,26 +469,18 @@ static func _indices(fen_avant: String, couleur: String, win_before: float, win_
 
 # ── Features contextuelles (§4.4 familles 1-9) ───────────────────────────────────
 
-static func _features(fen_avant: String, couleur: String, move_info: Dictionary) -> Dictionary:
+static func _features_from_game(game: ChessGame, fen: String, couleur: String, piece_type: int) -> Dictionary:
 	var color := ChessPiece.PieceColor.WHITE if couleur == "white" else ChessPiece.PieceColor.BLACK
-	var game := ChessGame.new()
-	var ok := fen_avant != "" and game.load_fen(fen_avant)
-	var balance := 0
+	var balance := _material_balance(game.board, color)
 	var type_finale := "aucune"
-	var structure := {"doubles": 0, "isoles": 0, "arrieres": 0}
-	var roi_roque := false
-	var droits := false
-	var mineures_dev := 0
-	var piece_letter := _piece_letter(int(move_info.get("piece", ChessPiece.Type.NONE)))
-	if ok:
-		balance = _material_balance(game.board, color)
-		if GamePhaseService.is_endgame_fen(fen_avant):
-			type_finale = _endgame_type(game.board)
-		structure = _pawn_structure(game.board, color)
-		roi_roque = _king_castled(game.board, color)
-		droits = (game.castle_k_white or game.castle_q_white) if color == ChessPiece.PieceColor.WHITE \
-				else (game.castle_k_black or game.castle_q_black)
-		mineures_dev = _minors_developed(game.board, color)
+	if GamePhaseService.is_endgame_fen(fen):
+		type_finale = _endgame_type(game.board)
+	var structure := _pawn_structure(game.board, color)
+	var roi_roque := _king_castled(game.board, color)
+	var droits: bool = (game.castle_k_white or game.castle_q_white) if color == ChessPiece.PieceColor.WHITE \
+			else (game.castle_k_black or game.castle_q_black)
+	var mineures_dev := _minors_developed(game.board, color)
+	var piece_letter := _piece_letter(piece_type)
 	return {
 		"materiel": balance,
 		"type_finale": type_finale,
@@ -453,6 +492,26 @@ static func _features(fen_avant: String, couleur: String, move_info: Dictionary)
 		"balance": balance,
 		"schemas": [],
 	}
+
+static func _features(fen_avant: String, couleur: String, move_info: Dictionary) -> Dictionary:
+	if fen_avant == "":
+		return {
+			"materiel": 0, "type_finale": "aucune",
+			"structure": {"doubles": 0, "isoles": 0, "arrieres": 0},
+			"roi_roque": false, "droits_roque": false, "mineures_developpees": 0,
+			"piece_bougee": _piece_letter(int(move_info.get("piece", ChessPiece.Type.NONE))),
+			"balance": 0, "schemas": [],
+		}
+	var game := _get_scratch_info_game()
+	if not game.load_fen(fen_avant):
+		return {
+			"materiel": 0, "type_finale": "aucune",
+			"structure": {"doubles": 0, "isoles": 0, "arrieres": 0},
+			"roi_roque": false, "droits_roque": false, "mineures_developpees": 0,
+			"piece_bougee": _piece_letter(int(move_info.get("piece", ChessPiece.Type.NONE))),
+			"balance": 0, "schemas": [],
+		}
+	return _features_from_game(game, fen_avant, couleur, int(move_info.get("piece", ChessPiece.Type.NONE)))
 
 static func _piece_letter(t: int) -> String:
 	match t:
@@ -699,7 +758,7 @@ static func _king_square(board: Array, color: int) -> int:
 ## Sécurité du roi : roi non roqué avec une dame adverse, ou poussée de pion sur/à
 ## côté de la file du roi.
 static func _king_zone_weak(fen: String, couleur: String, uci: String) -> bool:
-	var game := ChessGame.new()
+	var game := _get_scratch_info_game()
 	if not game.load_fen(fen):
 		return false
 	var color := ChessPiece.PieceColor.WHITE if couleur == "white" else ChessPiece.PieceColor.BLACK
@@ -744,7 +803,7 @@ static func _minors_developed(board: Array, color: int) -> int:
 static func _move_info(fen: String, uci: String) -> Dictionary:
 	if fen == "" or uci == "":
 		return {}
-	var game := ChessGame.new()
+	var game := _get_scratch_info_game()
 	if not game.load_fen(fen):
 		return {}
 	var mv := game.find_move(uci)
@@ -754,7 +813,7 @@ static func _move_info(fen: String, uci: String) -> Dictionary:
 	var opponent := ChessPiece.PieceColor.BLACK if mover == ChessPiece.PieceColor.WHITE else ChessPiece.PieceColor.WHITE
 	game.make_move(mv)
 	var gives_check := game.is_in_check(opponent)
-	var mate := gives_check and game.get_legal_moves(opponent).is_empty()
+	var mate := gives_check and not game.has_any_legal_move(opponent)
 	var obvious := int(mv.captured_piece) != ChessPiece.Type.NONE or mv.promotion != ChessPiece.Type.NONE \
 			or mv.is_castling or gives_check
 	return {
@@ -772,7 +831,7 @@ static func _move_info(fen: String, uci: String) -> Dictionary:
 static func _pv_material_swing(fen: String, pv: Array, is_white: bool) -> int:
 	if fen == "" or pv.is_empty():
 		return 0
-	var game := ChessGame.new()
+	var game := _get_scratch_pv_game()
 	if not game.load_fen(fen):
 		return 0
 	var color := ChessPiece.PieceColor.WHITE if is_white else ChessPiece.PieceColor.BLACK
@@ -801,7 +860,7 @@ static func _mover_cp_delta(eval_avant: int, eval_apres: int, is_white: bool) ->
 static func _legal_count(fen: String) -> int:
 	if fen == "":
 		return 2
-	var game := ChessGame.new()
+	var game := _get_scratch_info_game()
 	if not game.load_fen(fen):
 		return 2
 	return game.get_legal_moves().size()

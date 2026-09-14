@@ -11,6 +11,9 @@ var _collapsed := false
 var _lines: Array = []
 var _engine_name := "Moteur"
 var _depth := 0
+var _row_buttons: Array[Button] = []
+var _row_data: Array[Dictionary] = []
+var _san_cache: Dictionary = {}
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 2)
@@ -28,7 +31,34 @@ func _ready() -> void:
 	_rows_box = VBoxContainer.new()
 	_rows_box.add_theme_constant_override("separation", 2)
 	add_child(_rows_box)
+
+	# Pré-création d'un pool fixe de 5 boutons réutilisables (zéro queue_free à l'évaluation)
+	for idx in range(5):
+		var btn := Button.new()
+		btn.flat = true
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		btn.clip_text = true
+		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		btn.visible = false
+		var btn_idx = idx
+		btn.pressed.connect(func():
+			_on_row_pressed(btn_idx)
+		)
+		_rows_box.add_child(btn)
+		_row_buttons.append(btn)
+		_row_data.append({})
+
 	_update_header()
+
+func _on_row_pressed(idx: int) -> void:
+	if idx < 0 or idx >= _row_data.size():
+		return
+	var data: Dictionary = _row_data[idx]
+	if data.is_empty():
+		return
+	line_selected.emit(int(data.get("rank", idx + 1)), data.get("pv", []), str(data.get("best_move", "")))
 
 ## Vrai si le panneau est replié (permet à l'appelant d'éviter tout travail inutile).
 func is_collapsed() -> bool:
@@ -60,35 +90,37 @@ func _update_header() -> void:
 func _rebuild() -> void:
 	if _rows_box == null:
 		return
-	for c in _rows_box.get_children():
-		c.queue_free()
-	var shown := 0
-	for i in range(_lines.size()):
+	var count = mini(_lines.size(), _row_buttons.size())
+	for i in range(count):
 		var line: Dictionary = _lines[i]
 		var pv: Array = line.get("pv", [])
 		if pv.is_empty():
+			_row_buttons[i].visible = false
+			_row_data[i] = {}
 			continue
-		shown += 1
 		var eval_str := EvalFormatter.format_cp_mate(int(line.get("score_cp", 0)), int(line.get("mate_in", 0)))
 		var san_line := _pv_to_san(str(line.get("fen", "")), pv)
-		var btn := Button.new()
-		btn.flat = true
-		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		btn.clip_text = true
-		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
-		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		var btn = _row_buttons[i]
 		btn.text = "%d.  %s   %s" % [i + 1, eval_str, san_line]
 		btn.tooltip_text = "%s\n%s" % [eval_str, san_line]
-		var rank := i + 1
-		btn.pressed.connect(func():
-			line_selected.emit(rank, pv, str(line.get("best_move", "")))
-		)
-		_rows_box.add_child(btn)
+		btn.visible = true
+		_row_data[i] = {
+			"rank": i + 1,
+			"pv": pv,
+			"best_move": str(line.get("best_move", ""))
+		}
+
+	# Masquer les boutons du pool non utilisés
+	for i in range(count, _row_buttons.size()):
+		_row_buttons[i].visible = false
+		_row_data[i] = {}
 
 func _pv_to_san(fen: String, pv: Array) -> String:
 	if fen == "" or pv.is_empty():
 		return " ".join(pv)
+	var cache_key = fen + "|" + " ".join(pv.slice(0, 8))
+	if _san_cache.has(cache_key):
+		return _san_cache[cache_key]
 	var game := ChessGame.new()
 	if not game.load_fen(fen):
 		return " ".join(pv)
@@ -100,4 +132,8 @@ func _pv_to_san(fen: String, pv: Array) -> String:
 			break
 		sans.append(mv.san)
 		game.make_move(mv)
-	return " ".join(sans)
+	var res = " ".join(sans)
+	if _san_cache.size() > 200:
+		_san_cache.clear()
+	_san_cache[cache_key] = res
+	return res

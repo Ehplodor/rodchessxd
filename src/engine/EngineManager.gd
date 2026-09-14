@@ -91,6 +91,10 @@ var _handshake_ready := false
 var _pending_live_fen := ""
 var _engine_ready_emitted := false
 
+# Throttling UI : évite de surcharger le thread principal à chaque ligne UCI info
+var _last_eval_emit_ms: int = 0
+var _last_emitted_depth: int = 0
+
 # Transport Android via plugin natif "RodChessUci" (ProcessBuilder) quand il est présent.
 var _use_plugin := false
 var _plugin_handle: Object = null
@@ -119,14 +123,15 @@ func _process(_delta: float) -> void:
 		_emit_engine_ready_deferred()
 	if is_engine_running and not should_stop_thread and _started_msec > 0 and not _received_any_output and Time.get_ticks_msec() - _started_msec > 15000:
 		_handle_engine_dead("Le moteur d'échecs ne répond pas (aucune sortie UCI en 15 s depuis « %s »). Binaire probablement non exécutable sur cet appareil (architecture/noexec) ou processus suspendu." % _current_engine_path)
-	if not _installing_engine or install_http == null:
-		return
-	var total := install_http.get_body_size()
-	var current := install_http.get_downloaded_bytes()
-	if total <= 0:
-		return
-	var pct := clampf((float(current) / float(total)) * 100.0, 0.0, 100.0)
-	download_progress.emit(_install_display, pct)
+	if _installing_engine and install_http != null:
+		var total := install_http.get_body_size()
+		var current := install_http.get_downloaded_bytes()
+		if total > 0:
+			var pct := clampf((float(current) / float(total)) * 100.0, 0.0, 100.0)
+			download_progress.emit(_install_display, pct)
+	elif _engine_ready_emitted and _received_any_output:
+		# Moteur démarré et aucun téléchargement : passer en veille (0% CPU au repos)
+		set_process(false)
 
 func _ensure_engine_directories() -> void:
 	var dir = DirAccess.open("user://")
@@ -574,6 +579,7 @@ func install_lc0_engine() -> bool:
 func _start_engine_download(url: String) -> bool:
 	_installing_engine = true
 	_install_last_bytes = 0
+	set_process(true)
 	install_http.download_file = _install_cache_path
 	var err = install_http.request(url)
 	if err != OK:
@@ -732,6 +738,7 @@ func _engine_missing_hint() -> String:
 
 func start_engine() -> bool:
 	_is_intentionally_stopping = false
+	set_process(true)
 	if is_engine_running:
 		return true
 	if _booting:
@@ -998,6 +1005,8 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 		return
 	current_fen = fen
 	is_evaluating = true
+	_last_eval_emit_ms = 0
+	_last_emitted_depth = 0
 	_reset_eval_accumulators()
 	state_mutex.unlock()
 	
@@ -1447,9 +1456,21 @@ func _parse_engine_line(line: String) -> void:
 				pv_line = pv
 				if pv.size() > 0:
 					best_move_uci = pv[0]
-			var emit_args = [eval_score_cp, eval_mate_in, eval_depth, best_move_uci, pv_line, multipv_lines.duplicate(true), generation]
-			state_mutex.unlock()
-			_emit_evaluation_deferred.call_deferred(emit_args)
+
+			# Throttling de l'émission UI : max ~12 Hz (80 ms) ou progression de profondeur / mat
+			var now_ms = Time.get_ticks_msec()
+			var should_emit = (normalized_mate != 0) \
+					or (eval_depth > _last_emitted_depth) \
+					or (now_ms - _last_eval_emit_ms >= 80)
+
+			if should_emit:
+				_last_eval_emit_ms = now_ms
+				_last_emitted_depth = eval_depth
+				var emit_args = [eval_score_cp, eval_mate_in, eval_depth, best_move_uci, pv_line, multipv_lines.duplicate(true), generation]
+				state_mutex.unlock()
+				_emit_evaluation_deferred.call_deferred(emit_args)
+			else:
+				state_mutex.unlock()
 
 	elif line.begins_with("bestmove "):
 		var parts = line.split(" ", false)

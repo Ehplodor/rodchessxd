@@ -23,6 +23,15 @@ var _scrubbing := false
 var _last_nav_ms := 0
 const SCRUB_NAV_MS := 90
 
+var _cached_points: PackedVector2Array = PackedVector2Array()
+var _cached_ci_poly: PackedVector2Array = PackedVector2Array()
+var _cached_ci_upper: PackedVector2Array = PackedVector2Array()
+var _cached_ci_lower: PackedVector2Array = PackedVector2Array()
+var _cached_fill_white: PackedVector2Array = PackedVector2Array()
+var _cached_fill_black: PackedVector2Array = PackedVector2Array()
+var _geom_dirty: bool = true
+var _cached_size: Vector2 = Vector2.ZERO
+
 func _ready() -> void:
 	custom_minimum_size = Vector2(250, 130)
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -221,6 +230,7 @@ func prepare_live_analysis(total_plies: int) -> void:
 			"is_placeholder": true
 		})
 	active_ply = 0
+	_geom_dirty = true
 	queue_redraw()
 
 func update_live_ply(ply_idx: int, record: Dictionary) -> void:
@@ -229,6 +239,7 @@ func update_live_ply(ply_idx: int, record: Dictionary) -> void:
 	record["is_placeholder"] = false
 	evaluations[ply_idx] = record
 	active_ply = ply_idx
+	_geom_dirty = true
 	queue_redraw()
 
 func set_evaluations(eval_data: Array) -> void:
@@ -238,6 +249,7 @@ func set_evaluations(eval_data: Array) -> void:
 			evaluations.append(item)
 	if not evaluations.is_empty() and (active_ply < 0 or active_ply >= evaluations.size()):
 		active_ply = evaluations.size() - 1
+	_geom_dirty = true
 	queue_redraw()
 
 ## T2.3 — Définit les plies de séparation de phases à afficher sur le graphe.
@@ -248,6 +260,7 @@ func set_phase_boundaries(bounds: Array) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_update_button_positions()
+		_geom_dirty = true
 		queue_redraw()
 
 func _draw() -> void:
@@ -314,30 +327,53 @@ func _draw() -> void:
 		return
 
 	# 4. Calcul des coordonnées des points & halo de l'intervalle de confiance (IC 95%)
-	var step_x = graph_w / float(total_points - 1)
-	var points = PackedVector2Array()
-	var ci_upper_points = PackedVector2Array()
-	var ci_lower_points = PackedVector2Array()
+	if _geom_dirty or size != _cached_size:
+		_cached_size = size
+		_geom_dirty = false
+		var step_x = graph_w / float(total_points - 1)
+		_cached_points.clear()
+		_cached_ci_upper.clear()
+		_cached_ci_lower.clear()
+		_cached_ci_poly.clear()
+		_cached_fill_white.clear()
+		_cached_fill_black.clear()
 
-	for i in range(total_points):
-		var record = evaluations[i]
-		var score_cp = float(record.get("score_cp", 0))
-		var px = left_margin + i * step_x
-		var py = eval_to_y.call(score_cp)
-		points.append(Vector2(px, py))
+		for i in range(total_points):
+			var record = evaluations[i]
+			var score_cp = float(record.get("score_cp", 0))
+			var px = left_margin + i * step_x
+			var py = eval_to_y.call(score_cp)
+			_cached_points.append(Vector2(px, py))
 
-		var margin = float(record.get("ci_margin", 35.0))
-		var ci_u = score_cp + margin
-		var ci_l = score_cp - margin
-		ci_upper_points.append(Vector2(px, eval_to_y.call(ci_u)))
-		ci_lower_points.append(Vector2(px, eval_to_y.call(ci_l)))
+			var margin = float(record.get("ci_margin", 35.0))
+			var ci_u = score_cp + margin
+			var ci_l = score_cp - margin
+			_cached_ci_upper.append(Vector2(px, eval_to_y.call(ci_u)))
+			_cached_ci_lower.append(Vector2(px, eval_to_y.call(ci_l)))
+
+		for p_u in _cached_ci_upper:
+			_cached_ci_poly.append(p_u)
+		for j in range(_cached_ci_lower.size() - 1, -1, -1):
+			_cached_ci_poly.append(_cached_ci_lower[j])
+
+		_cached_fill_white.append(Vector2(left_margin, mid_y))
+		for p in _cached_points:
+			_cached_fill_white.append(Vector2(p.x, min(p.y, mid_y)))
+		_cached_fill_white.append(Vector2(left_margin + graph_w, mid_y))
+
+		_cached_fill_black.append(Vector2(left_margin, mid_y))
+		for p in _cached_points:
+			_cached_fill_black.append(Vector2(p.x, max(p.y, mid_y)))
+		_cached_fill_black.append(Vector2(left_margin + graph_w, mid_y))
+
+	var points = _cached_points
+	var ci_upper_points = _cached_ci_upper
+	var ci_lower_points = _cached_ci_lower
+	var ci_poly = _cached_ci_poly
+	var fill_white = _cached_fill_white
+	var fill_black = _cached_fill_black
 
 	# 5. Bande d'intervalle de confiance (IC 95% ombré doux)
-	var ci_poly = PackedVector2Array()
-	for p_u in ci_upper_points:
-		ci_poly.append(p_u)
-	for j in range(ci_lower_points.size() - 1, -1, -1):
-		ci_poly.append(ci_lower_points[j])
 	draw_colored_polygon(ci_poly, Color(0.22, 0.74, 0.97, 0.12))
 	draw_polyline(ci_upper_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
 	draw_polyline(ci_lower_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
@@ -345,16 +381,7 @@ func _draw() -> void:
 	# 6. Polygones de remplissage distinctifs :
 	# Aire blanche pure et soignée du côté blanc (au-dessus de mid_y),
 	# Aire noire profonde du côté noir (en-dessous de mid_y).
-	var fill_white = PackedVector2Array([Vector2(left_margin, mid_y)])
-	for p in points:
-		fill_white.append(Vector2(p.x, min(p.y, mid_y)))
-	fill_white.append(Vector2(left_margin + graph_w, mid_y))
 	draw_colored_polygon(fill_white, Color(0.95, 0.96, 0.98, 0.35))
-
-	var fill_black = PackedVector2Array([Vector2(left_margin, mid_y)])
-	for p in points:
-		fill_black.append(Vector2(p.x, max(p.y, mid_y)))
-	fill_black.append(Vector2(left_margin + graph_w, mid_y))
 	draw_colored_polygon(fill_black, Color(0.02, 0.03, 0.06, 0.70))
 
 	# Liseré doux séparateur sur les contours des aires

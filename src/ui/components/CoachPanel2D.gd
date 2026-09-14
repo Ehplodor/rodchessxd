@@ -82,11 +82,14 @@ func _ready() -> void:
 		)
 	_update_model_badge()
 	refresh_for_current_ply()
+	set_process(false)
 
 func _process(_delta: float) -> void:
 	if is_thinking:
 		var elapsed = (Time.get_ticks_msec() / 1000.0) - thinking_start_time
 		status_label.text = "⏳ Réflexion... (%.1fs)" % elapsed
+	else:
+		set_process(false)
 
 func _get_game_controller() -> Node:
 	var tree = Engine.get_main_loop() as SceneTree
@@ -761,6 +764,7 @@ func _execute_prompt(label_text: String, query_text: String, prompt_type: String
 
 func _begin_thinking() -> void:
 	is_thinking = true
+	set_process(true)
 	thinking_start_time = Time.get_ticks_msec() / 1000.0
 	status_label.text = "⏳ Réflexion..."
 	status_label.add_theme_color_override("font_color", DesignTokens.WARNING)
@@ -771,12 +775,14 @@ func _on_thinking_started() -> void:
 
 func _on_response_received(_response: String) -> void:
 	is_thinking = false
+	set_process(false)
 	status_label.text = "Prêt"
 	status_label.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	_populate_conversation_buttons()
 
 func _on_response_with_meta(_response: String, cost_label: String, elapsed_sec: float) -> void:
 	is_thinking = false
+	set_process(false)
 	last_error_message = ""
 	last_error_ply = -1
 	status_label.text = "Prêt (%.1fs • %s)" % [elapsed_sec, cost_label]
@@ -796,6 +802,7 @@ func _on_response_with_meta(_response: String, cost_label: String, elapsed_sec: 
 
 func _on_error(error_msg: String) -> void:
 	is_thinking = false
+	set_process(false)
 	last_error_message = error_msg
 	last_error_ply = current_ply_index
 	status_label.text = "Erreur (cliquez pour voir)"

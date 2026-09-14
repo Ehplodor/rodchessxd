@@ -48,6 +48,7 @@ func _init() -> void:
 	clip_contents = true
 	_build_shell()
 	visible = false
+	set_process(false)
 
 func _build_shell() -> void:
 	var bg := Panel.new()
@@ -147,6 +148,8 @@ func _process(_delta: float) -> void:
 	if presenter != null and presenter.is_batching():
 		presenter.poll_batch()
 		_update_batch_row()
+	else:
+		set_process(false)
 
 # ── API vues ─────────────────────────────────────────────────────────────────────
 
@@ -197,11 +200,15 @@ func _set_presenter(p: CarnetPresenter) -> void:
 	p.sync_changed.connect(_refresh_header)
 	p.carnet_changed.connect(_refresh_header)
 	p.plan_changed.connect(_refresh_header)
-	p.batch_state.connect(func(_s): _update_batch_row())
+	p.batch_state.connect(func(_s):
+		set_process(presenter != null and presenter.is_batching())
+		_update_batch_row()
+	)
 	p.batch_progress.connect(func(_d, _t, _g): _update_batch_row())
 	p.profile_updated.connect(_on_profile_updated)
 	p.game_list_changed.connect(_on_game_list_changed)
 	p.toast_requested.connect(_on_toast_requested)
+	set_process(presenter != null and presenter.is_batching())
 
 func _refresh_header() -> void:
 	if presenter == null:
@@ -1400,6 +1407,7 @@ func _on_run_batch() -> void:
 func _show_batch_modal() -> void:
 	if presenter == null or presenter.batch == null:
 		return
+	set_process(true)
 	var modal := CarnetProgressModal.new()
 	add_child(modal)
 	var total_q: int = presenter.batch.queue.size()

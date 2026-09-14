@@ -20,6 +20,8 @@ var castle_q_black: bool = true
 var en_passant_sq: int = -1
 var halfmove_clock: int = 0
 var fullmove_number: int = 1
+var white_king_sq: int = 4
+var black_king_sq: int = 60
 
 # Historique pour navigation et annulation
 var move_history: Array[ChessMove] = []
@@ -54,6 +56,8 @@ func reset_board() -> void:
 	en_passant_sq = -1
 	halfmove_clock = 0
 	fullmove_number = 1
+	white_king_sq = 4
+	black_king_sq = 60
 	move_history.clear()
 	state_history.clear()
 	history_index = -1
@@ -111,6 +115,8 @@ func load_fen(fen: String) -> bool:
 	if parts.size() > 5:
 		fullmove_number = parts[5].to_int()
 
+	white_king_sq = _find_king_square(ChessPiece.PieceColor.WHITE)
+	black_king_sq = _find_king_square(ChessPiece.PieceColor.BLACK)
 	save_state_snapshot()
 	board_changed.emit()
 	return true
@@ -150,8 +156,13 @@ func get_fen() -> String:
 # --- SNAPSHOT & GESTION D'ÉTAT ---
 
 func save_state_snapshot() -> void:
+	var packed := PackedByteArray()
+	packed.resize(64)
+	for i in range(64):
+		var p: Dictionary = board[i]
+		packed[i] = (int(p.color) << 4) | int(p.type)
 	var state = {
-		"board": board.duplicate(true),
+		"packed_board": packed,
 		"active_color": active_color,
 		"castle_k_white": castle_k_white,
 		"castle_q_white": castle_q_white,
@@ -159,7 +170,9 @@ func save_state_snapshot() -> void:
 		"castle_q_black": castle_q_black,
 		"en_passant_sq": en_passant_sq,
 		"halfmove_clock": halfmove_clock,
-		"fullmove_number": fullmove_number
+		"fullmove_number": fullmove_number,
+		"white_king_sq": white_king_sq,
+		"black_king_sq": black_king_sq
 	}
 	state_history.append(state)
 	history_index = state_history.size() - 1
@@ -168,7 +181,14 @@ func restore_state(index: int) -> bool:
 	if index < 0 or index >= state_history.size():
 		return false
 	var state = state_history[index]
-	board = state["board"].duplicate(true)
+	if state.has("packed_board"):
+		var packed: PackedByteArray = state["packed_board"]
+		for i in range(64):
+			var b = packed[i]
+			board[i]["color"] = b >> 4
+			board[i]["type"] = b & 0x0F
+	elif state.has("board"):
+		board = state["board"].duplicate(true)
 	active_color = state["active_color"]
 	castle_k_white = state["castle_k_white"]
 	castle_q_white = state["castle_q_white"]
@@ -177,6 +197,8 @@ func restore_state(index: int) -> bool:
 	en_passant_sq = state["en_passant_sq"]
 	halfmove_clock = state["halfmove_clock"]
 	fullmove_number = state["fullmove_number"]
+	white_king_sq = state.get("white_king_sq", _find_king_square(ChessPiece.PieceColor.WHITE))
+	black_king_sq = state.get("black_king_sq", _find_king_square(ChessPiece.PieceColor.BLACK))
 	history_index = index
 	board_changed.emit()
 	return true
@@ -418,13 +440,21 @@ func is_square_attacked(sq: int, by_color: int) -> bool:
 
 	return false
 
-func is_in_check(color: int) -> bool:
-	var king_sq = -1
+func _find_king_square(color: int) -> int:
 	for i in range(64):
-		var p = board[i]
+		var p: Dictionary = board[i]
 		if p.type == ChessPiece.Type.KING and p.color == color:
-			king_sq = i
-			break
+			return i
+	return -1
+
+func is_in_check(color: int) -> bool:
+	var king_sq = white_king_sq if color == ChessPiece.PieceColor.WHITE else black_king_sq
+	if king_sq < 0 or king_sq >= 64 or board[king_sq].type != ChessPiece.Type.KING or board[king_sq].color != color:
+		king_sq = _find_king_square(color)
+		if color == ChessPiece.PieceColor.WHITE:
+			white_king_sq = king_sq
+		else:
+			black_king_sq = king_sq
 	if king_sq == -1:
 		return false
 	return is_square_attacked(king_sq, 1 - color)
@@ -436,6 +466,13 @@ func _is_move_legal(move: ChessMove, color: int) -> bool:
 	var orig_ep_pawn = null
 	var ep_captured_sq = -1
 	
+	var saved_king_sq = white_king_sq if color == ChessPiece.PieceColor.WHITE else black_king_sq
+	if move.piece == ChessPiece.Type.KING:
+		if color == ChessPiece.PieceColor.WHITE:
+			white_king_sq = move.to_sq
+		else:
+			black_king_sq = move.to_sq
+
 	board[move.to_sq] = orig_from
 	board[move.from_sq] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
 	
@@ -452,8 +489,41 @@ func _is_move_legal(move: ChessMove, color: int) -> bool:
 	board[move.to_sq] = orig_to
 	if move.is_en_passant and ep_captured_sq != -1:
 		board[ep_captured_sq] = orig_ep_pawn
+	if move.piece == ChessPiece.Type.KING:
+		if color == ChessPiece.PieceColor.WHITE:
+			white_king_sq = saved_king_sq
+		else:
+			black_king_sq = saved_king_sq
 
 	return not in_check
+
+## Sortie précoce O(1) : vrai dès qu'au moins UN coup légal existe.
+## Évite la génération complète de tous les coups pseudo-légaux et leurs calculs de SAN.
+func has_any_legal_move(for_color: int = -1) -> bool:
+	if for_color == -1:
+		for_color = active_color
+	for sq in range(64):
+		var piece: Dictionary = board[sq]
+		if piece.color != for_color:
+			continue
+		var moves: Array[ChessMove] = []
+		match piece.type:
+			ChessPiece.Type.PAWN:
+				_gen_pawn_moves(sq, for_color, moves)
+			ChessPiece.Type.KNIGHT:
+				_gen_knight_moves(sq, for_color, moves)
+			ChessPiece.Type.BISHOP:
+				_gen_sliding_moves(sq, for_color, [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)], moves)
+			ChessPiece.Type.ROOK:
+				_gen_sliding_moves(sq, for_color, [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)], moves)
+			ChessPiece.Type.QUEEN:
+				_gen_sliding_moves(sq, for_color, [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)], moves)
+			ChessPiece.Type.KING:
+				_gen_king_moves(sq, for_color, moves)
+		for m in moves:
+			if _is_move_legal(m, for_color):
+				return true
+	return false
 
 func _annotate_move(m: ChessMove) -> void:
 	if m.is_castling:
@@ -507,12 +577,14 @@ func make_move(move: ChessMove) -> bool:
 			board[base_rank * 8 + 3] = board[base_rank * 8 + 0]
 			board[base_rank * 8 + 0] = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
 
-	# Mise à jour des droits au roque
+	# Mise à jour des droits au roque et position des rois
 	if piece.type == ChessPiece.Type.KING:
 		if active_color == ChessPiece.PieceColor.WHITE:
+			white_king_sq = move.to_sq
 			castle_k_white = false
 			castle_q_white = false
 		else:
+			black_king_sq = move.to_sq
 			castle_k_black = false
 			castle_q_black = false
 	elif piece.type == ChessPiece.Type.ROOK:
@@ -540,9 +612,9 @@ func make_move(move: ChessMove) -> bool:
 	# Changement de joueur
 	active_color = 1 - active_color
 	
-	# Échec / Mat ?
+	# Échec / Mat ? (sortie précoce O(1) via has_any_legal_move)
 	var opp_in_check = is_in_check(active_color)
-	var opp_has_moves = get_legal_moves(active_color).size() > 0
+	var opp_has_moves = has_any_legal_move(active_color)
 	if opp_in_check:
 		if not opp_has_moves:
 			move.is_checkmate = true
@@ -574,7 +646,7 @@ func make_move(move: ChessMove) -> bool:
 	return true
 
 func is_game_over() -> bool:
-	return get_legal_moves(active_color).size() == 0
+	return not has_any_legal_move(active_color)
 
 # --- PARSING PGN ---
 

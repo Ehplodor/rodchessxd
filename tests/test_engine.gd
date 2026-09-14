@@ -20,20 +20,20 @@ func _init() -> void:
 	
 	print("Engine is running! Testing evaluation on starting position...")
 	
-	var eval_received = false
+	var tracker := {"eval_received": false}
 	manager.evaluation_updated.connect(func(score_cp, mate_in, depth, best_move, pv, _multipv):
 		print("Evaluation update: Depth=%d, Score=%d cp, Mate=%d, BestMove=%s, PV=%s" % [depth, score_cp, mate_in, best_move, " ".join(pv.slice(0, 4))])
 		if depth >= 8:
-			eval_received = true
+			tracker["eval_received"] = true
 	)
 	
 	manager.evaluate_position(ChessGame.INITIAL_FEN, 10)
 	
 	var timeout = 0
-	while not eval_received and timeout < 60:
+	while not tracker["eval_received"] and timeout < 60:
 		await create_timer(0.1).timeout
 		timeout += 1
 
-	assert(eval_received == true)
+	assert(tracker["eval_received"] == true)
 	print("ENGINE EVALUATION TEST PASSED SUCCESSFULLY!")
 	quit(0)

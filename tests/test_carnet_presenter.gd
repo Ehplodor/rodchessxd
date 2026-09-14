@@ -591,9 +591,11 @@ func _test_recalculate_cancellation_preservation(presenter: CarnetPresenter) -> 
 	})
 
 	# Lancer recalcul asynchrone et annuler après la 1ère partie
-	var processed_in_callback := 0
+	var tracker := {"done": 0, "first_gid": ""}
 	var res = await presenter.recalculate_profile_async(pid, func(done, _total, _game_id, _gdata, _atoms_cnt):
-		processed_in_callback = done
+		tracker["done"] = done
+		if str(tracker["first_gid"]) == "":
+			tracker["first_gid"] = str(_game_id)
 		if done == 1:
 			presenter.cancel_recalculate()
 	)
@@ -601,12 +603,21 @@ func _test_recalculate_cancellation_preservation(presenter: CarnetPresenter) -> 
 	_check(bool(res.get("cancelled", false)), "recalcul marqué cancelled=true")
 	_check(int(res.get("processed_games", 0)) == 1, "exactement 1 partie traitée avant l'arrêt")
 	
+	var first_gid: String = str(tracker.get("first_gid", ""))
 	var games := presenter.get_profile_games(pid)
-	var g1_status := ""
+	var first_status := ""
+	var up_to_date_count := 0
+	var pending_count := 0
 	for g in games:
-		if str(g.get("game_id", "")) == gid1:
-			g1_status = str(g.get("status", ""))
-	_check(g1_status == "up_to_date", "partie 1 traitée est conservée et 'up_to_date' après arrêt du recalcul")
+		var st := str(g.get("status", ""))
+		if st == "up_to_date":
+			up_to_date_count += 1
+		elif st == "pending":
+			pending_count += 1
+		if str(g.get("game_id", "")) == first_gid:
+			first_status = st
+	_check(first_status == "up_to_date", "partie traitée (%s) est conservée et 'up_to_date' après arrêt du recalcul" % first_gid)
+	_check(up_to_date_count == 1 and pending_count == 1, "exactement 1 partie à jour et 1 partie en attente")
 
 	_db.delete_game(gid1)
 	_db.delete_game(gid2)

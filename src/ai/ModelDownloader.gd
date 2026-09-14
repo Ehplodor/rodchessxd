@@ -61,6 +61,7 @@ func _ready() -> void:
 	http_downloader.use_threads = true
 	add_child(http_downloader)
 	http_downloader.request_completed.connect(_on_download_completed)
+	set_process(false)
 
 func _process(_delta: float) -> void:
 	if not is_downloading or not http_downloader:
@@ -137,6 +138,7 @@ func start_download(model_id: String) -> bool:
 	last_time_msec = Time.get_ticks_msec()
 	current_speed_mb_s = 0.0
 	is_downloading = true
+	set_process(true)
 
 	print("ModelDownloader: Démarrage du téléchargement de %s vers %s..." % [info["name"], current_target_path])
 	var headers = [
@@ -145,6 +147,7 @@ func start_download(model_id: String) -> bool:
 	var err = http_downloader.request(url, headers, HTTPClient.METHOD_GET)
 	if err != OK:
 		is_downloading = false
+		set_process(false)
 		http_downloader.download_file = ""
 		download_failed.emit(model_id, "Erreur de lancement de la requête réseau (%d)." % err)
 		return false
@@ -158,6 +161,7 @@ func cancel_download() -> void:
 	
 	http_downloader.cancel_request()
 	is_downloading = false
+	set_process(false)
 	http_downloader.download_file = ""
 
 	# Nettoyer le fichier partiel
@@ -186,6 +190,7 @@ func delete_model(model_id: String) -> bool:
 ## Callback fin de téléchargement HTTP
 func _on_download_completed(result: int, response_code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
 	is_downloading = false
+	set_process(false)
 	http_downloader.download_file = ""
 
 	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:

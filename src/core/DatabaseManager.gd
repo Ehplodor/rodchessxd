@@ -129,6 +129,28 @@ func save_game(game_data: Dictionary) -> String:
 	game_saved.emit(game_id)
 	return game_id
 
+## Enregistre un lot de parties en une seule passe I/O (index écrit une seule fois)
+func save_games_batch(games_list: Array[Dictionary]) -> Array[String]:
+	_ensure_directories()
+	var saved_ids: Array[String] = []
+	var now = int(Time.get_unix_time_from_system())
+
+	for game_data in games_list:
+		var game_id = game_data.get("id", "")
+		if game_id == "":
+			game_id = _generate_game_id()
+			game_data["id"] = game_id
+
+		game_data["last_modified"] = now
+		var path = "%s/%s.json" % [GAMES_DIR, game_id]
+		save_json_atomic(path, game_data)
+		_update_index_entry(game_data)
+		saved_ids.append(game_id)
+		game_saved.emit(game_id)
+
+	_save_index()
+	return saved_ids
+
 ## Récupère le dossier complet d'une partie
 func get_game(game_id: String) -> Dictionary:
 	var path = "%s/%s.json" % [GAMES_DIR, game_id]

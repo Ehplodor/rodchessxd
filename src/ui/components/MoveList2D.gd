@@ -12,6 +12,7 @@ var move_buttons: Array[Button] = []
 var _active_btn: Button = null
 var _last_moves_count: int = -1
 var _analysis_report: Dictionary = {}
+var _active_stylebox: StyleBoxFlat = null
 
 # Filtre actif : 0 = TOUS, sinon un filtre par qualité (?? ? ?! ✓ ✓+ ★ ! !!)
 var _filter := 0
@@ -538,14 +539,18 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 	)
 	return btn
 
+func _get_active_stylebox() -> StyleBoxFlat:
+	if _active_stylebox == null:
+		_active_stylebox = StyleBoxFlat.new()
+		_active_stylebox.bg_color = DesignTokens.SURFACE_ELEVATED
+		_active_stylebox.set_corner_radius_all(4)
+	return _active_stylebox
+
 func _highlight_active(btn: Button) -> void:
 	if not is_instance_valid(btn):
 		return
 	btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
-	var style := StyleBoxFlat.new()
-	style.bg_color = DesignTokens.SURFACE_ELEVATED
-	style.set_corner_radius_all(4)
-	btn.add_theme_stylebox_override("normal", style)
+	btn.add_theme_stylebox_override("normal", _get_active_stylebox())
 
 func _reset_button_style(btn: Button) -> void:
 	if not is_instance_valid(btn):

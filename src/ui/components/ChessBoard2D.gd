@@ -862,7 +862,7 @@ func _draw() -> void:
 				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
 				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
 					var ring_w = clampf(square_size * 0.05, 2.0, 5.0)
-					draw_arc(center, square_size * 0.43, 0, TAU, 48, theme["legal_ring"], ring_w)
+					draw_arc(center, square_size * 0.43, 0, TAU, 24, theme["legal_ring"], ring_w)
 				else:
 					draw_circle(center, square_size * 0.16, theme["legal_dot"])
 
@@ -895,8 +895,8 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
 					# Anneau de capture bien visible au-dessus de la pièce ennemie prenable
 					var ring_col = theme.get("legal_ring", Color(0.92, 0.28, 0.28, 0.88))
-					ci.draw_arc(center + Vector2(1.0, 1.0), square_size * 0.43, 0, TAU, 48, Color(0, 0, 0, 0.35), 3.5)
-					ci.draw_arc(center, square_size * 0.43, 0, TAU, 48, ring_col, 3.5)
+					ci.draw_arc(center + Vector2(1.0, 1.0), square_size * 0.43, 0, TAU, 24, Color(0, 0, 0, 0.35), 3.5)
+					ci.draw_arc(center, square_size * 0.43, 0, TAU, 24, ring_col, 3.5)
 				else:
 					# Disque discret et lisible pour case vide
 					var dot_col = theme.get("legal_dot", Color(0.12, 0.16, 0.22, 0.35))
@@ -915,7 +915,7 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 		_draw_user_arrow(int(a.get("from", -1)), int(a.get("to", -1)), ci)
 	for sq in user_circles:
 		var center = _get_square_screen_pos(int(sq)) + Vector2(square_size * 0.5, square_size * 0.5)
-		ci.draw_arc(center, square_size * 0.42, 0, TAU, 40, Color("#f59e0be0"), 3.0)
+		ci.draw_arc(center, square_size * 0.42, 0, TAU, 24, Color("#f59e0be0"), 3.0)
 
 ## T2.1 — Ajoute/retire une annotation (flèche, ou cercle si départ == arrivée).
 func _annotate(from_sq: int, to_sq: int) -> void:
