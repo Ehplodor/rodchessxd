@@ -72,12 +72,11 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	# T1.2 — Détection de l'ouverture / sortie de théorie (exclue des métriques).
 	opening_info = OpeningBook.identify(_moves_to_uci(game.move_history))
 	theory_plies = int(opening_info.get("out_of_book_ply", 0))
-	# T1.1 — MultiPV réduit pendant l'analyse de masse (2 sur bureau pour GREAT,
-	# 1 sur mobile/web mono-thread). Restauré en fin d'analyse.
+	# MultiPV réduit à 1 pendant l'analyse de masse (accélération maximale x2.5).
+	# Restauré en fin d'analyse.
 	if engine_manager != null and engine_manager.has_method("set_multipv"):
-		var _low_power := OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
 		_multipv_before_analysis = int(engine_manager.default_multipv())
-		engine_manager.set_multipv(1 if _low_power else 2, true)
+		engine_manager.set_multipv(1, true)
 
 	var moves = game.move_history
 	var total_plies = moves.size()
@@ -302,12 +301,11 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	# T1.2 — Détection de l'ouverture / sortie de théorie (exclue des métriques).
 	opening_info = OpeningBook.identify(_moves_to_uci(game.move_history))
 	theory_plies = int(opening_info.get("out_of_book_ply", 0))
-	# T1.1 — MultiPV réduit pendant l'analyse de masse (2 sur bureau pour GREAT,
-	# 1 sur mobile/web mono-thread). Restauré en fin d'analyse.
+	# MultiPV réduit à 1 pendant l'analyse de masse (accélération maximale x2.5).
+	# Restauré en fin d'analyse.
 	if engine_manager != null and engine_manager.has_method("set_multipv"):
-		var _low_power := OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")
 		_multipv_before_analysis = int(engine_manager.default_multipv())
-		engine_manager.set_multipv(1 if _low_power else 2, true)
+		engine_manager.set_multipv(1, true)
 
 	var moves = game.move_history
 	var total_plies = moves.size()

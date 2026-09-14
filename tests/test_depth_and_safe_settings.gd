@@ -18,7 +18,7 @@ func _init() -> void:
 
 	# --- 1. Test fermeture des paramètres sans modification ---
 	print("  -> Test 1: Fermeture de SettingsModal SANS modification...")
-	main_node._on_btn_settings_pressed()
+	main_node._open_modal(load("res://src/ui/components/SettingsModal.gd").new())
 	await create_timer(0.1).timeout
 
 	var settings = null
@@ -39,7 +39,7 @@ func _init() -> void:
 
 	# --- 2. Test modification de profondeur live seule ---
 	print("  -> Test 2: Modification de la profondeur Live seule...")
-	main_node._on_btn_settings_pressed()
+	main_node._open_modal(load("res://src/ui/components/SettingsModal.gd").new())
 	await create_timer(0.1).timeout
 	for child in main_node.get_children():
 		if child.get_class() == "Window" and child.title.contains("Paramètres"):

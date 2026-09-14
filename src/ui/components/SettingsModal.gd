@@ -15,8 +15,8 @@ func _ready() -> void:
 	DesignTokens.adapt_modal_size(self, 400, 680)
 	exclusive = true
 	close_requested.connect(_on_save_and_close)
-	_init_threads = SettingsManager.get_setting("engine_threads", 2)
-	_init_hash = SettingsManager.get_setting("engine_hash_mb", 32)
+	_init_threads = SettingsManager.get_setting("engine_threads", SettingsManager.get_default_engine_threads())
+	_init_hash = SettingsManager.get_setting("engine_hash_mb", SettingsManager.get_default_engine_hash())
 	var def_live = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 16
 	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
 	_init_live_depth = SettingsManager.get_setting("engine_depth", def_live)
@@ -64,8 +64,8 @@ func _setup_ui() -> void:
 
 	var threads_spin = SpinBox.new()
 	threads_spin.min_value = 1
-	threads_spin.max_value = 8
-	threads_spin.value = SettingsManager.get_setting("engine_threads", 2)
+	threads_spin.max_value = maxi(8, OS.get_processor_count())
+	threads_spin.value = SettingsManager.get_setting("engine_threads", SettingsManager.get_default_engine_threads())
 	threads_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_threads", int(val)))
 	threads_spin.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_MIN)
 	threads_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -274,9 +274,9 @@ func _setup_ui() -> void:
 
 	var hash_spin = SpinBox.new()
 	hash_spin.min_value = 16
-	hash_spin.max_value = 2048
+	hash_spin.max_value = 4096
 	hash_spin.step = 16
-	hash_spin.value = SettingsManager.get_setting("engine_hash_mb", 32)
+	hash_spin.value = SettingsManager.get_setting("engine_hash_mb", SettingsManager.get_default_engine_hash())
 	hash_spin.value_changed.connect(func(val): SettingsManager.set_setting("engine_hash_mb", int(val)))
 	hash_spin.custom_minimum_size = Vector2(80, DesignTokens.TOUCH_MIN)
 	hash_spin.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -573,8 +573,8 @@ func _setup_ui() -> void:
 
 func _on_save_and_close() -> void:
 	SettingsManager.save_settings()
-	var new_threads = SettingsManager.get_setting("engine_threads", 2)
-	var new_hash = SettingsManager.get_setting("engine_hash_mb", 32)
+	var new_threads = SettingsManager.get_setting("engine_threads", SettingsManager.get_default_engine_threads())
+	var new_hash = SettingsManager.get_setting("engine_hash_mb", SettingsManager.get_default_engine_hash())
 	var new_live_depth = SettingsManager.get_setting("engine_depth", _init_live_depth)
 
 	var tree = get_tree()

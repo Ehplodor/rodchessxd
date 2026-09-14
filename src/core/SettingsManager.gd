@@ -42,12 +42,39 @@ var settings := {
 	"carnet_analysis_speed": "fast" # "fast", "balanced", "deep"
 }
 
+static func get_default_engine_threads() -> int:
+	if OS.has_feature("android") or OS.has_feature("ios"):
+		return 2
+	if OS.has_feature("web"):
+		return 1
+	var procs = OS.get_processor_count()
+	if procs >= 12:
+		return 6
+	elif procs >= 8:
+		return 4
+	elif procs >= 4:
+		return 3
+	return maxi(1, procs)
+
+static func get_default_engine_hash() -> int:
+	if OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web"):
+		return 32
+	return 128
+
 func _ready() -> void:
+	settings["engine_threads"] = get_default_engine_threads()
+	settings["engine_hash_mb"] = get_default_engine_hash()
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		settings["engine_depth"] = 12
 		settings["analysis_depth"] = 14
 		settings["engine_multipv"] = 2
 	load_settings()
+	# Mise à niveau automatique des anciennes configurations avec threads/hash bridés par défaut
+	if not (OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web")):
+		if int(settings.get("engine_threads", 2)) <= 2 and OS.get_processor_count() >= 8:
+			settings["engine_threads"] = get_default_engine_threads()
+		if int(settings.get("engine_hash_mb", 32)) <= 32:
+			settings["engine_hash_mb"] = get_default_engine_hash()
 	DesignTokens.apply_theme_mode(settings.get("app_theme_mode", "dark"))
 
 func load_settings() -> void:

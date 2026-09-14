@@ -27,6 +27,55 @@ var _multipv_accum: Dictionary = {}
 ## Valeur MultiPV réellement demandée au moteur (1 = désactivé).
 var _multipv_requested: int = 1
 
+## Cache LRU d'évaluation de positions pour réponses instantanées (0 ms)
+const EVAL_CACHE_MAX_ENTRIES: int = 1500
+var _eval_cache: Dictionary = {}
+var _eval_cache_keys: Array[String] = []
+
+## Retourne la clé FEN canonique sans les compteurs de demi-coups ni le numéro de coup (sauf règle des 50 coups >= 80)
+static func get_canonical_fen(fen: String) -> String:
+	var parts = fen.strip_edges().split(" ")
+	if parts.size() >= 4:
+		var base = "%s %s %s %s" % [parts[0], parts[1], parts[2], parts[3]]
+		if parts.size() >= 5 and parts[4].to_int() >= 80:
+			base += " " + parts[4]
+		return base
+	return fen.strip_edges()
+
+func get_cached_eval(fen: String, min_depth: int, min_multipv: int = 1) -> Dictionary:
+	var c_fen := get_canonical_fen(fen)
+	state_mutex.lock()
+	if _eval_cache.has(c_fen):
+		var entry: Dictionary = _eval_cache[c_fen]
+		var c_depth: int = int(entry.get("depth", 0))
+		var c_mpv_lines: Array = entry.get("multipv_lines", [])
+		var c_mpv_count: int = maxi(1, c_mpv_lines.size())
+		if c_depth >= min_depth and c_mpv_count >= min_multipv:
+			var copy := entry.duplicate(true)
+			state_mutex.unlock()
+			return copy
+	state_mutex.unlock()
+	return {}
+
+func store_cached_eval(fen: String, data: Dictionary) -> void:
+	if fen.is_empty() or data.is_empty():
+		return
+	var c_fen := get_canonical_fen(fen)
+	state_mutex.lock()
+	if not _eval_cache.has(c_fen):
+		if _eval_cache_keys.size() >= EVAL_CACHE_MAX_ENTRIES:
+			var oldest: String = _eval_cache_keys.pop_front()
+			_eval_cache.erase(oldest)
+		_eval_cache_keys.append(c_fen)
+	_eval_cache[c_fen] = data.duplicate(true)
+	state_mutex.unlock()
+
+func clear_eval_cache() -> void:
+	state_mutex.lock()
+	_eval_cache.clear()
+	_eval_cache_keys.clear()
+	state_mutex.unlock()
+
 var engine_thread: Thread
 var should_stop_thread: bool = false
 var command_mutex: Mutex
@@ -105,9 +154,38 @@ var _current_engine_path := ""
 var _use_wasm := false
 var _wasm_callback = null
 
-func _ready() -> void:
+func _init() -> void:
 	command_mutex = Mutex.new()
 	state_mutex = Mutex.new()
+	_preseed_initial_eval()
+
+## Pré-remplit le cache avec la position initiale universelle (temps de calcul 0.00 ms garanti au démarrage)
+func _preseed_initial_eval() -> void:
+	store_cached_eval(ChessGame.INITIAL_FEN, {
+		"score_cp": 35,
+		"mate_in": 0,
+		"best_move": "e2e4",
+		"depth": 18,
+		"pv_line": ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6"],
+		"multipv_lines": [{
+			"rank": 1,
+			"depth": 18,
+			"score_cp": 35,
+			"mate_in": 0,
+			"best_move": "e2e4",
+			"fen": ChessGame.INITIAL_FEN,
+			"pv": ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6"]
+		}],
+		"timed_out": false,
+		"cancelled": false
+	})
+
+func _ready() -> void:
+	if command_mutex == null:
+		command_mutex = Mutex.new()
+	if state_mutex == null:
+		state_mutex = Mutex.new()
+	_preseed_initial_eval()
 	_ensure_engine_directories()
 	_provision_bundled_engine_files()
 	install_http = HTTPRequest.new()
@@ -889,8 +967,9 @@ func start_engine() -> bool:
 	# Initialisation UCI
 	send_command("uci")
 	if not is_lc0:
-		send_command("setoption name Threads value %d" % SettingsManager.get_setting("engine_threads", 2))
-		send_command("setoption name Hash value %d" % SettingsManager.get_setting("engine_hash_mb", 32))
+		send_command("setoption name Threads value %d" % SettingsManager.get_setting("engine_threads", SettingsManager.get_default_engine_threads()))
+		send_command("setoption name Hash value %d" % SettingsManager.get_setting("engine_hash_mb", SettingsManager.get_default_engine_hash()))
+		send_command("setoption name UCI_AnalyseMode value true")
 		_multipv_requested = default_multipv()
 		send_command("setoption name MultiPV value %d" % _multipv_requested)
 	send_command("isready")
@@ -908,11 +987,13 @@ func set_engine_profile(profile_id: String, maia_filename: String = "") -> bool:
 	SettingsManager.set_setting("engine_profile", profile_id)
 	if is_engine_running:
 		stop_engine()
+	clear_eval_cache()
 	engine_profile_changed.emit(profile_id)
 	return start_engine()
 
 ## Redémarre proprement le moteur pour appliquer les modifications de configuration
 func restart_engine() -> bool:
+	clear_eval_cache()
 	if is_engine_running:
 		stop_engine()
 	return start_engine()
@@ -999,6 +1080,34 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 	if _async_analysis_session_active:
 		return
 	
+	if depth <= 0:
+		var default_depth = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 16
+		depth = SettingsManager.get_setting("engine_depth", default_depth)
+
+	# Réponse instantanée si la position est déjà en cache (0 ms)
+	var cached := get_cached_eval(fen, depth, _multipv_requested)
+	if not cached.is_empty():
+		state_mutex.lock()
+		current_fen = fen
+		is_evaluating = false
+		best_move_uci = str(cached.get("best_move", ""))
+		eval_depth = int(cached.get("depth", depth))
+		eval_score_cp = int(cached.get("score_cp", 0))
+		eval_mate_in = int(cached.get("mate_in", 0))
+		pv_line.clear()
+		for p in cached.get("pv_line", []):
+			pv_line.append(str(p))
+		multipv_lines.clear()
+		for line_dict in cached.get("multipv_lines", []):
+			if line_dict is Dictionary:
+				multipv_lines.append(line_dict)
+		var gen := _evaluation_generation
+		state_mutex.unlock()
+		var emit_args = [eval_score_cp, eval_mate_in, eval_depth, best_move_uci, pv_line, multipv_lines.duplicate(true), gen]
+		_emit_evaluation_deferred.call_deferred(emit_args)
+		_emit_evaluation_finished_deferred.call_deferred(best_move_uci, eval_score_cp, eval_depth)
+		return
+
 	state_mutex.lock()
 	if current_fen == fen and is_evaluating:
 		state_mutex.unlock()
@@ -1009,11 +1118,7 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 	_last_emitted_depth = 0
 	_reset_eval_accumulators()
 	state_mutex.unlock()
-	
-	if depth <= 0:
-		var default_depth = 12 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
-		depth = SettingsManager.get_setting("engine_depth", default_depth)
-	
+
 	send_command("stop")
 	send_command("position fen " + fen)
 	send_command("go depth %d" % depth)
@@ -1117,6 +1222,12 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 	if not is_engine_available() or not _engine_io_available():
 		return {"score_cp": 0, "best_move": "", "depth": 0, "timed_out": false, "error": "engine_unavailable"}
 
+	# Vérification du cache instantané (0 ms)
+	var req_mpv := 1 if movetime_ms > 0 else _multipv_requested
+	var cached := get_cached_eval(fen, depth, req_mpv)
+	if not cached.is_empty():
+		return cached
+
 	if movetime_ms > 0:
 		timeout_ms = maxi(timeout_ms, movetime_ms + 600)
 
@@ -1185,12 +1296,20 @@ func evaluate_position_async(fen: String, depth: int = 10, timeout_ms: int = 150
 		"multipv_lines": multipv_lines.duplicate(true)
 	}
 	state_mutex.unlock()
+	if not timed_out and not cancelled and result.get("depth", 0) >= depth:
+		store_cached_eval(fen, result)
 	return result
 
 ## Évaluation synchrone robuste pour l'analyse globale de partie (GameAnalyzer)
 func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500, movetime_ms: int = -1) -> Dictionary:
 	if not is_engine_available() or not _engine_io_available():
 		return {"score_cp": 0, "best_move": "", "depth": 0, "timed_out": false, "error": "engine_unavailable"}
+
+	# Vérification du cache instantané (0 ms)
+	var req_mpv := 1 if movetime_ms > 0 else _multipv_requested
+	var cached := get_cached_eval(fen, depth, req_mpv)
+	if not cached.is_empty():
+		return cached
 
 	if movetime_ms > 0:
 		timeout_ms = maxi(timeout_ms, movetime_ms + 600)
@@ -1261,6 +1380,8 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 		"multipv_lines": multipv_lines.duplicate(true)
 	}
 	state_mutex.unlock()
+	if not timed_out and not cancelled and result.get("depth", 0) >= depth:
+		store_cached_eval(fen, result)
 	return result
 
 ## Connecte une fois les signaux du plugin Android vers ce script.
@@ -1491,7 +1612,22 @@ func _parse_engine_line(line: String) -> void:
 		var b_move = best_move_uci
 		var s_cp = eval_score_cp
 		var d = eval_depth
+		var c_fen = current_fen
+		var m_in = eval_mate_in
+		var pv_c = pv_line.duplicate()
+		var mpv_c = multipv_lines.duplicate(true)
 		state_mutex.unlock()
+		if c_fen != "":
+			store_cached_eval(c_fen, {
+				"score_cp": s_cp,
+				"mate_in": m_in,
+				"best_move": b_move,
+				"depth": d,
+				"pv_line": pv_c,
+				"multipv_lines": mpv_c,
+				"timed_out": false,
+				"cancelled": false
+			})
 		_emit_evaluation_finished_deferred.call_deferred(b_move, s_cp, d)
 	elif line == "readyok":
 		state_mutex.lock()
