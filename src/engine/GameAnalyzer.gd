@@ -12,6 +12,14 @@ signal analysis_finished(report: Dictionary)
 const ENGINE_START_WAIT_MS: int = 3000
 const EVAL_TIMEOUT_MS: int = 1500
 
+# --- Analyse à budget (proto) : passe A peu profonde sur tous les plies, puis passe B
+# profonde uniquement sur les plies critiques (budget global borné). ---
+const BUDGET_BASE_DEPTH: int = 8
+const BUDGET_DEEP_DEPTH: int = 14
+const BUDGET_MAX_DEEP: int = 6
+const BUDGET_MIN_CRITICALITY: float = 12.0
+const BUDGET_DEEP_MOVETIME_MS: int = 250
+
 var is_analyzing: bool = false
 var cancel_requested: bool = false
 var _awaited_display_ply: int = -1
@@ -50,6 +58,8 @@ func _init() -> void:
 	settings_manager = _get_settings_manager()
 
 func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary = {}) -> Dictionary:
+	if str(options.get("mode", "")) == "budget":
+		return _start_game_analysis_budget(game, depth, options)
 	is_analyzing = true
 	cancel_requested = false
 	_awaited_display_ply = -1
@@ -279,6 +289,8 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 
 ## Analyse asynchrone non-bloquante avec await (indispensable pour WebAssembly / HTML5 sans threads)
 func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictionary = {}) -> Dictionary:
+	if str(options.get("mode", "")) == "budget":
+		return await _start_game_analysis_budget_async(game, depth, options)
 	is_analyzing = true
 	cancel_requested = false
 	_awaited_display_ply = -1
@@ -1006,6 +1018,399 @@ func _evaluate_fen_async(fen: String, depth: int, movetime_ms: int = -1) -> Dict
 		return await engine.evaluate_position_async(fen, depth, tout, movetime_ms)
 
 	return _evaluate_fen_sync(fen, depth, movetime_ms)
+
+## ============================================================================
+## Analyse à budget (proto) — passe A peu profonde + passe B sur les plies critiques
+## ============================================================================
+
+## Éval synthétique d'une position terminale (mat/pat) ; {} si non terminale.
+func _budget_terminal_eval(sim_game: ChessGame, move: ChessMove, is_white: bool, depth: int) -> Dictionary:
+	var is_mate = move.is_checkmate or move.san.ends_with("#") or (sim_game.is_in_check(sim_game.active_color) and sim_game.get_legal_moves(sim_game.active_color).is_empty())
+	if is_mate:
+		return {
+			"score_cp": 10000 if is_white else -10000,
+			"mate_in": 1 if is_white else -1,
+			"best_move": move.uci,
+			"depth": depth,
+			"pv_line": [],
+			"multipv_lines": [],
+			"timed_out": false,
+			"cancelled": false
+		}
+	var is_stalemate = (not sim_game.is_in_check(sim_game.active_color)) and sim_game.get_legal_moves(sim_game.active_color).is_empty()
+	if is_stalemate:
+		return {
+			"score_cp": 0, "mate_in": 0, "best_move": "", "depth": depth,
+			"pv_line": [], "multipv_lines": [], "timed_out": false, "cancelled": false
+		}
+	return {}
+
+## Score de criticité d'un demi-coup (à partir de sa classification provisoire) :
+## perte de win%, sévérité de la qualité, motifs tactiques et transitions de mat.
+func _budget_criticality(rec: Dictionary) -> float:
+	if bool(rec.get("is_theory", false)):
+		return 0.0
+	var crit := float(rec.get("winpct_loss", 0.0))
+	match int(rec.get("quality", ChessMove.Quality.NONE)):
+		ChessMove.Quality.BLUNDER, ChessMove.Quality.MISS:
+			crit += 8.0
+		ChessMove.Quality.MISTAKE:
+			crit += 4.0
+	var motifs = rec.get("motifs", [])
+	if motifs is Array and not motifs.is_empty():
+		crit += 6.0
+	if absi(int(rec.get("score_cp", 0))) >= 9000:
+		crit += 20.0
+	return crit
+
+## Reconstruit le dossier de qualité d'un coup à partir de ses positions avant/après.
+func _classify_move(i: int, moves: Array, pos_evals: Array, depth: int) -> Dictionary:
+	var move: ChessMove = moves[i]
+	var before: Dictionary = pos_evals[i]
+	var after: Dictionary = pos_evals[i + 1]
+	var is_white := (i % 2 == 0)
+	var score_before := int(before.get("score_cp", 0))
+	var score_after := int(after.get("score_cp", 0))
+	var mate_after := int(after.get("mate_in", 0))
+	var expected_best_move := str(before.get("best_move", ""))
+	var reply_best_move := str(after.get("best_move", ""))
+	var fen_before := str(before.get("fen", ""))
+	var eff_d := int(after.get("depth", depth))
+	var before_pv: Array = before.get("pv_line", [])
+	if not (before_pv is Array):
+		before_pv = []
+	var before_mpv: Array = before.get("multipv_lines", [])
+	if not (before_mpv is Array):
+		before_mpv = []
+	var ply_metrics := _evaluate_ply_quality(move, i, score_before, score_after, expected_best_move,
+			fen_before, before_pv, before_mpv, is_white)
+	var quality: int = ply_metrics["quality"]
+	var cp_loss: int = ply_metrics["cp_loss"]
+	var is_theory: bool = ply_metrics["is_theory"]
+	move.quality = quality
+	move.centipawn_loss = cp_loss
+	move.eval_before_cp = score_before
+	move.eval_after_cp = score_after
+	move.is_theory = is_theory
+	move.motifs = ply_metrics["motifs"]
+	move.best_move_uci = expected_best_move if expected_best_move != "" else reply_best_move
+	var is_tactical = (quality == ChessMove.Quality.BRILLIANT or quality == ChessMove.Quality.BLUNDER or absi(score_after - score_before) > 75)
+	var eval_ci = _calculate_eval_ci_margin(eff_d, cp_loss, is_tactical)
+	return {
+		"ply": i,
+		"move_number": (i / 2) + 1,
+		"is_white": is_white,
+		"san": move.san,
+		"uci": move.uci,
+		"score_cp": score_after,
+		"mate_in": mate_after,
+		"loss_cp": cp_loss,
+		"quality": quality,
+		"win_before": ply_metrics["win_before"],
+		"win_after": ply_metrics["win_after"],
+		"winpct_loss": ply_metrics["winpct_loss"],
+		"is_theory": is_theory,
+		"motifs": ply_metrics["motifs"],
+		"best_move": reply_best_move,
+		"best_alternative": expected_best_move,
+		"fen": str(after.get("fen", "")),
+		"depth": eff_d,
+		"ci_margin": eval_ci,
+		"ci_lower": score_after - eval_ci,
+		"ci_upper": score_after + eval_ci,
+		"pv_line": before_pv.duplicate()
+	}
+
+## Reconstruit toutes les évaluations + métriques agrégées à partir de pos_evals.
+func _finalize_from_evals(moves: Array, pos_evals: Array, depth: int) -> void:
+	move_evaluations.clear()
+	_reset_stats()
+	var white_loss_sum := 0
+	var black_loss_sum := 0
+	var white_moves_count := 0
+	var black_moves_count := 0
+	var n := maxi(0, pos_evals.size() - 1)
+	for i in range(n):
+		var rec := _classify_move(i, moves, pos_evals, depth)
+		move_evaluations.append(rec)
+		if not bool(rec.get("is_theory", false)):
+			if bool(rec.get("is_white", true)):
+				white_loss_sum += int(rec.get("loss_cp", 0))
+				white_moves_count += 1
+			else:
+				black_loss_sum += int(rec.get("loss_cp", 0))
+				black_moves_count += 1
+		if bool(rec.get("is_white", true)):
+			_increment_quality_stat(white_stats, int(rec.get("quality", ChessMove.Quality.NONE)))
+		else:
+			_increment_quality_stat(black_stats, int(rec.get("quality", ChessMove.Quality.NONE)))
+	white_acpl = float(white_loss_sum) / maxi(1, white_moves_count)
+	black_acpl = float(black_loss_sum) / maxi(1, black_moves_count)
+	white_accuracy = _calculate_caps_accuracy(move_evaluations, true)
+	black_accuracy = _calculate_caps_accuracy(move_evaluations, false)
+	var w_stat = _calculate_elo_statistics(move_evaluations, true, white_accuracy, white_acpl, white_stats, white_moves_count)
+	var b_stat = _calculate_elo_statistics(move_evaluations, false, black_accuracy, black_acpl, black_stats, black_moves_count)
+	white_estimated_elo = w_stat["elo"]
+	black_estimated_elo = b_stat["elo"]
+	white_elo_ci_margin = w_stat["ci_margin"]
+	black_elo_ci_margin = b_stat["ci_margin"]
+	elo_stat_test = _perform_elo_comparison_test(w_stat, b_stat)
+
+func _budget_select_positions(provisional: Array, max_deep: int, min_crit: float) -> Array:
+	var ranked: Array = []
+	for i in range(provisional.size()):
+		var crit := _budget_criticality(provisional[i])
+		if crit >= min_crit:
+			ranked.append({"idx": i, "crit": crit})
+	ranked.sort_custom(func(a, b): return float(a["crit"]) > float(b["crit"]))
+	var to_deepen := {}
+	var picked := 0
+	for item in ranked:
+		if picked >= max_deep:
+			break
+		to_deepen[int(item["idx"])] = true
+		to_deepen[int(item["idx"]) + 1] = true
+		picked += 1
+	var keys := to_deepen.keys()
+	keys.sort()
+	return keys
+
+func _budget_deepen_critical_sync(pos_evals: Array, provisional: Array, deep_depth: int, max_deep: int, min_crit: float, deep_ms: int) -> void:
+	if max_deep <= 0 or pos_evals.size() < 2:
+		return
+	for pos_idx in _budget_select_positions(provisional, max_deep, min_crit):
+		if cancel_requested:
+			return
+		var pi := int(pos_idx)
+		if pi < 0 or pi >= pos_evals.size():
+			continue
+		var cur: Dictionary = pos_evals[pi]
+		if int(cur.get("depth", 0)) >= deep_depth:
+			continue
+		if absi(int(cur.get("score_cp", 0))) >= 9000:
+			continue
+		var fen := str(cur.get("fen", ""))
+		if fen == "":
+			continue
+		var deep := _evaluate_fen_sync(fen, deep_depth, deep_ms)
+		if deep.has("error") or cancel_requested:
+			continue
+		deep["fen"] = fen
+		pos_evals[pi] = deep
+
+func _budget_deepen_critical_async(pos_evals: Array, provisional: Array, deep_depth: int, max_deep: int, min_crit: float, deep_ms: int) -> void:
+	if max_deep <= 0 or pos_evals.size() < 2:
+		return
+	for pos_idx in _budget_select_positions(provisional, max_deep, min_crit):
+		if cancel_requested:
+			return
+		var pi := int(pos_idx)
+		if pi < 0 or pi >= pos_evals.size():
+			continue
+		var cur: Dictionary = pos_evals[pi]
+		if int(cur.get("depth", 0)) >= deep_depth:
+			continue
+		if absi(int(cur.get("score_cp", 0))) >= 9000:
+			continue
+		var fen := str(cur.get("fen", ""))
+		if fen == "":
+			continue
+		var deep = await _evaluate_fen_async(fen, deep_depth, deep_ms)
+		if deep.has("error") or cancel_requested:
+			continue
+		deep["fen"] = fen
+		pos_evals[pi] = deep
+
+func _start_game_analysis_budget(game: ChessGame, depth: int, options: Dictionary) -> Dictionary:
+	is_analyzing = true
+	cancel_requested = false
+	_awaited_display_ply = -1
+	move_evaluations.clear()
+	if not engine_manager:
+		engine_manager = _get_engine_manager()
+	_reset_stats()
+	var base_depth := int(options.get("base_depth", BUDGET_BASE_DEPTH))
+	var deep_depth := int(options.get("deep_depth", BUDGET_DEEP_DEPTH))
+	var max_deep := int(options.get("max_deep", BUDGET_MAX_DEEP))
+	var min_crit := float(options.get("min_criticality", BUDGET_MIN_CRITICALITY))
+	var deep_ms := int(options.get("deep_movetime_ms", BUDGET_DEEP_MOVETIME_MS))
+	var wait_for_display := bool(options.get("wait_for_display", false))
+
+	opening_info = OpeningBook.identify(_moves_to_uci(game.move_history))
+	theory_plies = int(opening_info.get("out_of_book_ply", 0))
+	if engine_manager != null and engine_manager.has_method("set_multipv"):
+		_multipv_before_analysis = int(engine_manager.default_multipv())
+		engine_manager.set_multipv(1, true)
+
+	var moves = game.move_history
+	var total_plies = moves.size()
+	if total_plies == 0:
+		is_analyzing = false
+		_restore_default_multipv()
+		var empty_rep := _build_final_report()
+		call_deferred("emit_signal", "analysis_finished", empty_rep)
+		return empty_rep
+	if not _wait_for_engine():
+		return _fail_analysis("Moteur d'échecs indisponible : impossible d'analyser la partie.")
+
+	var sim_game = ChessGame.new()
+	sim_game.load_fen(ChessGame.INITIAL_FEN)
+	var pos_evals: Array = []
+	var start_eval := _evaluate_fen_sync(ChessGame.INITIAL_FEN, base_depth, -1)
+	if start_eval.has("error"):
+		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
+	start_eval["fen"] = ChessGame.INITIAL_FEN
+	pos_evals.append(start_eval)
+	var provisional: Array = []
+
+	for i in range(total_plies):
+		if cancel_requested:
+			break
+		if engine_manager == null or not engine_manager.is_engine_available():
+			return _fail_analysis("Le moteur d'échecs s'est arrêté en cours d'analyse de la partie.")
+		var move: ChessMove = moves[i]
+		var is_white := (i % 2 == 0)
+		sim_game.make_move(move)
+		var fen_after: String = sim_game.get_fen()
+		if wait_for_display:
+			_awaited_display_ply = i
+			call_deferred("emit_signal", "analysis_position_ready", i)
+			var _wait_start := Time.get_ticks_msec()
+			while _awaited_display_ply == i and not cancel_requested:
+				if Time.get_ticks_msec() - _wait_start >= 3000:
+					_awaited_display_ply = -1
+					break
+				OS.delay_msec(10)
+		else:
+			call_deferred("emit_signal", "analysis_position_ready", i)
+		if cancel_requested:
+			break
+		var after := _budget_terminal_eval(sim_game, move, is_white, base_depth)
+		if after.is_empty():
+			after = _evaluate_fen_sync(fen_after, base_depth, -1)
+			if after.has("error"):
+				return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
+		after["fen"] = fen_after
+		pos_evals.append(after)
+		var rec := _classify_move(i, moves, pos_evals, base_depth)
+		provisional.append(rec)
+		call_deferred("emit_signal", "progress_updated", i + 1, total_plies)
+		call_deferred("emit_signal", "ply_analyzed", i, rec, {})
+
+	if not cancel_requested:
+		_budget_deepen_critical_sync(pos_evals, provisional, deep_depth, max_deep, min_crit, deep_ms)
+
+	_finalize_from_evals(moves, pos_evals, deep_depth)
+	is_analyzing = false
+	_restore_default_multipv()
+	var report := _build_final_report()
+	call_deferred("emit_signal", "analysis_finished", report)
+	return report
+
+func _start_game_analysis_budget_async(game: ChessGame, depth: int, options: Dictionary) -> Dictionary:
+	is_analyzing = true
+	cancel_requested = false
+	_awaited_display_ply = -1
+	move_evaluations.clear()
+	if not engine_manager:
+		engine_manager = _get_engine_manager()
+	_reset_stats()
+	var base_depth := int(options.get("base_depth", BUDGET_BASE_DEPTH))
+	var deep_depth := int(options.get("deep_depth", BUDGET_DEEP_DEPTH))
+	var max_deep := int(options.get("max_deep", BUDGET_MAX_DEEP))
+	var min_crit := float(options.get("min_criticality", BUDGET_MIN_CRITICALITY))
+	var deep_ms := int(options.get("deep_movetime_ms", BUDGET_DEEP_MOVETIME_MS))
+	var wait_for_display := bool(options.get("wait_for_display", false))
+
+	opening_info = OpeningBook.identify(_moves_to_uci(game.move_history))
+	theory_plies = int(opening_info.get("out_of_book_ply", 0))
+	if engine_manager != null and engine_manager.has_method("set_multipv"):
+		_multipv_before_analysis = int(engine_manager.default_multipv())
+		engine_manager.set_multipv(1, true)
+
+	var moves = game.move_history
+	var total_plies = moves.size()
+	if total_plies == 0:
+		is_analyzing = false
+		_restore_default_multipv()
+		var empty_rep := _build_final_report()
+		analysis_finished.emit(empty_rep)
+		return empty_rep
+	if not await _wait_for_engine_async():
+		return _fail_analysis("Moteur d'échecs indisponible : impossible d'analyser la partie.")
+	if engine_manager.has_method("prepare_for_async_analysis"):
+		if not await engine_manager.prepare_for_async_analysis():
+			return _fail_analysis("Le moteur d'échecs n'a pas terminé l'évaluation Live précédente.")
+	if cancel_requested:
+		_release_async_engine_session()
+		is_analyzing = false
+		_restore_default_multipv()
+		var cancelled_report := _build_final_report()
+		analysis_finished.emit(cancelled_report)
+		return cancelled_report
+
+	var tree = Engine.get_main_loop() as SceneTree
+	var sim_game = ChessGame.new()
+	sim_game.load_fen(ChessGame.INITIAL_FEN)
+	var pos_evals: Array = []
+	var start_eval = await _evaluate_fen_async(ChessGame.INITIAL_FEN, base_depth, -1)
+	if start_eval.has("error"):
+		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
+	start_eval["fen"] = ChessGame.INITIAL_FEN
+	pos_evals.append(start_eval)
+	var provisional: Array = []
+
+	for i in range(total_plies):
+		if cancel_requested:
+			break
+		if engine_manager == null or not engine_manager.is_engine_available():
+			return _fail_analysis("Le moteur d'échecs s'est arrêté en cours d'analyse de la partie.")
+		var move: ChessMove = moves[i]
+		var is_white := (i % 2 == 0)
+		sim_game.make_move(move)
+		var fen_after: String = sim_game.get_fen()
+		if wait_for_display:
+			_awaited_display_ply = i
+			analysis_position_ready.emit(i)
+			var _wait_start := Time.get_ticks_msec()
+			while _awaited_display_ply == i and not cancel_requested:
+				if Time.get_ticks_msec() - _wait_start >= 3000:
+					_awaited_display_ply = -1
+					break
+				if tree:
+					await tree.process_frame
+				else:
+					OS.delay_msec(10)
+		else:
+			analysis_position_ready.emit(i)
+			if tree:
+				await tree.process_frame
+		if cancel_requested:
+			break
+		var after := _budget_terminal_eval(sim_game, move, is_white, base_depth)
+		if after.is_empty():
+			after = await _evaluate_fen_async(fen_after, base_depth, -1)
+			if after.has("error"):
+				return _fail_analysis("Le moteur d'échecs n'a pas pu évaluer le coup %s." % move.san)
+		after["fen"] = fen_after
+		pos_evals.append(after)
+		var rec := _classify_move(i, moves, pos_evals, base_depth)
+		provisional.append(rec)
+		progress_updated.emit(i + 1, total_plies)
+		ply_analyzed.emit(i, rec, {})
+		if tree:
+			await tree.process_frame
+
+	if not cancel_requested:
+		await _budget_deepen_critical_async(pos_evals, provisional, deep_depth, max_deep, min_crit, deep_ms)
+
+	_finalize_from_evals(moves, pos_evals, deep_depth)
+	_release_async_engine_session()
+	is_analyzing = false
+	_restore_default_multipv()
+	var report := _build_final_report()
+	analysis_finished.emit(report)
+	return report
 
 func _build_final_report() -> Dictionary:
 	_compute_phase_stats()
