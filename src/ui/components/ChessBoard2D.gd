@@ -313,7 +313,8 @@ func _on_host_resized() -> void:
 	if not is_inside_tree():
 		return
 	_update_dimensions()
-	reset_board_visuals()
+	if not is_animating_move:
+		reset_board_visuals()
 
 func _preload_piece_textures() -> void:
 	var colors = [ChessPiece.PieceColor.WHITE, ChessPiece.PieceColor.BLACK]

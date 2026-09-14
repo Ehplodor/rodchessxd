@@ -78,7 +78,9 @@ func _ready() -> void:
 	
 	GameController.play_sound_requested.connect(_on_play_sound)
 	GameController.position_changed.connect(_on_game_position_changed)
+	GameController.game_reset.connect(_cancel_analysis_if_running)
 	GameController.move_navigated.connect(func(ply_idx):
+		_cancel_analysis_if_running()
 		_sync_eval_to_ply(ply_idx)
 		_update_player_labels()
 		_trigger_live_eval()
@@ -393,12 +395,30 @@ func _on_game_position_changed() -> void:
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
 		advantage_graph.update_stored_analyses([])
+		if move_list:
+			move_list.set_analysis_report({})
+			move_list.refresh()
 	else:
 		var dm = get_node_or_null("/root/DatabaseManager")
 		if dm and GameController.current_game_id != "":
 			var g = dm.get_game(GameController.current_game_id)
 			var ea = g.get("engine_analyses", [])
 			advantage_graph.update_stored_analyses(ea)
+			if not ea.is_empty():
+				var last_ea = ea.back()
+				var evals = last_ea.get("evaluations", [])
+				GameController.apply_evaluations(evals)
+				advantage_graph.set_evaluations(evals)
+				_update_graph_phase_boundaries(last_ea)
+				if move_list:
+					move_list.set_analysis_report(last_ea)
+					move_list.refresh()
+				if game_review_panel:
+					game_review_panel.set_report(last_ea)
+			else:
+				if move_list:
+					move_list.set_analysis_report({})
+					move_list.refresh()
 	_trigger_live_eval()
 
 # --- LIBELLÉS JOUEURS EN HAUT / BAS DU PLATEAU ---
@@ -672,6 +692,8 @@ func _on_btn_toggle_live_pressed() -> void:
 			top_eval_label.text = "Live off"
 
 func _on_stored_analysis_selected(analysis_entry: Dictionary) -> void:
+	if GameController:
+		GameController.apply_evaluations(analysis_entry.get("evaluations", []))
 	if move_list:
 		move_list.set_analysis_report(analysis_entry)
 		move_list.refresh()
@@ -984,15 +1006,19 @@ func _show_toast(msg: String, is_success: bool = true) -> void:
 # --- ACTIONS DES BOUTONS DE NAVIGATION ---
 
 func _on_btn_first_pressed() -> void:
+	_cancel_analysis_if_running()
 	GameController.go_first_move()
 
 func _on_btn_prev_pressed() -> void:
+	_cancel_analysis_if_running()
 	GameController.go_previous_move()
 
 func _on_btn_next_pressed() -> void:
+	_cancel_analysis_if_running()
 	GameController.go_next_move()
 
 func _on_btn_last_pressed() -> void:
+	_cancel_analysis_if_running()
 	GameController.go_last_move()
 
 func _on_btn_flip_pressed() -> void:
@@ -1090,6 +1116,9 @@ func _close_overlays() -> void:
 	coach_overlay.visible = false
 	if carnet_overlay != null:
 		carnet_overlay.visible = false
+
+func close_overlays() -> void:
+	_close_overlays()
 
 ## Retour à la vue principale (clic sur un coup dans l'analyse).
 func show_board_tab() -> void:
@@ -1446,20 +1475,26 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 	if top_eval_label:
 		top_eval_label.text = EvalFormatter.format_cp_mate(score_cp, mate_in)
 
-## T0.5 — Relance l'analyse pour appliquer le classifieur courant (win%, mat, brillants).
-func _on_btn_reanalyze_pressed() -> void:
+func _cancel_analysis_if_running() -> void:
 	if analyzer != null and analyzer.is_analyzing:
-		return
-	_on_btn_analyze_game_pressed()
-
-func _on_btn_analyze_game_pressed() -> void:
-	if analyzer.is_analyzing:
 		analyzer.cancel_analysis()
+		analyzer.is_analyzing = false
 		if EngineManager != null:
 			EngineManager.interrupt_evaluation()
 		btn_analyze_game.text = "🔍 Analyser"
 		_apply_analyze_button_style(false)
 		btn_toggle_live.disabled = false
+
+## T0.5 — Relance l'analyse pour appliquer le classifieur courant (win%, mat, brillants).
+func _on_btn_reanalyze_pressed() -> void:
+	if analyzer != null and analyzer.is_analyzing:
+		return
+	_close_overlays()
+	_on_btn_analyze_game_pressed()
+
+func _on_btn_analyze_game_pressed() -> void:
+	if analyzer.is_analyzing:
+		_cancel_analysis_if_running()
 		if live_eval_enabled:
 			_trigger_live_eval()
 		return

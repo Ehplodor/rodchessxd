@@ -104,6 +104,25 @@ func load_pgn(pgn: String, known_game_id: String = "") -> bool:
 		position_changed.emit()
 	return success
 
+## Applique les métriques d'une analyse moteur sauvegardée aux coups de l'historique
+func apply_evaluations(evals: Array) -> void:
+	if not game or game.move_history.is_empty() or evals.is_empty():
+		return
+	for rec in evals:
+		if not rec is Dictionary:
+			continue
+		var ply: int = int(rec.get("ply", -1))
+		if ply >= 0 and ply < game.move_history.size():
+			var m: ChessMove = game.move_history[ply]
+			m.quality = int(rec.get("quality", ChessMove.Quality.NONE))
+			m.centipawn_loss = int(rec.get("loss_cp", 0))
+			m.eval_after_cp = int(rec.get("score_cp", 0))
+			m.is_theory = bool(rec.get("is_theory", false))
+			if rec.has("motifs"):
+				m.motifs = rec.get("motifs", [])
+			if rec.has("best_move"):
+				m.best_move_uci = str(rec.get("best_move", ""))
+
 func select_square(sq: int) -> void:
 	if selected_square == sq:
 		deselect_square()
@@ -206,6 +225,8 @@ func flip_board() -> void:
 	position_changed.emit()
 
 func _on_game_board_changed() -> void:
+	if is_loading_game:
+		return
 	position_changed.emit()
 
 func _on_game_move_made(p_move: ChessMove) -> void:

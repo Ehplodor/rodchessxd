@@ -52,12 +52,23 @@ func _init() -> void:
 	assert(stored.size() >= 1, "Les analyses enregistrées doivent être transmises au graphe")
 	print("✓ Analyses moteur enregistrées synchronisées avec succès !")
 
-	# 6. Vérifier le texte des stats
-	var stats = main_node.stats_label.text
-	assert("Archivée" in stats, "Le rapport doit indiquer que l'analyse est archivée")
-	print("✓ Rapport d'analyse affiché :", stats)
+	# 6. Vérifier la restauration de la qualité des coups dans GameController et MoveList2D
+	var gc = root.get_node_or_null("GameController")
+	assert(gc != null, "GameController doit être présent")
+	assert(gc.game.move_history[0].quality == 1, "Le ply 0 doit avoir la qualité 1 (BEST)")
+	assert(gc.game.move_history[1].quality == 1, "Le ply 1 doit avoir la qualité 1 (BEST)")
+	assert(gc.game.move_history[2].quality == 1, "Le ply 2 doit avoir la qualité 1 (BEST)")
+	print("✓ Qualités des coups restaurées sur GameController.game.move_history !")
+
+	assert(main_node.move_list != null, "MoveList2D doit être présent")
+	assert(not main_node.move_list._analysis_report.is_empty(), "MoveList2D doit posséder le rapport d'analyse")
+	assert(main_node.move_list.move_buttons.size() >= 3, "Les boutons de coups doivent être construits")
+	var btn0_text = main_node.move_list.move_buttons[0].text
+	var badge = ChessMove.quality_to_symbol(ChessMove.Quality.BEST)
+	assert(badge in btn0_text, "Le bouton du coup 1 doit afficher le badge de qualité (texte: %s)" % btn0_text)
+	print("✓ Badge de qualité (%s) affiché dans MoveList2D : %s !" % [badge, btn0_text])
 
 	# Nettoyage
 	dm.delete_game(gid)
-	print("\n>>> TEST CHARGEMENT BIBLIOTHÈQUE & TYPED ARRAY RÉUSSI À 100% ! <<<")
+	print("\n>>> TEST CHARGEMENT BIBLIOTHÈQUE & RESTAURATION QUALITÉS RÉUSSI À 100% ! <<<")
 	quit(0)

@@ -770,100 +770,160 @@ func _apply_clock_comment(comment: String) -> void:
 	move_history[move_history.size() - 1].clock_sec = seconds
 
 func _find_matching_move(token: String) -> ChessMove:
-	var legal = get_legal_moves(active_color)
-	
-	# 1. Correspondance exacte SAN ou UCI (avec ou sans promotion)
-	for m in legal:
-		var clean_san = m.san.replace("+", "").replace("#", "")
-		if clean_san == token or m.uci == token:
-			return m
+	var clean := _clean_pgn_token(token)
+	if clean == "":
+		return null
 
-	# Correspondance UCI directe (ex: e2e4, c3e3, e7e8q)
-	if token.length() >= 4:
-		var uci_from = ChessMove.coord_to_square(token.substr(0, 2))
-		var uci_to = ChessMove.coord_to_square(token.substr(2, 2))
-		if uci_from != -1 and uci_to != -1:
-			var prom_char = token.substr(4, 1).to_lower() if token.length() >= 5 else ""
-			for m in legal:
-				if m.from_sq == uci_from and m.to_sq == uci_to:
-					if prom_char != "":
-						var prom_type = ChessPiece.Type.QUEEN
-						match prom_char:
-							"q": prom_type = ChessPiece.Type.QUEEN
-							"r": prom_type = ChessPiece.Type.ROOK
-							"b": prom_type = ChessPiece.Type.BISHOP
-							"n": prom_type = ChessPiece.Type.KNIGHT
-						if m.promotion == prom_type:
-							return m
-					else:
+	# 1. Roque ultra-rapide O(1)
+	if clean in ["O-O", "0-0"]:
+		var base_rank = 0 if active_color == ChessPiece.PieceColor.WHITE else 7
+		var target_sq = base_rank * 8 + 6
+		var ksq = white_king_sq if active_color == ChessPiece.PieceColor.WHITE else black_king_sq
+		if ksq == base_rank * 8 + 4:
+			var m = ChessMove.new(ksq, target_sq, ChessPiece.Type.KING, active_color)
+			m.is_castling = true
+			if _is_move_legal(m, active_color):
+				m.san = "O-O"
+				return m
+		return null
+	elif clean in ["O-O-O", "0-0-0"]:
+		var base_rank = 0 if active_color == ChessPiece.PieceColor.WHITE else 7
+		var target_sq = base_rank * 8 + 2
+		var ksq = white_king_sq if active_color == ChessPiece.PieceColor.WHITE else black_king_sq
+		if ksq == base_rank * 8 + 4:
+			var m = ChessMove.new(ksq, target_sq, ChessPiece.Type.KING, active_color)
+			m.is_castling = true
+			if _is_move_legal(m, active_color):
+				m.san = "O-O-O"
+				return m
+		return null
+
+	# 2. Notation UCI directe ultra-rapide O(1) (ex: e2e4, c3e3, e7e8q)
+	if clean.length() >= 4 and clean.substr(0, 2) != clean.substr(2, 2):
+		var u_from = ChessMove.coord_to_square(clean.substr(0, 2))
+		var u_to = ChessMove.coord_to_square(clean.substr(2, 2))
+		if u_from != -1 and u_to != -1 and board[u_from].color == active_color:
+			var p_piece = board[u_from].type
+			var prom_char = clean.substr(4, 1).to_lower() if clean.length() >= 5 else ""
+			var prom_type = ChessPiece.Type.NONE
+			match prom_char:
+				"q": prom_type = ChessPiece.Type.QUEEN
+				"r": prom_type = ChessPiece.Type.ROOK
+				"b": prom_type = ChessPiece.Type.BISHOP
+				"n": prom_type = ChessPiece.Type.KNIGHT
+			var m = ChessMove.new(u_from, u_to, p_piece, active_color)
+			m.promotion = prom_type
+			if p_piece == ChessPiece.Type.PAWN and u_to == en_passant_sq and (u_from % 8 != u_to % 8):
+				m.is_en_passant = true
+			m.captured_piece = board[u_to].type if not m.is_en_passant else ChessPiece.Type.PAWN
+			if _is_move_legal(m, active_color):
+				_annotate_move(m)
+				return m
+
+	# 3. Parsing sémantique SAN avec ciblage direct des pièces candidates
+	var clean_no_x = clean.replace("x", "")
+	var expected_prom = ChessPiece.Type.NONE
+	if "=" in clean_no_x:
+		var eq_idx = clean_no_x.find("=")
+		if eq_idx < clean_no_x.length() - 1:
+			var prom_char = clean_no_x.substr(eq_idx + 1, 1).to_upper()
+			match prom_char:
+				"Q": expected_prom = ChessPiece.Type.QUEEN
+				"R": expected_prom = ChessPiece.Type.ROOK
+				"B": expected_prom = ChessPiece.Type.BISHOP
+				"N": expected_prom = ChessPiece.Type.KNIGHT
+		clean_no_x = clean_no_x.substr(0, eq_idx)
+
+	if clean_no_x.length() >= 2:
+		var dest_coord = clean_no_x.substr(clean_no_x.length() - 2, 2)
+		var dest_sq = ChessMove.coord_to_square(dest_coord)
+		if dest_sq == -1 and clean_no_x.length() >= 3 and clean_no_x[-1].to_upper() in ["Q", "R", "B", "N"]:
+			var prom_char = clean_no_x[-1].to_upper()
+			match prom_char:
+				"Q": expected_prom = ChessPiece.Type.QUEEN
+				"R": expected_prom = ChessPiece.Type.ROOK
+				"B": expected_prom = ChessPiece.Type.BISHOP
+				"N": expected_prom = ChessPiece.Type.KNIGHT
+			dest_coord = clean_no_x.substr(clean_no_x.length() - 3, 2)
+			dest_sq = ChessMove.coord_to_square(dest_coord)
+			clean_no_x = clean_no_x.substr(0, clean_no_x.length() - 1)
+
+		if dest_sq != -1:
+			var piece_type = ChessPiece.Type.PAWN
+			var start_idx = 0
+			if clean_no_x[0] in ["N", "B", "R", "Q", "K"]:
+				piece_type = ChessPiece.from_char(clean_no_x[0]).type
+				start_idx = 1
+
+			var disambig_hint = clean_no_x.substr(start_idx, clean_no_x.length() - start_idx - 2)
+			var candidates: Array[ChessMove] = []
+
+			if piece_type == ChessPiece.Type.PAWN:
+				var f = dest_sq % 8
+				var r = dest_sq / 8
+				var dir = 1 if active_color == ChessPiece.PieceColor.WHITE else -1
+				var prev_r = r - dir
+				if prev_r >= 0 and prev_r <= 7:
+					if board[dest_sq].type == ChessPiece.Type.NONE:
+						var psq = prev_r * 8 + f
+						if board[psq].type == ChessPiece.Type.PAWN and board[psq].color == active_color:
+							_gen_pawn_moves(psq, active_color, candidates)
+						var start_r = 1 if active_color == ChessPiece.PieceColor.WHITE else 6
+						if r == start_r + 2 * dir and board[psq].type == ChessPiece.Type.NONE:
+							var start_sq = start_r * 8 + f
+							if board[start_sq].type == ChessPiece.Type.PAWN and board[start_sq].color == active_color:
+								_gen_pawn_moves(start_sq, active_color, candidates)
+					for df in [-1, 1]:
+						var pf = f + df
+						if pf >= 0 and pf <= 7:
+							var psq = prev_r * 8 + pf
+							if board[psq].type == ChessPiece.Type.PAWN and board[psq].color == active_color:
+								_gen_pawn_moves(psq, active_color, candidates)
+			elif piece_type == ChessPiece.Type.KNIGHT:
+				for d in [Vector2i(1, 2), Vector2i(2, 1), Vector2i(-1, 2), Vector2i(-2, 1),
+						  Vector2i(1, -2), Vector2i(2, -1), Vector2i(-1, -2), Vector2i(-2, -1)]:
+					var kf = (dest_sq % 8) + d.x
+					var kr = (dest_sq / 8) + d.y
+					if kf >= 0 and kf <= 7 and kr >= 0 and kr <= 7:
+						var ksq = kr * 8 + kf
+						if board[ksq].type == ChessPiece.Type.KNIGHT and board[ksq].color == active_color:
+							_gen_knight_moves(ksq, active_color, candidates)
+			elif piece_type == ChessPiece.Type.KING:
+				var ksq = white_king_sq if active_color == ChessPiece.PieceColor.WHITE else black_king_sq
+				if ksq != -1:
+					_gen_king_moves(ksq, active_color, candidates)
+			else:
+				for sq in range(64):
+					if board[sq].type == piece_type and board[sq].color == active_color:
+						match piece_type:
+							ChessPiece.Type.BISHOP:
+								_gen_sliding_moves(sq, active_color, [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)], candidates)
+							ChessPiece.Type.ROOK:
+								_gen_sliding_moves(sq, active_color, [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)], candidates)
+							ChessPiece.Type.QUEEN:
+								_gen_sliding_moves(sq, active_color, [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)], candidates)
+
+			for m in candidates:
+				if m.to_sq == dest_sq:
+					if expected_prom != ChessPiece.Type.NONE and m.promotion != expected_prom:
+						continue
+					if disambig_hint != "":
+						var from_coord = ChessMove.square_to_coord(m.from_sq)
+						if disambig_hint.length() == 1:
+							if disambig_hint[0] != from_coord[0] and disambig_hint[0] != from_coord[1]:
+								continue
+						elif disambig_hint != from_coord:
+							continue
+					if _is_move_legal(m, active_color):
+						_annotate_move(m)
 						return m
 
-	# 2. Roque
-	if token in ["O-O", "0-0"]:
-		for m in legal:
-			if m.is_castling and (m.to_sq % 8 == 6):
-				return m
-	elif token in ["O-O-O", "0-0-0"]:
-		for m in legal:
-			if m.is_castling and (m.to_sq % 8 == 2):
-				return m
-
-	# 3. Parsing sémantique du coup SAN avec gestion des désambiguïsations
-	# ex: R4f2, Rad1, Nbd7, exd5, e8=Q, f8Q, e8=N, etc.
-	var clean = token.replace("x", "")
-	var expected_prom = ChessPiece.Type.NONE
-	if "=" in clean:
-		var eq_idx = clean.find("=")
-		if eq_idx < clean.length() - 1:
-			var prom_char = clean.substr(eq_idx + 1, 1).to_upper()
-			match prom_char:
-				"Q": expected_prom = ChessPiece.Type.QUEEN
-				"R": expected_prom = ChessPiece.Type.ROOK
-				"B": expected_prom = ChessPiece.Type.BISHOP
-				"N": expected_prom = ChessPiece.Type.KNIGHT
-		clean = clean.replace("=", "")
-
-	if clean.length() < 2:
-		return null
-
-	var dest_coord = clean.substr(clean.length() - 2, 2)
-	var dest_sq = ChessMove.coord_to_square(dest_coord)
-	if dest_sq == -1:
-		# Promotion sans égal : ex "h1Q" -> dest "h1", prom "Q"
-		if clean.length() >= 3 and clean[-1].to_upper() in ["Q", "R", "B", "N"]:
-			var prom_char = clean[-1].to_upper()
-			match prom_char:
-				"Q": expected_prom = ChessPiece.Type.QUEEN
-				"R": expected_prom = ChessPiece.Type.ROOK
-				"B": expected_prom = ChessPiece.Type.BISHOP
-				"N": expected_prom = ChessPiece.Type.KNIGHT
-			dest_coord = clean.substr(clean.length() - 3, 2)
-			dest_sq = ChessMove.coord_to_square(dest_coord)
-			clean = clean.substr(0, clean.length() - 1)
-
-	if dest_sq == -1:
-		return null
-
-	var piece_type = ChessPiece.Type.PAWN
-	var start_idx = 0
-	if clean[0] in ["N", "B", "R", "Q", "K"]:
-		piece_type = ChessPiece.from_char(clean[0]).type
-		start_idx = 1
-
-	var disambig_hint = clean.substr(start_idx, clean.length() - start_idx - 2)
-
+	# 4. Repli de sécurité complet sur la liste exhaustive
+	var legal = get_legal_moves(active_color)
 	for m in legal:
-		if m.to_sq == dest_sq and m.piece == piece_type:
-			if expected_prom != ChessPiece.Type.NONE and m.promotion != expected_prom:
-				continue
-			if disambig_hint == "":
-				return m
-			var from_coord = ChessMove.square_to_coord(m.from_sq)
-			if disambig_hint.length() == 1:
-				if disambig_hint[0] == from_coord[0] or disambig_hint[0] == from_coord[1]:
-					return m
-			elif disambig_hint == from_coord:
-				return m
+		var clean_san = m.san.replace("+", "").replace("#", "")
+		if clean_san == clean or m.uci == clean:
+			return m
 
 	return null
 

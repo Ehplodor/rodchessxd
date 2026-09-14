@@ -263,11 +263,22 @@ func _load_game(game_id: String) -> void:
 	if main and engine_analyses.size() > 0:
 		var last_ea = engine_analyses[engine_analyses.size() - 1]
 		var evals = last_ea.get("evaluations", [])
+		var gc = tree.root.get_node_or_null("GameController") if (tree and tree.root) else null
+		if gc:
+			gc.apply_evaluations(evals)
 		if main.advantage_graph:
 			main.advantage_graph.set_evaluations(evals)
 			main.advantage_graph.update_stored_analyses(engine_analyses)
+		if main.move_list:
+			main.move_list.set_analysis_report(last_ea)
+			main.move_list.refresh()
+		if main.game_review_panel:
+			main.game_review_panel.set_report(last_ea)
+		if main.has_method("_update_graph_phase_boundaries"):
+			main._update_graph_phase_boundaries(last_ea)
 		if main and main.has_method("close_overlays"):
 			main.close_overlays()
 
 	game_selected.emit(game_id)
+	hide()
 	queue_free()

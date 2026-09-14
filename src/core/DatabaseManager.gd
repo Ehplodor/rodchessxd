@@ -16,6 +16,8 @@ const CARNETS_DIR = "user://library/carnets"
 const PROFILES_DIR = "user://library/carnets/profiles"
 
 var games_index: Array[Dictionary] = []
+var _games_cache: Dictionary = {}
+const MAX_CACHE_GAMES: int = 50
 
 func _ready() -> void:
 	_ensure_directories()
@@ -122,6 +124,7 @@ func save_game(game_data: Dictionary) -> String:
 	# Écriture atomique du fichier individuel
 	var path = "%s/%s.json" % [GAMES_DIR, game_id]
 	save_json_atomic(path, game_data)
+	_games_cache[game_id] = game_data
 
 	# Mise à jour de l'index
 	_update_index_entry(game_data)
@@ -144,6 +147,7 @@ func save_games_batch(games_list: Array[Dictionary]) -> Array[String]:
 		game_data["last_modified"] = now
 		var path = "%s/%s.json" % [GAMES_DIR, game_id]
 		save_json_atomic(path, game_data)
+		_games_cache[game_id] = game_data
 		_update_index_entry(game_data)
 		saved_ids.append(game_id)
 		game_saved.emit(game_id)
@@ -151,8 +155,12 @@ func save_games_batch(games_list: Array[Dictionary]) -> Array[String]:
 	_save_index()
 	return saved_ids
 
-## Récupère le dossier complet d'une partie
+## Récupère le dossier complet d'une partie (avec cache mémoire LRU)
 func get_game(game_id: String) -> Dictionary:
+	if game_id == "":
+		return {}
+	if _games_cache.has(game_id):
+		return _games_cache[game_id]
 	var path = "%s/%s.json" % [GAMES_DIR, game_id]
 	if not FileAccess.file_exists(path):
 		return {}
@@ -160,7 +168,12 @@ func get_game(game_id: String) -> Dictionary:
 	if not f:
 		return {}
 	var json = JSON.parse_string(f.get_as_text())
-	return json if json is Dictionary else {}
+	if json is Dictionary:
+		if _games_cache.size() >= MAX_CACHE_GAMES:
+			_games_cache.erase(_games_cache.keys()[0])
+		_games_cache[game_id] = json
+		return json
+	return {}
 
 ## Liste tous les résumés de parties de l'index (recherche & filtres optionnels)
 func list_games(search_query: String = "", filter_source: String = "all") -> Array[Dictionary]:
@@ -188,6 +201,7 @@ func delete_game(game_id: String) -> bool:
 	var path = "%s/%s.json" % [GAMES_DIR, game_id]
 	if FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
+	_games_cache.erase(game_id)
 	
 	for i in range(games_index.size() - 1, -1, -1):
 		if games_index[i].get("id", "") == game_id:

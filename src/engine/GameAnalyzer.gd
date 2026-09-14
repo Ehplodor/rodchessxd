@@ -532,6 +532,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 
 func cancel_analysis() -> void:
 	cancel_requested = true
+	is_analyzing = false
 	_awaited_display_ply = -1
 
 ## Accusé de réception de Main.gd : le plateau a fini d'afficher ce demi-coup.

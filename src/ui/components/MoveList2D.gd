@@ -47,6 +47,9 @@ func _ready() -> void:
 ## Permet à Main d'injecter le rapport d'analyse complet
 func set_analysis_report(report: Dictionary) -> void:
 	_analysis_report = report
+	var gc = _get_game_controller()
+	if gc and report.has("evaluations"):
+		gc.apply_evaluations(report.get("evaluations", []))
 	_refresh_moves()
 
 ## Rafraîchissement public (appelé aussi à la fin de l'analyse, cf. Main).
@@ -90,6 +93,8 @@ func _refresh_moves() -> void:
 			var ea = g.get("engine_analyses", [])
 			if not ea.is_empty():
 				_analysis_report = ea.back()
+				if gc and _analysis_report.has("evaluations"):
+					gc.apply_evaluations(_analysis_report.get("evaluations", []))
 
 	# 1. Tableau comparatif parallèle 3 colonnes (Blancs, Libellé de Stat, Noirs)
 	_build_parallel_stats_table()
