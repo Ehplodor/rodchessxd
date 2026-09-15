@@ -30,7 +30,7 @@ const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
 @onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
 @onready var advantage_graph: AdvantageGraph2D = $VBox/Dashboard/GraphPanel/AdvantageGraph
 @onready var engine_lines_panel: EngineLinesPanel2D = $VBox/Dashboard/EngineLinesPanel
-@onready var game_review_panel: GameReviewPanel2D = $AnalyseOverlay/Layout/GameReviewPanel
+@onready var game_review_panel: Control = get_node_or_null("AnalyseOverlay/Layout/GameReviewPanel")
 @onready var move_list: MoveList2D = $AnalyseOverlay/Layout/MoveList
 @onready var coach_panel: CoachPanel2D = $CoachOverlay/Layout/CoachPanel
 @onready var analyse_overlay: Control = $AnalyseOverlay
@@ -168,6 +168,12 @@ func _ready() -> void:
 		engine_lines_panel.line_selected.connect(_on_engine_line_selected)
 	if game_review_panel != null:
 		game_review_panel.moment_selected.connect(func(ply):
+			if GameController:
+				GameController.navigate_to_ply(ply)
+				_sync_eval_to_ply(ply)
+		)
+	if move_list != null and move_list.has_signal("moment_selected"):
+		move_list.moment_selected.connect(func(ply):
 			if GameController:
 				GameController.navigate_to_ply(ply)
 				_sync_eval_to_ply(ply)

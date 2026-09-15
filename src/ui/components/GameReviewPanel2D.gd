@@ -87,9 +87,8 @@ func set_report(report: Dictionary) -> void:
 				float(swing.get("winpct_loss", 0.0))
 			]
 			btn.flat = true
-			btn.clip_text = true
-			btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-			btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+			btn.clip_text = false
+			btn.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_DENSE)
 			btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			btn.add_theme_color_override("font_color", ChessMove.quality_to_color(int(swing.get("quality", ChessMove.Quality.NONE))))
 			var ply := int(swing.get("ply", 0))

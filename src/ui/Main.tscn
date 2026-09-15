@@ -2,7 +2,6 @@
 
 [ext_resource type="Script" path="res://src/ui/Main.gd" id="1_main"]
 [ext_resource type="Script" path="res://src/ui/components/EngineLinesPanel2D.gd" id="10_englines"]
-[ext_resource type="Script" path="res://src/ui/components/GameReviewPanel2D.gd" id="11_review"]
 [ext_resource type="Script" path="res://src/ui/components/EvalBar2D.gd" id="2_eval"]
 [ext_resource type="Script" path="res://src/ui/components/ChessBoard2D.gd" id="3_board"]
 [ext_resource type="Script" path="res://src/ui/components/AdvantageGraph2D.gd" id="4_graph"]
@@ -318,25 +317,21 @@ size_flags_horizontal = 3
 text = "📊 Analyse de la partie"
 
 [node name="BtnSwitchToCoach" type="Button" parent="AnalyseOverlay/Layout/Header"]
-custom_minimum_size = Vector2(80, 56)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 tooltip_text = "Basculer vers le Coach IA"
-text = "🤖 Coach"
+text = "🤖"
 
 [node name="BtnReanalyze" type="Button" parent="AnalyseOverlay/Layout/Header"]
-custom_minimum_size = Vector2(56, 56)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 tooltip_text = "Ré-analyser la partie avec le classifieur courant"
 text = "🔄"
 
 [node name="BtnCloseAnalyse" type="Button" parent="AnalyseOverlay/Layout/Header"]
-custom_minimum_size = Vector2(64, 56)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 text = "✕"
-
-[node name="GameReviewPanel" type="VBoxContainer" parent="AnalyseOverlay/Layout"]
-layout_mode = 2
-script = ExtResource("11_review")
 
 [node name="MoveList" type="ScrollContainer" parent="AnalyseOverlay/Layout"]
 layout_mode = 2
@@ -387,13 +382,13 @@ size_flags_horizontal = 3
 text = "🤖 Coach IA"
 
 [node name="BtnSwitchToAnalyse" type="Button" parent="CoachOverlay/Layout/Header"]
-custom_minimum_size = Vector2(80, 56)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 tooltip_text = "Basculer vers l'analyse de la partie"
-text = "📊 Analyse"
+text = "📊"
 
 [node name="BtnCloseCoach" type="Button" parent="CoachOverlay/Layout/Header"]
-custom_minimum_size = Vector2(64, 56)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 text = "✕"
 

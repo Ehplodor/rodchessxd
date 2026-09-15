@@ -5,6 +5,8 @@ extends ScrollContainer
 ## le résumé synthétique en un coup d'œil (vainqueur, ELO, qualité, répartition des coups),
 ## puis en dessous la feuille de notation interactive avec filtres de qualité.
 
+signal moment_selected(ply: int)
+
 const MoveQualityService = preload("res://src/ui/components/MoveQualityService.gd")
 
 var container: VBoxContainer
@@ -38,15 +40,19 @@ func _ready() -> void:
 	horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	DesignTokens.touch_scroll(self)
 
-	container = VBoxContainer.new()
-	container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	container.add_theme_constant_override("separation", 8)
-	add_child(container)
+	_ensure_container()
 
 	var gc = _get_game_controller()
 	if gc:
 		gc.position_changed.connect(_on_position_changed)
 		gc.move_navigated.connect(_on_move_navigated)
+
+func _ensure_container() -> void:
+	if container == null:
+		container = VBoxContainer.new()
+		container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		container.add_theme_constant_override("separation", 8)
+		add_child(container)
 
 ## Permet à Main d'injecter le rapport d'analyse complet
 func set_analysis_report(report: Dictionary) -> void:
@@ -81,6 +87,7 @@ func _get_database_manager() -> Node:
 	return null
 
 func _refresh_moves() -> void:
+	_ensure_container()
 	for child in container.get_children():
 		child.queue_free()
 	move_buttons.clear()
@@ -100,19 +107,28 @@ func _refresh_moves() -> void:
 				if gc and _analysis_report.has("evaluations"):
 					gc.apply_evaluations(_analysis_report.get("evaluations", []))
 
-	# 1. Tableau comparatif parallèle 3 colonnes (Blancs, Libellé de Stat, Noirs)
-	_build_parallel_stats_table()
+	# 1. Bannière Héro (Résultat, Ouverture, Qualité globale, Différentiel ELO)
+	_build_hero_card()
 
-	# 2. Carte Résumé synthétique en un coup d'œil (Vainqueur, ELO, Qualité, Types de coups)
-	_build_summary_card()
+	# 2. Scorecard Duel Face-à-Face (Précision CAPS2, Jauge Duel, ELO, ACPL)
+	_build_duel_scorecard()
 
-	# 3. Séparateur et en-tête des coups
+	# 3. Matrice de Qualité interactive (8 catégories, cliquables pour filtrer)
+	_build_quality_matrix()
+
+	# 4. Progression par phases de jeu (Ouverture, Milieu, Finale)
+	_build_phases_card()
+
+	# 5. Tournants et Moments clés (boutons puces avec navigation directe)
+	_build_moments_card()
+
+	# 6. Titre de la feuille de notation des coups
 	_build_moves_header()
 
-	# 4. Ligne de filtres
+	# 7. Barre des filtres interactifs
 	_build_filter_row()
 
-	# 5. Liste des coups détaillée
+	# 8. Liste détaillée des coups
 	_build_moves()
 	call_deferred("_scroll_to_active")
 
@@ -156,140 +172,13 @@ func _get_player_quality_stats() -> Dictionary:
 				ChessMove.Quality.MISS: target["miss"] += 1
 	return {"white": w_stats, "black": b_stats}
 
-# --- 1. TABLEAU COMPARATIF 3 COLONNES ---
-func _build_parallel_stats_table() -> void:
+# --- 1. BANNIÈRE HÉRO (Résultat, Ouverture, Qualité, Différentiel) ---
+func _build_hero_card() -> void:
 	var names = _get_player_names()
-	var q_stats = _get_player_quality_stats()
-	var w_s = q_stats["white"]
-	var b_s = q_stats["black"]
-
-	var panel = PanelContainer.new()
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var p_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
-			DesignTokens.BORDER, 1, Vector2(10, 8))
-	panel.add_theme_stylebox_override("panel", p_style)
-	container.add_child(panel)
-
-	var vbox = VBoxContainer.new()
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 6)
-	panel.add_child(vbox)
-
-	var title_lbl = Label.new()
-	title_lbl.text = "⚔️ Statistiques des Joueurs en Parallèle"
-	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	title_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
-	vbox.add_child(title_lbl)
-
-	var grid = GridContainer.new()
-	grid.columns = 3
-	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 4)
-	vbox.add_child(grid)
-
-	# Ligne d'en-tête (Blancs, Libellé, Noirs)
-	# Noms de joueurs dynamiques : tronqués à l'ellipse pour ne jamais imposer une largeur
-	# minimale supérieure à l'écran (sinon toute la carte déborde, cf. §2 du skill UI mobile).
-	var head_w = Label.new()
-	head_w.text = "⚪ " + names["white"]
-	head_w.tooltip_text = str(names["white"])
-	head_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head_w.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	head_w.clip_text = true
-	head_w.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	head_w.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	head_w.add_theme_color_override("font_color", Color("#f8fafc"))
-	grid.add_child(head_w)
-
-	var head_m = Label.new()
-	head_m.text = "📊 Indicateur"
-	head_m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head_m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	head_m.clip_text = true
-	head_m.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	head_m.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	head_m.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	grid.add_child(head_m)
-
-	var head_b = Label.new()
-	head_b.text = "⚫ " + names["black"]
-	head_b.tooltip_text = str(names["black"])
-	head_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head_b.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	head_b.clip_text = true
-	head_b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	head_b.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	head_b.add_theme_color_override("font_color", Color("#cbd5e1"))
-	grid.add_child(head_b)
-
-	# Métriques principales
-	var has_report = not _analysis_report.is_empty()
-	var w_acc = _analysis_report.get("white_accuracy", 0.0)
-	var b_acc = _analysis_report.get("black_accuracy", 0.0)
-	var w_elo = _analysis_report.get("white_estimated_elo", 1500)
-	var b_elo = _analysis_report.get("black_estimated_elo", 1500)
-	var w_ci = _analysis_report.get("white_elo_ci", 0)
-	var b_ci = _analysis_report.get("black_elo_ci", 0)
-	var w_acpl = _analysis_report.get("white_acpl", 0.0)
-	var b_acpl = _analysis_report.get("black_acpl", 0.0)
-
-	var w_acc_str = ("%.1f %%" % w_acc) if has_report else "—"
-	var b_acc_str = ("%.1f %%" % b_acc) if has_report else "—"
-	var w_elo_str = ("%d" % w_elo + (" ±%d" % w_ci if w_ci > 0 else "")) if has_report else "—"
-	var b_elo_str = ("%d" % b_elo + (" ±%d" % b_ci if b_ci > 0 else "")) if has_report else "—"
-	var w_acpl_str = ("%.1f cp" % w_acpl) if has_report else "—"
-	var b_acpl_str = ("%.1f cp" % b_acpl) if has_report else "—"
-
-	_add_stat_row(grid, w_acc_str, "🎯 Précision CAPS2", b_acc_str, Color("#34d399"))
-	_add_stat_row(grid, w_elo_str, "📈 ELO estimé", b_elo_str, Color("#38bdf8"))
-	_add_stat_row(grid, w_acpl_str, "📉 Perte moy. (ACPL)", b_acpl_str, Color("#fde047"))
-
-	# Catégories de coups
-	_add_stat_row(grid, str(w_s.get("brilliant", 0)), "‼ Coups brillants", str(b_s.get("brilliant", 0)), Color("#38bdf8"))
-	_add_stat_row(grid, str(w_s.get("best", 0)), "★ Meilleurs coups", str(b_s.get("best", 0)), Color("#10b981"))
-	_add_stat_row(grid, str(w_s.get("great", 0) + w_s.get("excellent", 0)), "✓+ Excellents coups", str(b_s.get("great", 0) + b_s.get("excellent", 0)), Color("#14b8a6"))
-	_add_stat_row(grid, str(w_s.get("good", 0)), "✓ Bons coups", str(b_s.get("good", 0)), Color("#94a3b8"))
-	_add_stat_row(grid, str(w_s.get("inaccuracy", 0)), "?! Imprécisions", str(b_s.get("inaccuracy", 0)), Color("#eab308"))
-	_add_stat_row(grid, str(w_s.get("mistake", 0)), "? Erreurs", str(b_s.get("mistake", 0)), Color("#f97316"))
-	_add_stat_row(grid, str(w_s.get("blunder", 0) + w_s.get("miss", 0)), "?? Gaffes", str(b_s.get("blunder", 0) + b_s.get("miss", 0)), Color("#ef4444"))
-
-func _add_stat_row(grid: GridContainer, val_w: String, label_text: String, val_b: String, accent_col: Color) -> void:
-	var lbl_w = Label.new()
-	lbl_w.text = val_w
-	lbl_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lbl_w.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	lbl_w.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	lbl_w.add_theme_color_override("font_color", accent_col)
-	grid.add_child(lbl_w)
-
-	var lbl_m = Label.new()
-	lbl_m.text = label_text
-	lbl_m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lbl_m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl_m.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	lbl_m.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	grid.add_child(lbl_m)
-
-	var lbl_b = Label.new()
-	lbl_b.text = val_b
-	lbl_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lbl_b.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	lbl_b.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	lbl_b.add_theme_color_override("font_color", accent_col)
-	grid.add_child(lbl_b)
-
-# --- 2. CARTE RÉSUMÉ SYNTHÉTIQUE ---
-func _build_summary_card() -> void:
-	var names = _get_player_names()
-	var q_stats = _get_player_quality_stats()
-	var w_s = q_stats["white"]
-	var b_s = q_stats["black"]
-
 	var card = PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var c_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
-			DesignTokens.BORDER, 1, Vector2(10, 8))
+			DesignTokens.BORDER, 1, Vector2(12, 10))
 	card.add_theme_stylebox_override("panel", c_style)
 	container.add_child(card)
 
@@ -301,7 +190,7 @@ func _build_summary_card() -> void:
 	# Résultat / Vainqueur
 	var outcome_text = "♟️ Partie en cours"
 	var outcome_color = DesignTokens.ACCENT
-	
+
 	var gc = _get_game_controller()
 	if gc and gc.game:
 		var cur_col = gc.game.active_color
@@ -328,19 +217,41 @@ func _build_summary_card() -> void:
 			outcome_text = "🤝 Partie Nulle convenue (½ - ½)"
 			outcome_color = Color("#94a3b8")
 
+	# Badge de résultat proéminent
+	var outcome_badge = PanelContainer.new()
+	outcome_badge.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var ob_style = DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_SMALL,
+			outcome_color.lerp(DesignTokens.BORDER, 0.4), 1, Vector2(10, 6))
+	outcome_badge.add_theme_stylebox_override("panel", ob_style)
+	vbox.add_child(outcome_badge)
+
 	var outcome_lbl = Label.new()
 	outcome_lbl.text = outcome_text
 	outcome_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	outcome_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	outcome_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	outcome_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	outcome_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	outcome_lbl.add_theme_color_override("font_color", outcome_color)
-	vbox.add_child(outcome_lbl)
+	outcome_badge.add_child(outcome_lbl)
 
-	# Qualité globale de la partie
+	# Ouverture (si présente)
+	var opening: Dictionary = _analysis_report.get("opening", {})
+	var opening_name := str(opening.get("name", ""))
+	if opening_name != "":
+		var eco := str(opening.get("eco", ""))
+		var open_lbl := Label.new()
+		open_lbl.text = "📖 %s%s" % [("%s — " % eco) if eco != "" else "", opening_name]
+		open_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		open_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		open_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		open_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+		open_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+		vbox.add_child(open_lbl)
+
+	# Qualité globale & Différentiel ELO
 	if not _analysis_report.is_empty():
-		var w_acc = _analysis_report.get("white_accuracy", 0.0)
-		var b_acc = _analysis_report.get("black_accuracy", 0.0)
+		var w_acc = float(_analysis_report.get("white_accuracy", 0.0))
+		var b_acc = float(_analysis_report.get("black_accuracy", 0.0))
 		var avg_acc = (w_acc + b_acc) * 0.5
 
 		var qual_label = "Partie équilibrée"
@@ -379,8 +290,7 @@ func _build_summary_card() -> void:
 		elo_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 		vbox.add_child(elo_lbl)
 
-		# Plan ELO avancé — métadonnées explicatives : complexité moyenne (point 1)
-		# et prise en compte de la cadence (point 4) si l'horloge PGN est présente.
+		# Complexité moyenne & Cadence
 		var w_cx = float(_analysis_report.get("white_complexity_avg", 1.0))
 		var b_cx = float(_analysis_report.get("black_complexity_avg", 1.0))
 		var avg_cx = (w_cx + b_cx) * 0.5
@@ -401,40 +311,381 @@ func _build_summary_card() -> void:
 		meta_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 		vbox.add_child(meta_lbl)
 
-	# Résumé synthétique des types de coups (de brillants aux grosses gaffes)
-	var breakdown_lbl = Label.new()
-	breakdown_lbl.text = "Répartition : ⚪ [★ %d • ✓ %d • ?! %d • ?? %d]   VS   ⚫ [★ %d • ✓ %d • ?! %d • ?? %d]" % [
-		w_s.get("best", 0) + w_s.get("brilliant", 0),
-		w_s.get("good", 0) + w_s.get("great", 0) + w_s.get("excellent", 0),
-		w_s.get("inaccuracy", 0),
-		w_s.get("blunder", 0) + w_s.get("mistake", 0),
-		b_s.get("best", 0) + b_s.get("brilliant", 0),
-		b_s.get("good", 0) + b_s.get("great", 0) + b_s.get("excellent", 0),
-		b_s.get("inaccuracy", 0),
-		b_s.get("blunder", 0) + b_s.get("mistake", 0)
+# --- 2. SCORECARD DUEL (Face-à-Face, Précision, Jauge, ELO, ACPL) ---
+func _build_duel_scorecard() -> void:
+	var names = _get_player_names()
+	var has_report = not _analysis_report.is_empty()
+	var w_acc = float(_analysis_report.get("white_accuracy", 0.0))
+	var b_acc = float(_analysis_report.get("black_accuracy", 0.0))
+	var w_elo = int(_analysis_report.get("white_estimated_elo", 1500))
+	var b_elo = int(_analysis_report.get("black_estimated_elo", 1500))
+	var w_ci = int(_analysis_report.get("white_elo_ci", 0))
+	var b_ci = int(_analysis_report.get("black_elo_ci", 0))
+	var w_acpl = float(_analysis_report.get("white_acpl", 0.0))
+	var b_acpl = float(_analysis_report.get("black_acpl", 0.0))
+
+	var panel = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var p_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(10, 8))
+	panel.add_theme_stylebox_override("panel", p_style)
+	container.add_child(panel)
+
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	var title_lbl = Label.new()
+	title_lbl.text = "⚔️ Face-à-Face & Précision"
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	vbox.add_child(title_lbl)
+
+	# Ligne des noms
+	var names_row = HBoxContainer.new()
+	names_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(names_row)
+
+	var head_w = Label.new()
+	head_w.text = "⚪ " + names["white"]
+	head_w.tooltip_text = str(names["white"])
+	head_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_w.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	head_w.clip_text = true
+	head_w.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	head_w.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	head_w.add_theme_color_override("font_color", Color("#f8fafc"))
+	names_row.add_child(head_w)
+
+	var vs_lbl = Label.new()
+	vs_lbl.text = "VS"
+	vs_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vs_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	vs_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	names_row.add_child(vs_lbl)
+
+	var head_b = Label.new()
+	head_b.text = names["black"] + " ⚫"
+	head_b.tooltip_text = str(names["black"])
+	head_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_b.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	head_b.clip_text = true
+	head_b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	head_b.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	head_b.add_theme_color_override("font_color", Color("#cbd5e1"))
+	names_row.add_child(head_b)
+
+	# Ligne Précision CAPS2 (grands chiffres)
+	var acc_row = HBoxContainer.new()
+	acc_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(acc_row)
+
+	var w_acc_str = ("%.1f %%" % w_acc) if has_report else "—"
+	var b_acc_str = ("%.1f %%" % b_acc) if has_report else "—"
+
+	var lbl_w_acc = Label.new()
+	lbl_w_acc.text = w_acc_str
+	lbl_w_acc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_w_acc.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	lbl_w_acc.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	lbl_w_acc.add_theme_color_override("font_color", Color("#34d399"))
+	acc_row.add_child(lbl_w_acc)
+
+	var lbl_mid_acc = Label.new()
+	lbl_mid_acc.text = "🎯 Précision CAPS2"
+	lbl_mid_acc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_mid_acc.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl_mid_acc.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	acc_row.add_child(lbl_mid_acc)
+
+	var lbl_b_acc = Label.new()
+	lbl_b_acc.text = b_acc_str
+	lbl_b_acc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_b_acc.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lbl_b_acc.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	lbl_b_acc.add_theme_color_override("font_color", Color("#34d399"))
+	acc_row.add_child(lbl_b_acc)
+
+	# Barre Duel de Précision (Jauge horizontale bicolore)
+	if has_report and (w_acc > 0.0 or b_acc > 0.0):
+		var bar_box = HBoxContainer.new()
+		bar_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar_box.add_theme_constant_override("separation", 2)
+		vbox.add_child(bar_box)
+
+		var bar_w = Panel.new()
+		bar_w.custom_minimum_size = Vector2(0, 8)
+		bar_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar_w.size_flags_stretch_ratio = maxf(1.0, w_acc)
+		var sb_w = StyleBoxFlat.new()
+		sb_w.bg_color = Color("#38bdf8")
+		sb_w.set_corner_radius_all(3)
+		bar_w.add_theme_stylebox_override("panel", sb_w)
+		bar_box.add_child(bar_w)
+
+		var bar_b = Panel.new()
+		bar_b.custom_minimum_size = Vector2(0, 8)
+		bar_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar_b.size_flags_stretch_ratio = maxf(1.0, b_acc)
+		var sb_b = StyleBoxFlat.new()
+		sb_b.bg_color = Color("#818cf8")
+		sb_b.set_corner_radius_all(3)
+		bar_b.add_theme_stylebox_override("panel", sb_b)
+		bar_box.add_child(bar_b)
+
+	# Métriques secondaires : ELO estimé et ACPL
+	var grid = GridContainer.new()
+	grid.columns = 3
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 4)
+	vbox.add_child(grid)
+
+	var w_elo_str = ("%d" % w_elo + (" ±%d" % w_ci if w_ci > 0 else "")) if has_report else "—"
+	var b_elo_str = ("%d" % b_elo + (" ±%d" % b_ci if b_ci > 0 else "")) if has_report else "—"
+	var w_acpl_str = ("%.1f cp" % w_acpl) if has_report else "—"
+	var b_acpl_str = ("%.1f cp" % b_acpl) if has_report else "—"
+
+	_add_stat_row(grid, w_elo_str, "📈 ELO estimé", b_elo_str, Color("#38bdf8"))
+	_add_stat_row(grid, w_acpl_str, "📉 Perte moy. (ACPL)", b_acpl_str, Color("#fde047"))
+
+# --- 3. MATRICE DE QUALITÉ DES COUPS (Interactive) ---
+func _build_quality_matrix() -> void:
+	var q_stats = _get_player_quality_stats()
+	var w_s = q_stats["white"]
+	var b_s = q_stats["black"]
+
+	var panel = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var p_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(10, 8))
+	panel.add_theme_stylebox_override("panel", p_style)
+	container.add_child(panel)
+
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 4)
+	panel.add_child(vbox)
+
+	var title_lbl = Label.new()
+	title_lbl.text = "🎯 Répartition de la Qualité des Coups"
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	vbox.add_child(title_lbl)
+
+	var hint_lbl = Label.new()
+	hint_lbl.text = "(Touchez une catégorie pour filtrer la notation)"
+	hint_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
+	hint_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	vbox.add_child(hint_lbl)
+
+	var grid = GridContainer.new()
+	grid.columns = 3
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 2)
+	vbox.add_child(grid)
+
+	_add_interactive_quality_row(grid, w_s.get("brilliant", 0), "‼ Coups brillants", b_s.get("brilliant", 0), Color("#38bdf8"), 8)
+	_add_interactive_quality_row(grid, w_s.get("best", 0), "★ Meilleurs coups", b_s.get("best", 0), Color("#10b981"), 6)
+	_add_interactive_quality_row(grid, w_s.get("great", 0) + w_s.get("excellent", 0), "✓+ Excellents coups", b_s.get("great", 0) + b_s.get("excellent", 0), Color("#14b8a6"), 5)
+	_add_interactive_quality_row(grid, w_s.get("good", 0), "✓ Bons coups", b_s.get("good", 0), Color("#94a3b8"), 4)
+	_add_interactive_quality_row(grid, w_s.get("inaccuracy", 0), "?! Imprécisions", b_s.get("inaccuracy", 0), Color("#eab308"), 3)
+	_add_interactive_quality_row(grid, w_s.get("mistake", 0), "? Erreurs", b_s.get("mistake", 0), Color("#f97316"), 2)
+	_add_interactive_quality_row(grid, w_s.get("blunder", 0) + w_s.get("miss", 0), "?? Gaffes", b_s.get("blunder", 0) + b_s.get("miss", 0), Color("#ef4444"), 1)
+
+func _add_interactive_quality_row(grid: GridContainer, count_w: int, label_text: String, count_b: int, col: Color, filter_mode: int) -> void:
+	var lbl_w = Label.new()
+	lbl_w.text = str(count_w)
+	lbl_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_w.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lbl_w.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	lbl_w.add_theme_color_override("font_color", col if count_w > 0 else DesignTokens.TEXT_MUTED)
+	grid.add_child(lbl_w)
+
+	var is_active := (_filter == filter_mode)
+	var btn = Button.new()
+	btn.text = label_text
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.flat = not is_active
+	btn.clip_text = true
+	btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	btn.custom_minimum_size.y = 30
+	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	btn.add_theme_color_override("font_color", col)
+	btn.tooltip_text = "Filtrer la notation sur : %s" % label_text
+
+	var sb_norm = DesignTokens.flat(DesignTokens.BTN_BG_PRESSED if is_active else Color.TRANSPARENT,
+			DesignTokens.RADIUS_SMALL, col if is_active else Color.TRANSPARENT, 1 if is_active else 0, Vector2(6, 2))
+	var sb_h = DesignTokens.flat(DesignTokens.BTN_BG_HOVER, DesignTokens.RADIUS_SMALL, col, 1, Vector2(6, 2))
+	btn.add_theme_stylebox_override("normal", sb_norm)
+	btn.add_theme_stylebox_override("hover", sb_h)
+	btn.add_theme_stylebox_override("pressed", sb_h)
+	btn.pressed.connect(func():
+		_filter = filter_mode if _filter != filter_mode else 0
+		_refresh_moves()
+	)
+	grid.add_child(btn)
+
+	var lbl_b = Label.new()
+	lbl_b.text = str(count_b)
+	lbl_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_b.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	lbl_b.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	lbl_b.add_theme_color_override("font_color", col if count_b > 0 else DesignTokens.TEXT_MUTED)
+	grid.add_child(lbl_b)
+
+func _add_stat_row(grid: GridContainer, val_w: String, label_text: String, val_b: String, accent_col: Color) -> void:
+	var lbl_w = Label.new()
+	lbl_w.text = val_w
+	lbl_w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_w.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lbl_w.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl_w.add_theme_color_override("font_color", accent_col)
+	grid.add_child(lbl_w)
+
+	var lbl_m = Label.new()
+	lbl_m.text = label_text
+	lbl_m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_m.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl_m.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	grid.add_child(lbl_m)
+
+	var lbl_b = Label.new()
+	lbl_b.text = val_b
+	lbl_b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_b.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	lbl_b.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl_b.add_theme_color_override("font_color", accent_col)
+	grid.add_child(lbl_b)
+
+# --- 4. PROGRESSION PAR PHASES DE JEU ---
+func _build_phases_card() -> void:
+	if _analysis_report.is_empty():
+		return
+	var w_phase: Dictionary = _analysis_report.get("white_phase_stats", {})
+	var b_phase: Dictionary = _analysis_report.get("black_phase_stats", {})
+	if w_phase.is_empty() and b_phase.is_empty():
+		return
+
+	var panel = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var p_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(10, 8))
+	panel.add_theme_stylebox_override("panel", p_style)
+	container.add_child(panel)
+
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	var title_lbl = Label.new()
+	title_lbl.text = "⏱️ Progression par Phase de Jeu (perte moy. de gain)"
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	vbox.add_child(title_lbl)
+
+	var grid = GridContainer.new()
+	grid.columns = 3
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 4)
+	vbox.add_child(grid)
+
+	var phases = [
+		{"key": "opening", "label": "🏛️ Ouverture"},
+		{"key": "middlegame", "label": "⚔️ Milieu de jeu"},
+		{"key": "endgame", "label": "👑 Finale"}
 	]
-	breakdown_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	breakdown_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	breakdown_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	breakdown_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	breakdown_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
-	vbox.add_child(breakdown_lbl)
 
-# --- 3. TITRE DE LA SECTION COUPS ---
+	for ph in phases:
+		var wp: Dictionary = w_phase.get(ph["key"], {})
+		var bp: Dictionary = b_phase.get(ph["key"], {})
+		var w_loss = float(wp.get("avg_winpct_loss", 0.0))
+		var b_loss = float(bp.get("avg_winpct_loss", 0.0))
+		_add_stat_row(grid, "%.1f %%" % w_loss, ph["label"], "%.1f %%" % b_loss, DesignTokens.TEXT_SECONDARY)
+
+# --- 5. TOURNANTS & MOMENTS CLÉS (Réparés & Cliquables) ---
+func _build_moments_card() -> void:
+	if _analysis_report.is_empty():
+		return
+	var swings: Array = _analysis_report.get("biggest_swings", [])
+	if swings.is_empty():
+		return
+
+	var panel = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var p_style = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_MEDIUM,
+			DesignTokens.BORDER, 1, Vector2(10, 8))
+	panel.add_theme_stylebox_override("panel", p_style)
+	container.add_child(panel)
+
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	var title_lbl = Label.new()
+	title_lbl.text = "🔥 Tournants & Moments Clés"
+	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	title_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
+	vbox.add_child(title_lbl)
+
+	var hint_lbl = Label.new()
+	hint_lbl.text = "(Touchez un moment pour afficher la position)"
+	hint_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
+	hint_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	vbox.add_child(hint_lbl)
+
+	var row = HFlowContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("h_separation", DesignTokens.SPACE_S)
+	row.add_theme_constant_override("v_separation", DesignTokens.SPACE_XS)
+	vbox.add_child(row)
+
+	for swing in swings:
+		var btn = Button.new()
+		var is_w = bool(swing.get("is_white", true))
+		var dots = "." if is_w else "..."
+		var q_val = int(swing.get("quality", ChessMove.Quality.NONE))
+		var q_sym = ChessMove.quality_to_symbol(q_val)
+		var q_col = ChessMove.quality_to_color(q_val)
+		var loss_pct = float(swing.get("winpct_loss", 0.0))
+
+		btn.text = "%d%s %s  %s -%.0f%%" % [
+			int(swing.get("move_number", 1)), dots, str(swing.get("san", "")),
+			q_sym, loss_pct
+		]
+		btn.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_DENSE)
+		btn.clip_text = false
+		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		btn.add_theme_color_override("font_color", q_col)
+
+		var chip_sb = DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_SMALL, q_col, 1, Vector2(10, 6))
+		var chip_hover = chip_sb.duplicate() as StyleBoxFlat
+		chip_hover.bg_color = DesignTokens.BTN_BG_HOVER
+		btn.add_theme_stylebox_override("normal", chip_sb)
+		btn.add_theme_stylebox_override("hover", chip_hover)
+		btn.add_theme_stylebox_override("pressed", chip_hover)
+		btn.add_theme_stylebox_override("focus", chip_sb)
+
+		var ply = int(swing.get("ply", 0))
+		btn.pressed.connect(func():
+			moment_selected.emit(ply)
+			var gc = _get_game_controller()
+			if gc:
+				gc.navigate_to_ply(ply)
+			var main = find_parent("Main")
+			if main and main.has_method("show_board_tab"):
+				main.show_board_tab()
+		)
+		row.add_child(btn)
+
+# --- 6. TITRE DE LA FEUILLE DES COUPS ---
 func _build_moves_header() -> void:
-	# T1.2 — En-tête d'ouverture (ECO + nom) issue du rapport d'analyse.
-	var opening: Dictionary = _analysis_report.get("opening", {})
-	var opening_name := str(opening.get("name", ""))
-	if opening_name != "":
-		var eco := str(opening.get("eco", ""))
-		var open_lbl := Label.new()
-		open_lbl.text = "📖 %s%s" % [("%s — " % eco) if eco != "" else "", opening_name]
-		open_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		open_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		open_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		open_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
-		container.add_child(open_lbl)
-
 	var lbl = Label.new()
 	lbl.text = "📜 Feuille des Coups & Navigation Interactive :"
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -442,6 +693,14 @@ func _build_moves_header() -> void:
 	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 	container.add_child(lbl)
+
+# --- ALIAS POUR COMPATIBILITÉ AVEC LES TESTS EXISTANTS ---
+func _build_parallel_stats_table() -> void:
+	_build_duel_scorecard()
+	_build_quality_matrix()
+
+func _build_summary_card() -> void:
+	_build_hero_card()
 
 # --- 4. LIGNE DE FILTRES ---
 func _build_filter_row() -> void:
