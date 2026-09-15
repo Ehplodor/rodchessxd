@@ -44,12 +44,39 @@ func _ready() -> void:
 	# Pré-création d'un pool fixe de 5 boutons réutilisables (zéro queue_free à l'évaluation)
 	for idx in range(5):
 		var btn := Button.new()
-		btn.flat = true
 		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		btn.clip_text = true
 		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
 		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		
+		# Affordance tactile : style de carte interactif (pill/chip) avec bordure douce
+		var sb_normal := StyleBoxFlat.new()
+		sb_normal.bg_color = Color(0.12, 0.17, 0.26, 0.55)
+		sb_normal.border_color = Color(0.22, 0.33, 0.48, 0.6)
+		sb_normal.set_border_width_all(1)
+		sb_normal.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
+		sb_normal.content_margin_left = 10
+		sb_normal.content_margin_right = 10
+		sb_normal.content_margin_top = 4
+		sb_normal.content_margin_bottom = 4
+
+		var sb_hover := sb_normal.duplicate() as StyleBoxFlat
+		sb_hover.bg_color = Color(0.18, 0.25, 0.38, 0.8)
+		sb_hover.border_color = DesignTokens.ACCENT
+
+		var sb_pressed := sb_normal.duplicate() as StyleBoxFlat
+		sb_pressed.bg_color = Color(0.08, 0.12, 0.20, 0.9)
+		sb_pressed.border_color = DesignTokens.PRIMARY_BORDER
+
+		btn.add_theme_stylebox_override("normal", sb_normal)
+		btn.add_theme_stylebox_override("hover", sb_hover)
+		btn.add_theme_stylebox_override("pressed", sb_pressed)
+		btn.add_theme_stylebox_override("focus", sb_hover)
+		btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		btn.add_theme_color_override("font_hover_color", DesignTokens.ACCENT)
+
 		btn.visible = false
 		var btn_idx = idx
 		btn.pressed.connect(func():
@@ -117,10 +144,11 @@ func _rebuild() -> void:
 		var eval_str := EvalFormatter.format_cp_mate(int(line.get("score_cp", 0)), int(line.get("mate_in", 0)))
 		var san_line := _pv_to_san(str(line.get("fen", "")), pv)
 		var btn = _row_buttons[i]
+		# Affordance claire : symbole ▶ pour indiquer que la ligne est immédiatement jouable sur l'échiquier
 		if _lines.size() > 1:
-			btn.text = "#%d  %s   %s" % [i + 1, eval_str, san_line]
+			btn.text = "#%d  %s   ▶ %s" % [i + 1, eval_str, san_line]
 		else:
-			btn.text = "%s   %s" % [eval_str, san_line]
+			btn.text = "%s   ▶ %s" % [eval_str, san_line]
 		btn.tooltip_text = "%s\n%s\n▶ Cliquer pour jouer ce coup sur l'échiquier (mode Test)" % [eval_str, san_line]
 		btn.visible = true
 		_row_data[i] = {
