@@ -24,15 +24,15 @@ var _filter := 0
 const _MOVE_MIN_W := 120.0
 
 const _FILTERS := [
-	{"label": "∅", "mode": 0, "tip": "Aucun filtre (tous les coups)"},  # TOUS
-	{"label": "??", "mode": 1, "tip": "Gaffes"},   # BLUNDER / MISS
-	{"label": "?", "mode": 2, "tip": "Erreurs"},   # MISTAKE
-	{"label": "?!", "mode": 3, "tip": "Imprécisions"},  # INACCURACY
-	{"label": "✓", "mode": 4, "tip": "Bons coups"},  # GOOD
-	{"label": "✓+", "mode": 5, "tip": "Excellents coups"},  # EXCELLENT
-	{"label": "★", "mode": 6, "tip": "Meilleurs coups"},  # BEST
-	{"label": "!", "mode": 7, "tip": "Très bons coups"},  # GREAT
-	{"label": "!!", "mode": 8, "tip": "Coups brillants"},  # BRILLIANT
+	{"label": "∅", "mode": 0, "tip": "Tous les coups", "color": Color("#64748b")},
+	{"label": "??", "mode": 1, "tip": "Gaffes & Occasions manquées", "color": Color("#ef4444")},
+	{"label": "?", "mode": 2, "tip": "Erreurs", "color": Color("#f97316")},
+	{"label": "?!", "mode": 3, "tip": "Imprécisions", "color": Color("#eab308")},
+	{"label": "✓", "mode": 4, "tip": "Bons coups", "color": Color("#94a3b8")},
+	{"label": "✓+", "mode": 5, "tip": "Excellents coups", "color": Color("#84cc16")},
+	{"label": "★", "mode": 6, "tip": "Meilleurs coups", "color": Color("#22c55e")},
+	{"label": "!", "mode": 7, "tip": "Très bons coups", "color": Color("#3b82f6")},
+	{"label": "!!", "mode": 8, "tip": "Coups brillants", "color": Color("#10b981")},
 ]
 
 func _ready() -> void:
@@ -704,49 +704,68 @@ func _build_summary_card() -> void:
 
 # --- 4. LIGNE DE FILTRES ---
 func _build_filter_row() -> void:
-	var row := HFlowContainer.new()
+	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("h_separation", DesignTokens.SPACE_XS)
-	row.add_theme_constant_override("v_separation", DesignTokens.SPACE_XS)
+	row.add_theme_constant_override("separation", 3)
 	container.add_child(row)
 
 	for f in _FILTERS:
 		var btn := Button.new()
 		var mode: int = f["mode"]
 		var is_active := mode == _filter
+		var q_color: Color = f.get("color", DesignTokens.TEXT_PRIMARY)
 		btn.text = f["label"]
 		btn.tooltip_text = f.get("tip", "")
 		btn.toggle_mode = true
 		btn.button_pressed = is_active
-		btn.custom_minimum_size = Vector2(44, DesignTokens.TOUCH_DENSE)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.custom_minimum_size = Vector2(0, 36)
 		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		btn.clip_text = true
 		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
-		var sb_norm := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
-				DesignTokens.BORDER, 1, Vector2(8, 3))
-		var sb_hover := sb_norm.duplicate() as StyleBoxFlat
-		sb_hover.bg_color = DesignTokens.BTN_BG_HOVER
-		var sb_pressed := DesignTokens.flat(DesignTokens.BTN_BG_PRESSED, DesignTokens.RADIUS_SMALL,
-				DesignTokens.BORDER, 1, Vector2(8, 3))
-		if is_active:
-			sb_norm.bg_color = DesignTokens.BTN_BG_PRESSED
-			sb_pressed.bg_color = DesignTokens.BTN_BG
-			sb_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
-			sb_pressed.set_border_width_all(2)
+		var sb_norm := StyleBoxFlat.new()
+		sb_norm.corner_radius_top_left = DesignTokens.RADIUS_SMALL
+		sb_norm.corner_radius_top_right = DesignTokens.RADIUS_SMALL
+		sb_norm.corner_radius_bottom_left = DesignTokens.RADIUS_SMALL
+		sb_norm.corner_radius_bottom_right = DesignTokens.RADIUS_SMALL
+		sb_norm.content_margin_left = 2
+		sb_norm.content_margin_right = 2
+		sb_norm.content_margin_top = 4
+		sb_norm.content_margin_bottom = 4
 
-		var font_col := DesignTokens.ACCENT if is_active else DesignTokens.TEXT_PRIMARY
+		if is_active:
+			sb_norm.bg_color = Color(q_color.r, q_color.g, q_color.b, 0.28)
+			sb_norm.border_color = q_color
+			sb_norm.set_border_width_all(2)
+		else:
+			sb_norm.bg_color = DesignTokens.SURFACE_ELEVATED
+			sb_norm.border_color = Color(q_color.r, q_color.g, q_color.b, 0.35)
+			sb_norm.set_border_width_all(1)
+
+		var sb_hover := sb_norm.duplicate() as StyleBoxFlat
+		sb_hover.bg_color = Color(q_color.r, q_color.g, q_color.b, 0.38)
+
+		var sb_pressed := sb_norm.duplicate() as StyleBoxFlat
+		sb_pressed.bg_color = Color(q_color.r, q_color.g, q_color.b, 0.5)
+		sb_pressed.border_color = q_color
+		sb_pressed.set_border_width_all(2)
+
+		var font_col := q_color if is_active else DesignTokens.TEXT_PRIMARY
 		btn.add_theme_stylebox_override("normal", sb_norm)
 		btn.add_theme_stylebox_override("hover", sb_hover)
 		btn.add_theme_stylebox_override("pressed", sb_pressed)
 		btn.add_theme_stylebox_override("focus", sb_hover)
 		btn.add_theme_color_override("font_color", font_col)
-		btn.add_theme_color_override("font_hover_color", font_col)
-		btn.add_theme_color_override("font_pressed_color", font_col)
+		btn.add_theme_color_override("font_hover_color", q_color)
+		btn.add_theme_color_override("font_pressed_color", q_color)
 		btn.add_theme_color_override("font_focus_color", font_col)
 		btn.pressed.connect(func():
 			if _filter != mode:
 				_filter = mode
+				_refresh_moves()
+			else:
+				_filter = 0
 				_refresh_moves()
 		)
 		row.add_child(btn)
@@ -758,83 +777,238 @@ func _build_moves() -> void:
 	var cur_ply = gc.current_ply_index if gc else -1
 	var filtered := _filter != 0
 
+	_build_moves_table_header(filtered)
+
 	if not filtered:
 		_build_dense(moves, cur_ply)
 	else:
 		_build_filtered_single(moves, cur_ply)
 
+func _build_moves_table_header(filtered: bool) -> void:
+	var header := HBoxContainer.new()
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_theme_constant_override("separation", 6)
+	container.add_child(header)
+
+	var num_header := Label.new()
+	num_header.text = "#"
+	num_header.custom_minimum_size = Vector2(36, 0)
+	num_header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	num_header.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	num_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	header.add_child(num_header)
+
+	if not filtered:
+		var white_header := Label.new()
+		white_header.text = "⚪ Blanc"
+		white_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		white_header.size_flags_stretch_ratio = 1.0
+		white_header.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+		white_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		header.add_child(white_header)
+
+		var black_header := Label.new()
+		black_header.text = "⚫ Noir"
+		black_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		black_header.size_flags_stretch_ratio = 1.0
+		black_header.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+		black_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		header.add_child(black_header)
+	else:
+		var filtered_header := Label.new()
+		filtered_header.text = "Coups correspondants au filtre actif"
+		filtered_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		filtered_header.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+		filtered_header.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		header.add_child(filtered_header)
+
 # Mode dense (2 coups par ligne) : affichage historique complet.
 func _build_dense(moves: Array, cur_ply: int) -> void:
-	var current_row: HBoxContainer = null
-	for i in range(moves.size()):
-		var m = moves[i]
-		if i % 2 == 0:
-			current_row = HBoxContainer.new()
-			current_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			container.add_child(current_row)
+	var move_pair_count: int = (moves.size() + 1) / 2
+	for pair_idx in range(move_pair_count):
+		var white_ply: int = pair_idx * 2
+		var black_ply: int = white_ply + 1
+		var move_number: int = pair_idx + 1
 
-			var num_lbl := Label.new()
-			num_lbl.text = str((i / 2) + 1) + "."
-			num_lbl.custom_minimum_size = Vector2(34, 0)
-			num_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-			num_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-			current_row.add_child(num_lbl)
+		var current_panel := PanelContainer.new()
+		current_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
-		var btn := _make_move_button(m, i)
-		# Largeur minimale bornée : le repli du texte est calculé pour cette largeur (et
-		# non pour la plus longue « mot »), ce qui évite une hauteur de ligne démesurée.
-		btn.custom_minimum_size.x = _MOVE_MIN_W
-		current_row.add_child(btn)
-		if i == cur_ply:
-			_highlight_active(btn)
-			_active_btn = btn
-		move_buttons.append(btn)
+		# Zebra striping : fond subtil alterné
+		var row_sb := StyleBoxFlat.new()
+		row_sb.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
+		row_sb.content_margin_left = 4
+		row_sb.content_margin_right = 4
+		row_sb.content_margin_top = 2
+		row_sb.content_margin_bottom = 2
+		if pair_idx % 2 == 0:
+			row_sb.bg_color = Color(0.12, 0.16, 0.23, 0.45)
+		else:
+			row_sb.bg_color = Color(0, 0, 0, 0)
+		current_panel.add_theme_stylebox_override("panel", row_sb)
+		container.add_child(current_panel)
+
+		var current_row := HBoxContainer.new()
+		current_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		current_row.add_theme_constant_override("separation", 6)
+		current_panel.add_child(current_row)
+
+		var num_lbl := Label.new()
+		num_lbl.text = str(move_number) + "."
+		num_lbl.custom_minimum_size = Vector2(36, 0)
+		num_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		num_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		num_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		num_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		current_row.add_child(num_lbl)
+
+		# Coup Blanc
+		var white_move: ChessMove = moves[white_ply]
+		var white_btn := _make_move_button(white_move, white_ply)
+		current_row.add_child(white_btn)
+		if white_ply == cur_ply:
+			_highlight_active(white_btn)
+			_active_btn = white_btn
+		move_buttons.append(white_btn)
+
+		# Coup Noir (si existant)
+		if black_ply < moves.size():
+			var black_move: ChessMove = moves[black_ply]
+			var black_btn := _make_move_button(black_move, black_ply)
+			current_row.add_child(black_btn)
+			if black_ply == cur_ply:
+				_highlight_active(black_btn)
+				_active_btn = black_btn
+			move_buttons.append(black_btn)
+		else:
+			var placeholder := Control.new()
+			placeholder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			placeholder.size_flags_stretch_ratio = 1.0
+			current_row.add_child(placeholder)
 
 # Mode filtré : une ligne par coup visible (pleine largeur).
 func _build_filtered_single(moves: Array, cur_ply: int) -> void:
+	var visible_count: int = 0
 	for i in range(moves.size()):
 		var m = moves[i]
 		if not _passes_filter(m.quality):
 			continue
+		visible_count += 1
+		var is_even := visible_count % 2 == 0
+
+		var panel := PanelContainer.new()
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var row_sb := StyleBoxFlat.new()
+		row_sb.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
+		row_sb.content_margin_left = 4
+		row_sb.content_margin_right = 4
+		row_sb.content_margin_top = 2
+		row_sb.content_margin_bottom = 2
+		row_sb.bg_color = Color(0.12, 0.16, 0.23, 0.45) if is_even else Color(0, 0, 0, 0)
+		panel.add_theme_stylebox_override("panel", row_sb)
+		container.add_child(panel)
+
+		var row := HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_theme_constant_override("separation", 6)
+		panel.add_child(row)
+
+		var num_lbl := Label.new()
+		var move_num: int = (i / 2) + 1
+		num_lbl.text = str(move_num) + ("..." if i % 2 == 1 else ".")
+		num_lbl.custom_minimum_size = Vector2(44, 0)
+		num_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		num_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		num_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		num_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		row.add_child(num_lbl)
+
 		var btn := _make_move_button(m, i)
-		btn.text = str((i / 2) + 1) + ("..." if i % 2 == 1 else ". ") + btn.text
-		container.add_child(btn)
+		row.add_child(btn)
 		if i == cur_ply:
 			_highlight_active(btn)
 			_active_btn = btn
 		move_buttons.append(btn)
 
+	if visible_count == 0:
+		var empty_lbl := Label.new()
+		empty_lbl.text = "Aucun coup ne correspond au filtre sélectionné."
+		empty_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		empty_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		empty_lbl.custom_minimum_size = Vector2(0, 40)
+		container.add_child(empty_lbl)
+
+func _format_motifs_compact(motifs: Array) -> String:
+	if motifs.is_empty():
+		return ""
+	var primary: String = str(motifs[0])
+	match primary:
+		"Pièce non protégée":
+			return "⚑En prise"
+		"Attaque à la découverte":
+			return "⚑Découverte"
+		"Fourchette royale":
+			return "⚑Fourchette"
+		"Mat du couloir":
+			return "⚑Couloir"
+		_:
+			return "⚑" + primary
+
 func _make_move_button(m: ChessMove, ply: int) -> Button:
 	var btn := Button.new()
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.flat = true
+	btn.size_flags_stretch_ratio = 1.0
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size = Vector2(0, 48)
-	# Texte dynamique (SAN + qualité + horloge + motifs) : replié sur plusieurs lignes
-	# pour que toute l'information reste lisible sur mobile (aucun survol/tooltip).
-	btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	btn.custom_minimum_size = Vector2(0, 42)
+	btn.clip_text = true
+	btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	btn.set_meta("ply", ply)
 
-	var text := m.san
+	# Ligne 1 : SAN + Badge qualité + perte
+	var line1 := m.san
 	if m.is_theory:
-		text += "  (théorie)"
+		line1 += " 📖"
 	else:
 		var badge := ChessMove.quality_to_symbol(m.quality)
 		if badge != "":
-			text += " " + badge
-		text += _loss_suffix(m)
-	# T2.4 — Horloge restante si les annotations PGN la fournissent.
+			line1 += " " + badge
+		line1 += _loss_suffix(m)
+
+	# Ligne 2 : Horloge + motif tactique compact (si présents)
+	var line2_parts: Array = []
 	if m.clock_sec >= 0.0:
-		text += "  ⏱%s" % _format_clock(m.clock_sec)
-	# T1.4 — Motifs tactiques vérifiés (max 2, compacts).
+		line2_parts.append("⏱%s" % _format_clock(m.clock_sec))
 	if m.motifs.size() > 0:
-		var shown: Array = []
-		for k in range(mini(2, m.motifs.size())):
-			shown.append(str(m.motifs[k]))
-		text += "  ⚑" + ", ".join(shown)
-	btn.text = text
+		var motif_str := _format_motifs_compact(m.motifs)
+		if motif_str != "":
+			line2_parts.append(motif_str)
+
+	var full_text := line1
+	if not line2_parts.is_empty():
+		full_text += "\n" + "  ".join(line2_parts)
+	btn.text = full_text
 	btn.tooltip_text = _move_tooltip(m)
+
+	# Stylebox discret avec padding intérieur confortable
+	var sb_norm := StyleBoxFlat.new()
+	sb_norm.bg_color = Color(0, 0, 0, 0)
+	sb_norm.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
+	sb_norm.content_margin_left = 6
+	sb_norm.content_margin_right = 6
+	sb_norm.content_margin_top = 3
+	sb_norm.content_margin_bottom = 3
+
+	var sb_hover := sb_norm.duplicate() as StyleBoxFlat
+	sb_hover.bg_color = DesignTokens.BTN_BG_HOVER
+
+	var sb_pressed := sb_norm.duplicate() as StyleBoxFlat
+	sb_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
+
+	btn.add_theme_stylebox_override("normal", sb_norm)
+	btn.add_theme_stylebox_override("hover", sb_hover)
+	btn.add_theme_stylebox_override("pressed", sb_pressed)
+	btn.add_theme_stylebox_override("focus", sb_hover)
 
 	if m.is_theory:
 		btn.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
@@ -857,7 +1031,13 @@ func _get_active_stylebox() -> StyleBoxFlat:
 	if _active_stylebox == null:
 		_active_stylebox = StyleBoxFlat.new()
 		_active_stylebox.bg_color = DesignTokens.SURFACE_ELEVATED
-		_active_stylebox.set_corner_radius_all(4)
+		_active_stylebox.border_color = DesignTokens.ACCENT
+		_active_stylebox.set_border_width_all(1)
+		_active_stylebox.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
+		_active_stylebox.content_margin_left = 6
+		_active_stylebox.content_margin_right = 6
+		_active_stylebox.content_margin_top = 3
+		_active_stylebox.content_margin_bottom = 3
 	return _active_stylebox
 
 func _highlight_active(btn: Button) -> void:
@@ -869,13 +1049,23 @@ func _highlight_active(btn: Button) -> void:
 func _reset_button_style(btn: Button) -> void:
 	if not is_instance_valid(btn):
 		return
-	btn.remove_theme_stylebox_override("normal")
+	var sb_norm := StyleBoxFlat.new()
+	sb_norm.bg_color = Color(0, 0, 0, 0)
+	sb_norm.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
+	sb_norm.content_margin_left = 6
+	sb_norm.content_margin_right = 6
+	sb_norm.content_margin_top = 3
+	sb_norm.content_margin_bottom = 3
+	btn.add_theme_stylebox_override("normal", sb_norm)
+
 	var ply = btn.get_meta("ply", -1)
 	var gc = _get_game_controller()
 	var moves = gc.game.move_history if (gc and gc.game) else []
 	if ply >= 0 and ply < moves.size():
 		var m = moves[ply]
-		if m.quality != ChessMove.Quality.NONE:
+		if m.is_theory:
+			btn.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		elif m.quality != ChessMove.Quality.NONE:
 			btn.add_theme_color_override("font_color", ChessMove.quality_to_color(m.quality))
 		else:
 			btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
@@ -899,7 +1089,11 @@ func _update_active_button(ply_idx: int) -> void:
 func _loss_suffix(m: ChessMove) -> String:
 	if m.quality == ChessMove.Quality.NONE or MoveQualityService.group(m.quality) == 0:
 		return ""
-	if m.centipawn_loss > 0:
+	if m.centipawn_loss >= 3000:
+		return " (-Mat)"
+	elif m.centipawn_loss >= 1000:
+		return " (-%.1f)" % (float(m.centipawn_loss) / 100.0)
+	elif m.centipawn_loss > 0:
 		return " (-%d)" % int(m.centipawn_loss)
 	return ""
 

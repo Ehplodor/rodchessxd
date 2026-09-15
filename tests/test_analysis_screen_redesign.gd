@@ -129,6 +129,51 @@ func _init() -> void:
 	# 7. Test de la bannière héro et du face-à-face
 	print("  -> Bannière Héro & Scorecard Duel avec jauge : OK ✓")
 
+	# 8. Test de la barre de filtres mono-ligne (anti-débordement mobile)
+	var filter_bar: HBoxContainer = null
+	for child in children:
+		if child is HBoxContainer and child.get_child_count() == 9:
+			filter_bar = child
+			break
+	assert(filter_bar != null, "La barre de filtre doit être un HBoxContainer à 9 boutons")
+	for btn in filter_bar.get_children():
+		assert(btn is Button, "Chaque filtre doit être un Button")
+		assert(btn.size_flags_horizontal == Control.SIZE_EXPAND_FILL, "Chaque bouton doit occuper une largeur équitable")
+	# Test du toggle sur le bouton ?? (mode 1)
+	var blunder_btn: Button = filter_bar.get_child(1)
+	blunder_btn.pressed.emit()
+	assert(move_list._filter == 1, "Le clic sur ?? doit activer le filtre 1")
+	blunder_btn.pressed.emit()
+	assert(move_list._filter == 0, "Le second clic sur ?? doit réinitialiser le filtre à 0")
+	print("  -> Barre de filtres mono-ligne (9 filtres dynamiques, toggle réactif) : OK ✓")
+
+	# 9. Test de l'en-tête tabulaire des colonnes (Blanc / Noir)
+	var table_header: HBoxContainer = null
+	for child in children:
+		if child is HBoxContainer and child.get_child_count() == 3:
+			var c0 = child.get_child(0)
+			var c1 = child.get_child(1)
+			var c2 = child.get_child(2)
+			if c0 is Label and c0.text == "#" and c1 is Label and "Blanc" in c1.text and c2 is Label and "Noir" in c2.text:
+				table_header = child
+				break
+	assert(table_header != null, "L'en-tête tabulaire (#, Blanc, Noir) doit être présent")
+	print("  -> En-tête tabulaire (#, Blanc, Noir) bien positionné : OK ✓")
+
+	# 10. Test du formatage anti-artefact de mat et motifs compacts
+	var mate_blunder := ChessMove.new()
+	mate_blunder.quality = ChessMove.Quality.BLUNDER
+	mate_blunder.centipawn_loss = 10120
+	var loss_str: String = move_list._loss_suffix(mate_blunder)
+	assert(loss_str == " (-Mat)", "Une perte de 10120 cp doit afficher (-Mat) au lieu de (-10120), obtenu: %s" % loss_str)
+
+	var compact_hanging: String = move_list._format_motifs_compact(["Pièce non protégée"])
+	assert(compact_hanging == "⚑En prise", "Le motif long doit être compacté, obtenu: %s" % compact_hanging)
+
+	var compact_fork: String = move_list._format_motifs_compact(["Fourchette royale"])
+	assert(compact_fork == "⚑Fourchette", "Fourchette royale doit devenir ⚑Fourchette, obtenu: %s" % compact_fork)
+	print("  -> Formatage perte de mat (-Mat) & motifs compacts validés : OK ✓")
+
 	print("\n[TEST] ================================================================")
 	print("[TEST] VALIDATION COMPLÈTE DE LA REFONTE DE L'ÉCRAN D'ANALYSE : 100% SUCCÈS !")
 	print("[TEST] ================================================================\n")
