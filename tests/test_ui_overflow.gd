@@ -122,8 +122,17 @@ func _init() -> void:
 	_check(text_offenders.is_empty(),
 			"aucun libellé/bouton rogné sans clip/ellipsis (%d trouvés)" % text_offenders.size())
 
-	# 1bis. Aucun bouton « écrasé » : clip_text annule la largeur minimale d'un
-	# Button (→ ~8 px) s'il n'est ni EXPAND ni doté d'un minimum suffisant.
+	# 1bis. Aucun contrôle « écrasé » : clip_text annule la largeur minimale d'un
+	# Button (~8 px) comme d'un Label (~0 px) s'il n'est ni EXPAND ni doté d'un
+	# minimum suffisant. On renseigne d'abord les rangées joueurs (pseudo + badge).
+	main.player_name_top.text = "Sibwara33"
+	main.player_name_bottom.text = "RLFRRR"
+	main.turn_badge_label_top.text = "🏆 0-1 • Gagné"
+	main.turn_badge_top.visible = true
+	main.turn_badge_label_bottom.text = "💀 1-0 • Perdu"
+	main.turn_badge_bottom.visible = true
+	main._check_and_update_layout()
+	await _settle()
 	var crushed: Array = []
 	_collect_crushed_buttons(main, crushed)
 	for o in crushed.slice(0, 12):
@@ -219,9 +228,10 @@ func _has_letter(txt: String) -> bool:
 			return true
 	return false
 
-## Détecte les boutons réduits à presque rien (largeur < 24 px) : signe d'un
-## clip_text sans largeur garantie (EXPAND ou minimum) ou d'un conteneur qui ne
-## leur alloue pas d'espace.
+## Détecte les contrôles « écrasés » : bouton à texte réduit à presque rien
+## (< 24 px) ou libellé non vide quasi invisible (< 8 px). Signe d'un clip_text
+## sans largeur garantie (EXPAND ou minimum) ou d'un conteneur qui ne leur
+## alloue pas d'espace.
 func _collect_crushed_buttons(node: Node, out: Array) -> void:
 	for child in node.get_children():
 		if child is Control:
@@ -229,13 +239,18 @@ func _collect_crushed_buttons(node: Node, out: Array) -> void:
 			if c.is_visible_in_tree() and not c.get_class().ends_with("Window"):
 				var txt := ""
 				var is_btn := false
+				var is_lbl := false
 				if c is Button:
 					txt = (c as Button).text
 					is_btn = true
 				elif c is OptionButton:
 					txt = (c as OptionButton).text
 					is_btn = true
-				if is_btn and txt != "" and _has_letter(txt) and c.size.x < 24.0:
+				elif c is Label:
+					txt = (c as Label).text
+					is_lbl = true
+				var too_narrow := (is_btn and c.size.x < 24.0) or (is_lbl and c.size.x < 8.0)
+				if txt != "" and _has_letter(txt) and too_narrow:
 					out.append({"w": c.size.x, "text": txt.substr(0, 22), "path": str(c.get_path())})
 		_collect_crushed_buttons(child, out)
 

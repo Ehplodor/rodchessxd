@@ -547,9 +547,11 @@ func _apply_overflow_guards() -> void:
 	var eval_badge := get_node_or_null("VBox/TopBar/EvalBadge")
 	if eval_badge is Control:
 		(eval_badge as Control).custom_minimum_size = Vector2(44, 36)
-	for path in ["VBox/TopBar/MarginContainer/TitleBox/AppTitle",
-			"VBox/TopBar/MarginContainer/TitleBox/VersionLabel",
-			"VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop",
+	# Libellés dynamiques tronquables. NB : on n'y met PAS le titre de l'application
+	# ni la version (« ♟️ RodChess » / « v1.2.0 ») : courts et statiques, ils
+	# n'ont pas besoin d'être tronqués et clip_text les rendrait invisibles (leur
+	# largeur minimale tomberait à ~0, absorbée par le Spacer de la barre).
+	for path in ["VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop",
 			"VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom",
 			"AnalyseOverlay/Layout/Header/Title", "CoachOverlay/Layout/Header/Title"]:
 		var label := get_node_or_null(path)
@@ -580,6 +582,14 @@ func _apply_overflow_guards() -> void:
 		btn_toggle_live.clip_text = false
 		btn_toggle_live.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 		btn_toggle_live.custom_minimum_size.x = 78
+	# Noms de joueurs : clip_text ramène leur largeur minimale à ~0 ; sans EXPAND
+	# dans leur rangée, ils seraient alloués 0 px et disparaîtraient. On leur rend
+	# l'espace disponible (le badge de résultat, extensible, reste calé à droite).
+	for name_path in ["VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop",
+			"VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom"]:
+		var name_lbl := get_node_or_null(name_path)
+		if name_lbl is Label:
+			(name_lbl as Label).size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_harden_dropdowns(self)
 
 static func _has_ascii_letter(text: String) -> bool:
