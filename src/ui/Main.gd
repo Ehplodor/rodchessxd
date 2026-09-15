@@ -1028,6 +1028,9 @@ func _on_stored_analysis_selected(analysis_entry: Dictionary) -> void:
 	_sync_eval_to_ply(cur_ply)
 
 func _sync_eval_to_ply(ply_idx: int) -> void:
+	_engine_lines_last_depth = -1
+	_engine_lines_last_count = -1
+	_engine_lines_last_fen = ""
 	if advantage_graph != null and not advantage_graph.evaluations.is_empty():
 		if ply_idx >= 0 and ply_idx < advantage_graph.evaluations.size():
 			var rec: Dictionary = advantage_graph.evaluations[ply_idx]
@@ -1038,9 +1041,33 @@ func _sync_eval_to_ply(ply_idx: int) -> void:
 			if top_eval_label:
 				top_eval_label.text = EvalFormatter.format_cp_mate(score_cp, mate_in)
 			
-			var best_uci: String = rec.get("best_move", "")
+			var best_uci: String = str(rec.get("best_move", ""))
+			var stored_depth: int = int(rec.get("depth", 0))
 			if chess_board:
-				chess_board.set_best_move_arrow(best_uci, int(rec.get("depth", 0)))
+				chess_board.set_best_move_arrow(best_uci, stored_depth)
+			
+			if engine_lines_panel:
+				var target_fen = GameController.game.get_fen() if GameController and GameController.game else str(rec.get("fen", ""))
+				var pv: Array = rec.get("pv_line", [])
+				if pv.is_empty() and best_uci != "":
+					pv = [best_uci]
+				if not pv.is_empty():
+					var stored_line := {
+						"rank": 1,
+						"depth": stored_depth,
+						"score_cp": score_cp,
+						"mate_in": mate_in,
+						"best_move": best_uci,
+						"fen": target_fen,
+						"pv": pv
+					}
+					var eng_name := "Stockfish"
+					if EngineManager and EngineManager.has_method("get_engine_display_name"):
+						eng_name = EngineManager.get_engine_display_name()
+					_engine_lines_last_fen = target_fen
+					_engine_lines_last_depth = stored_depth
+					_engine_lines_last_count = 1
+					engine_lines_panel.set_lines([stored_line], eng_name, stored_depth)
 		elif ply_idx == -1:
 			if eval_bar:
 				eval_bar.set_score(20, 0)
@@ -1048,6 +1075,20 @@ func _sync_eval_to_ply(ply_idx: int) -> void:
 				top_eval_label.text = "+0.2"
 			if chess_board:
 				chess_board.set_best_move_arrow("")
+			if engine_lines_panel:
+				var init_line := {
+					"rank": 1,
+					"depth": 1,
+					"score_cp": 20,
+					"mate_in": 0,
+					"best_move": "e2e4",
+					"fen": ChessGame.INITIAL_FEN,
+					"pv": ["e2e4", "e7e5"]
+				}
+				var eng_name := "Stockfish"
+				if EngineManager and EngineManager.has_method("get_engine_display_name"):
+					eng_name = EngineManager.get_engine_display_name()
+				engine_lines_panel.set_lines([init_line], eng_name, 1)
 
 func _on_play_sound(sound_type: String) -> void:
 	if not SettingsManager.get_setting("sound_enabled", true):
@@ -1084,23 +1125,31 @@ func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String,
 		if chess_board:
 			chess_board.set_best_move_arrow(best_move)
 
-## Dernier état publié du panneau MultiPV (throttle par profondeur + nb de lignes).
+## Dernier état publié du panneau MultiPV (throttle par FEN + profondeur + nb de lignes).
 var _engine_lines_last_depth: int = -1
 var _engine_lines_last_count: int = -1
+var _engine_lines_last_fen: String = ""
 
 ## T1.1 — Met à jour le panneau des lignes moteur (MultiPV).
-## Throttlé (profondeur/nombre de lignes) et ignoré pendant l'analyse de masse pour
+## Throttlé (profondeur/nombre de lignes par position FEN) et ignoré pendant l'analyse de masse pour
 ## ne pas reconstruire les boutons à chaque ligne `info` du moteur.
 func _update_engine_lines(multipv: Array, depth: int) -> void:
 	if engine_lines_panel == null or multipv.is_empty():
 		return
 	if analyzer != null and analyzer.is_analyzing:
 		return
-	if depth == _engine_lines_last_depth and multipv.size() == _engine_lines_last_count:
+	var line_fen := ""
+	if not multipv.is_empty():
+		line_fen = str(multipv[0].get("fen", ""))
+	if line_fen != "" and line_fen != _engine_lines_last_fen:
+		_engine_lines_last_fen = line_fen
+		_engine_lines_last_depth = -1
+		_engine_lines_last_count = -1
+	elif depth == _engine_lines_last_depth and multipv.size() == _engine_lines_last_count:
 		return
 	_engine_lines_last_depth = depth
 	_engine_lines_last_count = multipv.size()
-	var eng_name := "Moteur"
+	var eng_name := "Stockfish"
 	if EngineManager != null and EngineManager.has_method("get_engine_display_name"):
 		eng_name = EngineManager.get_engine_display_name()
 	engine_lines_panel.set_lines(multipv, eng_name, depth)
@@ -1800,6 +1849,9 @@ func _on_ply_analyzed(ply_idx: int, move_record: Dictionary, _partial_stats: Dic
 		top_eval_label.text = EvalFormatter.format_cp_mate(score_cp, mate_in)
 
 func _cancel_analysis_if_running() -> void:
+	_engine_lines_last_fen = ""
+	_engine_lines_last_depth = -1
+	_engine_lines_last_count = -1
 	if analyzer != null and analyzer.is_analyzing:
 		analyzer.cancel_analysis()
 		analyzer.is_analyzing = false
@@ -1893,6 +1945,7 @@ func _on_btn_analyze_game_pressed() -> void:
 
 func _on_analysis_finished(report: Dictionary) -> void:
 	# Force le rafraîchissement du panneau MultiPV au retour du Live.
+	_engine_lines_last_fen = ""
 	_engine_lines_last_depth = -1
 	_engine_lines_last_count = -1
 	if analysis_thread and analysis_thread.is_started():

@@ -134,6 +134,7 @@ var _started_msec := 0
 # `info` avant son `bestmove`. Elles ne doivent jamais contaminer le calcul
 # suivant, particulièrement dans le worker Web mono-moteur.
 var _stop_pending := false
+var _ignore_next_bestmove := false
 var _evaluation_generation := 0
 var _readyok_serial := 0
 var _async_analysis_session_active := false
@@ -1056,7 +1057,11 @@ func set_multipv(n: int, reset: bool = true) -> void:
 func _reset_eval_accumulators() -> void:
 	multipv_lines = []
 	_multipv_accum = {}
+	eval_depth = 0
+	eval_score_cp = 0
 	eval_mate_in = 0
+	best_move_uci = ""
+	pv_line.clear()
 
 func send_command(cmd: String) -> void:
 	if not is_engine_running:
@@ -1103,6 +1108,8 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 	var cached := get_cached_eval(fen, depth, _multipv_requested)
 	if not cached.is_empty():
 		state_mutex.lock()
+		var was_eval = is_evaluating
+		_evaluation_generation += 1
 		current_fen = fen
 		is_evaluating = false
 		best_move_uci = str(cached.get("best_move", ""))
@@ -1116,8 +1123,22 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 		for line_dict in cached.get("multipv_lines", []):
 			if line_dict is Dictionary:
 				multipv_lines.append(line_dict)
+		if multipv_lines.is_empty() and best_move_uci != "":
+			multipv_lines.append({
+				"rank": 1,
+				"depth": eval_depth,
+				"score_cp": eval_score_cp,
+				"mate_in": eval_mate_in,
+				"best_move": best_move_uci,
+				"fen": fen,
+				"pv": pv_line.duplicate()
+			})
+		if was_eval:
+			_ignore_next_bestmove = true
 		var gen := _evaluation_generation
 		state_mutex.unlock()
+		if was_eval:
+			send_command("stop")
 		var emit_args = [eval_score_cp, eval_mate_in, eval_depth, best_move_uci, pv_line, multipv_lines.duplicate(true), gen]
 		_emit_evaluation_deferred.call_deferred(emit_args)
 		_emit_evaluation_finished_deferred.call_deferred(best_move_uci, eval_score_cp, eval_depth)
@@ -1127,14 +1148,19 @@ func evaluate_position(fen: String, depth: int = -1) -> void:
 	if current_fen == fen and is_evaluating:
 		state_mutex.unlock()
 		return
+	var was_evaluating = is_evaluating
+	_evaluation_generation += 1
 	current_fen = fen
 	is_evaluating = true
 	_last_eval_emit_ms = 0
 	_last_emitted_depth = 0
 	_reset_eval_accumulators()
+	if was_evaluating:
+		_ignore_next_bestmove = true
 	state_mutex.unlock()
 
-	send_command("stop")
+	if was_evaluating:
+		send_command("stop")
 	send_command("position fen " + fen)
 	send_command("go depth %d" % depth)
 
@@ -1145,6 +1171,7 @@ func stop_evaluation() -> void:
 		is_evaluating = false
 		current_fen = ""
 		_stop_pending = true
+		_ignore_next_bestmove = false
 		_evaluation_generation += 1
 	state_mutex.unlock()
 	if must_stop:
@@ -1158,6 +1185,7 @@ func interrupt_evaluation() -> void:
 	current_fen = ""
 	if must_stop:
 		_stop_pending = true
+		_ignore_next_bestmove = false
 		_evaluation_generation += 1
 	state_mutex.unlock()
 	if must_stop:
@@ -1582,6 +1610,9 @@ func _parse_engine_line(line: String) -> void:
 				"pv": pv.duplicate()
 			}
 			state_mutex.lock()
+			if _stop_pending or generation != _evaluation_generation:
+				state_mutex.unlock()
+				return
 			_multipv_accum[rank] = line_rec
 			var ranks := _multipv_accum.keys()
 			ranks.sort()
@@ -1621,6 +1652,10 @@ func _parse_engine_line(line: String) -> void:
 			current_fen = ""
 			state_mutex.unlock()
 			return
+		if _ignore_next_bestmove:
+			_ignore_next_bestmove = false
+			state_mutex.unlock()
+			return
 		if parts.size() > 1:
 			best_move_uci = parts[1]
 		# Si bestmove est "(none)", la position est terminale (mat ou pat)
@@ -1636,7 +1671,17 @@ func _parse_engine_line(line: String) -> void:
 		var pv_c = pv_line.duplicate()
 		var mpv_c = multipv_lines.duplicate(true)
 		state_mutex.unlock()
-		if c_fen != "":
+		if c_fen != "" and d > 0 and not pv_c.is_empty():
+			if mpv_c.is_empty() and b_move != "":
+				mpv_c = [{
+					"rank": 1,
+					"depth": d,
+					"score_cp": s_cp,
+					"mate_in": m_in,
+					"best_move": b_move,
+					"fen": c_fen,
+					"pv": pv_c
+				}]
 			store_cached_eval(c_fen, {
 				"score_cp": s_cp,
 				"mate_in": m_in,
@@ -1647,7 +1692,8 @@ func _parse_engine_line(line: String) -> void:
 				"timed_out": false,
 				"cancelled": false
 			})
-		_emit_evaluation_finished_deferred.call_deferred(b_move, s_cp, d)
+		if b_move != "" and d > 0:
+			_emit_evaluation_finished_deferred.call_deferred(b_move, s_cp, d)
 	elif line == "readyok":
 		state_mutex.lock()
 		_readyok_serial += 1
@@ -1698,6 +1744,8 @@ func stop_engine() -> void:
 		state_mutex.lock()
 		is_engine_running = false
 		_pending_live_fen = ""
+		_stop_pending = false
+		_ignore_next_bestmove = false
 		state_mutex.unlock()
 		if not _use_wasm and not _use_plugin and engine_thread and engine_thread.is_started():
 			engine_thread.wait_to_finish()

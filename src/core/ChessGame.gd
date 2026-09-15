@@ -813,6 +813,8 @@ func _find_matching_move(token: String) -> ChessMove:
 				"n": prom_type = ChessPiece.Type.KNIGHT
 			var m = ChessMove.new(u_from, u_to, p_piece, active_color)
 			m.promotion = prom_type
+			if p_piece == ChessPiece.Type.KING and abs(u_to - u_from) == 2:
+				m.is_castling = true
 			if p_piece == ChessPiece.Type.PAWN and u_to == en_passant_sq and (u_from % 8 != u_to % 8):
 				m.is_en_passant = true
 			m.captured_piece = board[u_to].type if not m.is_en_passant else ChessPiece.Type.PAWN

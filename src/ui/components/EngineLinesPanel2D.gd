@@ -85,7 +85,8 @@ func _update_header() -> void:
 	if _header_btn == null:
 		return
 	var arrow := "▸" if _collapsed else "▾"
-	_header_btn.text = "%s Lignes moteur (%d) — %s d%d" % [arrow, _lines.size(), _engine_name, _depth]
+	var title_lines := "Ligne moteur" if _lines.size() <= 1 else ("Lignes moteur (%d)" % _lines.size())
+	_header_btn.text = "%s %s — %s d%d" % [arrow, title_lines, _engine_name, _depth]
 
 func _rebuild() -> void:
 	if _rows_box == null:
@@ -101,7 +102,10 @@ func _rebuild() -> void:
 		var eval_str := EvalFormatter.format_cp_mate(int(line.get("score_cp", 0)), int(line.get("mate_in", 0)))
 		var san_line := _pv_to_san(str(line.get("fen", "")), pv)
 		var btn = _row_buttons[i]
-		btn.text = "%d.  %s   %s" % [i + 1, eval_str, san_line]
+		if _lines.size() > 1:
+			btn.text = "#%d  %s   %s" % [i + 1, eval_str, san_line]
+		else:
+			btn.text = "%s   %s" % [eval_str, san_line]
 		btn.tooltip_text = "%s\n%s" % [eval_str, san_line]
 		btn.visible = true
 		_row_data[i] = {
@@ -116,6 +120,12 @@ func _rebuild() -> void:
 		_row_data[i] = {}
 
 func _pv_to_san(fen: String, pv: Array) -> String:
+	if fen == "":
+		var tree = Engine.get_main_loop() as SceneTree
+		if tree and tree.root and tree.root.has_node("GameController"):
+			var gc = tree.root.get_node("GameController")
+			if gc and gc.game:
+				fen = gc.game.get_fen()
 	if fen == "" or pv.is_empty():
 		return " ".join(pv)
 	var cache_key = fen + "|" + " ".join(pv.slice(0, 8))
@@ -126,11 +136,21 @@ func _pv_to_san(fen: String, pv: Array) -> String:
 		return " ".join(pv)
 	var sans: Array = []
 	var limit := mini(pv.size(), 8)
+	var is_black_first = (game.active_color == ChessPiece.PieceColor.BLACK)
+	var first_move_num = game.fullmove_number
 	for k in range(limit):
 		var mv := game.find_move(str(pv[k]))
 		if mv == null:
 			break
-		sans.append(mv.san)
+		var move_prefix := ""
+		if k == 0:
+			if is_black_first:
+				move_prefix = "%d... " % first_move_num
+			else:
+				move_prefix = "%d. " % first_move_num
+		elif game.active_color == ChessPiece.PieceColor.WHITE:
+			move_prefix = "%d. " % game.fullmove_number
+		sans.append(move_prefix + mv.san)
 		game.make_move(mv)
 	var res = " ".join(sans)
 	if _san_cache.size() > 200:
