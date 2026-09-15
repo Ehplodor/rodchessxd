@@ -114,6 +114,7 @@ var best_move_arrow_depth: int = 0
 ## FEN associé à la flèche courante : un rafraîchissement graphique ne doit pas
 ## effacer une flèche encore valable pour la position affichée.
 var best_move_arrow_fen: String = ""
+var engine_lines_arrows: Array[Dictionary] = []
 var show_move_hints: bool = true
 
 # T2.1 — Annotations utilisateur (flèches clic droit / Maj+glisser, cercles par clic simple).
@@ -451,6 +452,7 @@ func reset_board_visuals(preserve_best_move: bool = false) -> void:
 			best_move_arrow_from = -1
 			best_move_arrow_to = -1
 			best_move_arrow_fen = ""
+			engine_lines_arrows.clear()
 	
 	var gc = _get_game_controller()
 	if gc and gc.current_ply_index >= 0 and gc.current_ply_index < gc.game.move_history.size():
@@ -947,9 +949,20 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 	if last_move_from != -1 and last_move_to != -1 and not is_animating_move:
 		_draw_last_move_arrow(last_move_from, last_move_to, theme, ci)
 	
-	# 3. Flèche tactique moderne pour l'analyse Stockfish (meilleur coup)
-	if show_move_hints and best_move_arrow_from != -1 and best_move_arrow_to != -1:
-		_draw_modern_move_arrow(best_move_arrow_from, best_move_arrow_to, theme, ci)
+	# 3. Flèches tactiques modernes pour l'analyse Stockfish (meilleur(s) coup(s))
+	if show_move_hints:
+		if not engine_lines_arrows.is_empty():
+			var total_lines = engine_lines_arrows.size()
+			# On dessine les flèches du rang le plus élevé vers le rang 1 pour que le #1 apparaisse au premier plan
+			for idx in range(engine_lines_arrows.size() - 1, -1, -1):
+				var arr: Dictionary = engine_lines_arrows[idx]
+				var from_sq: int = int(arr.get("from", -1))
+				var to_sq: int = int(arr.get("to", -1))
+				var rank: int = int(arr.get("rank", idx + 1))
+				var badge_num := rank if total_lines > 1 else 0
+				_draw_modern_move_arrow(from_sq, to_sq, theme, ci, badge_num, rank)
+		elif best_move_arrow_from != -1 and best_move_arrow_to != -1:
+			_draw_modern_move_arrow(best_move_arrow_from, best_move_arrow_to, theme, ci)
 
 	# 4. T2.1 — Annotations utilisateur (persistées avec la partie).
 	for a in user_arrows:
@@ -963,41 +976,46 @@ func _annotate(from_sq: int, to_sq: int) -> void:
 	if from_sq == -1:
 		return
 	if to_sq == from_sq or to_sq == -1:
-		if user_circles.has(from_sq):
-			user_circles.erase(from_sq)
+		var idx = user_circles.find(from_sq)
+		if idx != -1:
+			user_circles.remove_at(idx)
 		else:
 			user_circles.append(from_sq)
 	else:
-		var idx := -1
+		var found_idx := -1
 		for i in range(user_arrows.size()):
-			var a: Dictionary = user_arrows[i]
+			var a = user_arrows[i]
 			if int(a.get("from", -1)) == from_sq and int(a.get("to", -1)) == to_sq:
-				idx = i
+				found_idx = i
 				break
-		if idx >= 0:
-			user_arrows.remove_at(idx)
+		if found_idx != -1:
+			user_arrows.remove_at(found_idx)
 		else:
 			user_arrows.append({"from": from_sq, "to": to_sq})
-	_redraw_board_and_overlays()
 	user_annotations_changed.emit()
+	if arrow_overlay:
+		arrow_overlay.queue_redraw()
+	queue_redraw()
 
 func _draw_user_arrow(from_sq: int, to_sq: int, ci: CanvasItem) -> void:
-	if from_sq == -1 or to_sq == -1:
+	if from_sq < 0 or to_sq < 0:
 		return
 	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
 	var end_pos = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
 	var dir = (end_pos - start_pos).normalized()
 	if start_pos.distance_to(end_pos) < 1.0:
 		return
-	var color := Color("#f59e0bef")
-	var shaft_width: float = clampf(square_size * 0.10, 4.0, 11.0)
-	var head_length: float = clampf(square_size * 0.30, 12.0, 30.0)
-	var head_width: float = clampf(square_size * 0.32, 14.0, 34.0)
-	var shaft_end = end_pos - dir * (head_length * 0.85)
+	var col = Color("#f59e0bee")
+	var shaft_w: float = clampf(square_size * 0.08, 3.0, 8.0)
+	var head_len: float = clampf(square_size * 0.26, 11.0, 26.0)
+	var head_w: float = clampf(square_size * 0.30, 13.0, 30.0)
+	var shaft_end = end_pos - dir * (head_len * 0.85)
 	var perp = Vector2(-dir.y, dir.x)
-	ci.draw_line(start_pos, shaft_end, color, shaft_width, true)
-	ci.draw_circle(start_pos, shaft_width * 0.6, color)
-	ci.draw_colored_polygon(PackedVector2Array([end_pos, shaft_end + perp * (head_width * 0.5), shaft_end - perp * (head_width * 0.5)]), color)
+	ci.draw_line(start_pos, shaft_end, col, shaft_w, true)
+	var p1 = end_pos
+	var p2 = shaft_end + perp * (head_w * 0.5)
+	var p3 = shaft_end - perp * (head_w * 0.5)
+	ci.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), col)
 
 ## T2.1 — Sérialise / restaure les annotations (persistance dans le JSON de partie).
 func get_user_annotations() -> Dictionary:
@@ -1055,7 +1073,7 @@ func _draw_last_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Canv
 	canvas.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
 	canvas.draw_polyline(PackedVector2Array([p2, p1, p3]), Color(1.0, 1.0, 1.0, 0.45), 1.0, true)
 
-func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: CanvasItem = null) -> void:
+func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: CanvasItem = null, rank_num: int = 0, rank_order: int = 1) -> void:
 	var canvas: CanvasItem = ci if ci != null else self
 	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
 	var end_pos = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
@@ -1071,6 +1089,14 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 		arrow_color = get_depth_rainbow_color(best_move_arrow_depth)
 	else:
 		arrow_color = theme.get("best_move_arrow", Color("#0284c7"))
+
+	# Si c'est une ligne secondaire (rank > 1), on module légèrement la couleur pour la hiérarchie visuelle
+	if rank_order == 2:
+		arrow_color = theme.get("best_move_arrow_secondary", Color.from_hsv(fposmod(arrow_color.h + 0.08, 1.0), 0.75, 0.95))
+		arrow_color.a = 0.88
+	elif rank_order > 2:
+		arrow_color = Color.from_hsv(fposmod(arrow_color.h + 0.16 * (rank_order - 1), 1.0), 0.70, 0.90)
+		arrow_color.a = 0.80
 
 	var shaft_width: float = clampf(square_size * 0.12, 5.0, 14.0)
 	var head_length: float = clampf(square_size * 0.35, 15.0, 36.0)
@@ -1096,6 +1122,24 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 	canvas.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
 	# Filet lumineux blanc discret pour faire ressortir la flèche sur les cases sombres ou claires
 	canvas.draw_polyline(PackedVector2Array([p2, p1, p3]), Color(1.0, 1.0, 1.0, 0.45), 1.2, true)
+
+	# Numéro indicatif subtil mais évident à 3/4 de la distance (1/4 du bout de la flèche)
+	if rank_num > 0:
+		var badge_pos = start_pos.lerp(end_pos, 0.75)
+		var badge_radius = clampf(shaft_width * 1.05, 7.0, 14.0)
+		var font: Font = ThemeDB.fallback_font
+		var num_str := str(rank_num)
+		var font_size = int(clampf(badge_radius * 1.45, 10.0, 18.0))
+		
+		# Disque de fond (fond noir semi-opaque élégant + liseré blanc/or fin)
+		canvas.draw_circle(badge_pos + Vector2(0.5, 0.5), badge_radius + 1.2, Color(1.0, 1.0, 1.0, 0.85))
+		canvas.draw_circle(badge_pos, badge_radius, Color(0.08, 0.10, 0.15, 0.95))
+		
+		if font:
+			var str_size = font.get_string_size(num_str, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size)
+			var text_pos = badge_pos + Vector2(-str_size.x * 0.5, font_size * 0.36)
+			# Numéro en blanc pur très net et contrasté au centre du badge noir
+			canvas.draw_string(font, text_pos, num_str, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.95, 0.97, 1.0, 1.0))
 
 # --- GESTION TACTILE & SOURIS (Clic pour sélectionner, Clic pour déplacer) ---
 
@@ -1341,6 +1385,7 @@ func _on_move_made(move: ChessMove) -> void:
 	best_move_arrow_from = -1
 	best_move_arrow_to = -1
 	best_move_arrow_fen = ""
+	engine_lines_arrows.clear()
 	_check_king_status()
 	_animate_move(move)
 	queue_redraw()
@@ -1356,8 +1401,11 @@ func _check_king_status() -> void:
 				break
 	set_process(in_check_sq != -1)
 
-func _on_engine_eval(_score_cp: int, _mate_in: int, depth: int, best_move: String, _pv: Array, _multipv: Array) -> void:
-	set_best_move_arrow(best_move, depth)
+func _on_engine_eval(_score_cp: int, _mate_in: int, depth: int, best_move: String, _pv: Array, multipv: Array) -> void:
+	if not multipv.is_empty():
+		set_engine_lines_arrows(multipv, depth)
+	else:
+		set_best_move_arrow(best_move, depth)
 
 ## Définit la flèche du meilleur coup en mémorisant le FEN associé, afin qu'un simple
 ## rafraîchissement du plateau ne l'efface pas (correctif flèches Live).
@@ -1365,6 +1413,7 @@ func set_best_move_arrow(uci: String, depth: int = 0) -> void:
 	best_move_arrow_depth = depth
 	var gc = _get_game_controller()
 	var fen: String = gc.game.get_fen() if gc and gc.game else ""
+	engine_lines_arrows.clear()
 	if uci.length() >= 4:
 		best_move_arrow_from = ChessMove.coord_to_square(uci.substr(0, 2))
 		best_move_arrow_to = ChessMove.coord_to_square(uci.substr(2, 2))
@@ -1373,6 +1422,42 @@ func set_best_move_arrow(uci: String, depth: int = 0) -> void:
 		best_move_arrow_from = -1
 		best_move_arrow_to = -1
 		best_move_arrow_fen = ""
+	if arrow_overlay:
+		arrow_overlay.queue_redraw()
+	queue_redraw()
+
+## Définit les flèches pour toutes les lignes MultiPV proposées par le moteur.
+## Chaque flèche correspond au premier coup de la ligne et porte un numéro d'ordre subtil.
+func set_engine_lines_arrows(multipv_lines: Array, depth: int = 0) -> void:
+	best_move_arrow_depth = depth
+	var gc = _get_game_controller()
+	var fen: String = gc.game.get_fen() if gc and gc.game else ""
+	engine_lines_arrows.clear()
+	best_move_arrow_from = -1
+	best_move_arrow_to = -1
+	best_move_arrow_fen = fen
+
+	for line in multipv_lines:
+		var rank: int = int(line.get("rank", engine_lines_arrows.size() + 1))
+		var move_uci: String = str(line.get("best_move", ""))
+		if move_uci == "":
+			var pv: Array = line.get("pv", [])
+			if not pv.is_empty():
+				move_uci = str(pv[0])
+		if move_uci.length() >= 4:
+			var f_sq := ChessMove.coord_to_square(move_uci.substr(0, 2))
+			var t_sq := ChessMove.coord_to_square(move_uci.substr(2, 2))
+			if f_sq >= 0 and f_sq < 64 and t_sq >= 0 and t_sq < 64:
+				engine_lines_arrows.append({
+					"from": f_sq,
+					"to": t_sq,
+					"rank": rank,
+					"uci": move_uci
+				})
+				if rank == 1 and best_move_arrow_from == -1:
+					best_move_arrow_from = f_sq
+					best_move_arrow_to = t_sq
+
 	if arrow_overlay:
 		arrow_overlay.queue_redraw()
 	queue_redraw()

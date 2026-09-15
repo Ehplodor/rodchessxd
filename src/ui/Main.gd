@@ -1358,7 +1358,10 @@ func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String,
 			eval_bar.set_score(score_cp, mate_in)
 
 		if chess_board:
-			chess_board.set_best_move_arrow(best_move)
+			if not multipv.is_empty():
+				chess_board.set_engine_lines_arrows(multipv, depth)
+			else:
+				chess_board.set_best_move_arrow(best_move)
 
 ## Dernier état publié du panneau MultiPV (throttle par FEN + profondeur + nb de lignes).
 var _engine_lines_last_depth: int = -1
