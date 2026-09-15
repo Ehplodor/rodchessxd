@@ -121,7 +121,7 @@ func _rebuild() -> void:
 			btn.text = "#%d  %s   %s" % [i + 1, eval_str, san_line]
 		else:
 			btn.text = "%s   %s" % [eval_str, san_line]
-		btn.tooltip_text = "%s\n%s" % [eval_str, san_line]
+		btn.tooltip_text = "%s\n%s\n▶ Cliquer pour jouer ce coup sur l'échiquier (mode Test)" % [eval_str, san_line]
 		btn.visible = true
 		_row_data[i] = {
 			"rank": i + 1,

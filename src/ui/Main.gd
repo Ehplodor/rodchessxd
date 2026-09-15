@@ -37,6 +37,7 @@ const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
 @onready var coach_overlay: Control = $CoachOverlay
 
 @onready var btn_analyze_game: Button = $VBox/NavRow/BtnAnalyzeGame
+@onready var btn_toggle_sandbox: Button = $VBox/NavRow/BtnToggleSandbox
 @onready var btn_toggle_live: Button = $VBox/NavRow/BtnToggleLive
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
 
@@ -124,6 +125,11 @@ var _audio_in_progress_side_is_white: Variant = null
 var analyzer: GameAnalyzer
 var analysis_thread: Thread = null
 var live_eval_enabled: bool = true
+var is_sandbox_mode: bool = false
+var _sandbox_saved_pgn: String = ""
+var _sandbox_saved_ply_idx: int = -1
+var _sandbox_saved_game_id: String = ""
+var _sandbox_saved_evals: Array = []
 
 var error_label: Label = null
 var _error_token := 0
@@ -189,6 +195,8 @@ func _ready() -> void:
 
 	if btn_toggle_live != null and not btn_toggle_live.pressed.is_connected(_on_btn_toggle_live_pressed):
 		btn_toggle_live.pressed.connect(_on_btn_toggle_live_pressed)
+	if btn_toggle_sandbox != null and not btn_toggle_sandbox.pressed.is_connected(_on_btn_toggle_sandbox_pressed):
+		btn_toggle_sandbox.pressed.connect(_on_btn_toggle_sandbox_pressed)
 	if btn_analyze_game != null and not btn_analyze_game.pressed.is_connected(_on_btn_analyze_game_pressed):
 		btn_analyze_game.pressed.connect(_on_btn_analyze_game_pressed)
 	
@@ -224,6 +232,7 @@ func _ready() -> void:
 
 	_update_player_labels()
 	_update_live_button_style()
+	_update_sandbox_button_style()
 	_move_graph_hud_to_engine_panel()
 	# Re-répartition dynamique dès qu'un bloc du bas change de hauteur (lignes
 	# moteur dépliées/repliées, bandeaux joueurs, densité des raccourcis…).
@@ -572,16 +581,21 @@ func _apply_overflow_guards() -> void:
 				child.clip_text = true
 				child.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 				child.custom_minimum_size.x = minf(child.custom_minimum_size.x, float(DesignTokens.TOUCH_MIN))
-	# NavRow : « Analyser » est extensible (min 0) et « Live » doit garder sa
-	# largeur naturelle pour ne pas couper son libellé en plein mot.
+	# NavRow : « Analyser » est extensible (min 0), « Test » a une largeur garantie de 72 px
+	# et « Live » garde 76 px pour ne pas couper son libellé en plein mot.
 	if is_instance_valid(btn_analyze_game):
 		btn_analyze_game.clip_text = true
 		btn_analyze_game.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		btn_analyze_game.custom_minimum_size.x = 0
+	if is_instance_valid(btn_toggle_sandbox):
+		btn_toggle_sandbox.clip_text = true
+		btn_toggle_sandbox.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		btn_toggle_sandbox.custom_minimum_size.x = 72
+		_update_sandbox_button_style()
 	if is_instance_valid(btn_toggle_live):
 		btn_toggle_live.clip_text = false
 		btn_toggle_live.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
-		btn_toggle_live.custom_minimum_size.x = 78
+		btn_toggle_live.custom_minimum_size.x = 76
 	# Noms de joueurs : clip_text ramène leur largeur minimale à ~0 ; sans EXPAND
 	# dans leur rangée, ils seraient alloués 0 px et disparaîtraient. On leur rend
 	# l'espace disponible (le badge de résultat, extensible, reste calé à droite).
@@ -608,6 +622,9 @@ func _harden_dropdowns(node: Node) -> void:
 
 func _on_game_position_changed() -> void:
 	_update_player_labels()
+	if is_sandbox_mode:
+		_trigger_live_eval()
+		return
 	if GameController.game.move_history.is_empty():
 		advantage_graph.set_evaluations([])
 		advantage_graph.update_stored_analyses([])
@@ -1134,6 +1151,92 @@ func _update_live_button_style() -> void:
 		btn_toggle_live.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_MUTED)
 	btn_toggle_live.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
+func _update_sandbox_button_style() -> void:
+	if btn_toggle_sandbox == null:
+		return
+	if is_sandbox_mode:
+		btn_toggle_sandbox.text = "⏯ Reprendre"
+		btn_toggle_sandbox.tooltip_text = "Quitter le mode Test et revenir à la partie originale"
+		var test_active_normal := DesignTokens.flat(Color(0.85, 0.55, 0.12, 0.30), DesignTokens.RADIUS_SMALL,
+				Color("#f59e0b"), 1, Vector2(6, 2))
+		var test_active_hover := DesignTokens.flat(Color(0.85, 0.55, 0.12, 0.45), DesignTokens.RADIUS_SMALL,
+				Color("#fbbf24"), 1, Vector2(6, 2))
+		var test_active_pressed := DesignTokens.flat(Color(0.85, 0.55, 0.12, 0.60), DesignTokens.RADIUS_SMALL,
+				Color("#d97706"), 1, Vector2(6, 2))
+		btn_toggle_sandbox.add_theme_stylebox_override("normal", test_active_normal)
+		btn_toggle_sandbox.add_theme_stylebox_override("hover", test_active_hover)
+		btn_toggle_sandbox.add_theme_stylebox_override("pressed", test_active_pressed)
+		btn_toggle_sandbox.add_theme_color_override("font_color", Color("#fbbf24"))
+		btn_toggle_sandbox.add_theme_color_override("font_hover_color", Color.WHITE)
+		btn_toggle_sandbox.add_theme_color_override("font_pressed_color", Color("#f59e0b"))
+	else:
+		btn_toggle_sandbox.text = "⏸ Test"
+		btn_toggle_sandbox.tooltip_text = "Mode Test (bac à sable) : tester des tactiques sans altérer la partie"
+		var test_idle_normal := DesignTokens.flat(DesignTokens.BTN_BG, DesignTokens.RADIUS_SMALL,
+				DesignTokens.BTN_BORDER, 1, Vector2(6, 2))
+		var test_idle_hover := test_idle_normal.duplicate() as StyleBoxFlat
+		test_idle_hover.bg_color = DesignTokens.BTN_BG_HOVER
+		var test_idle_pressed := test_idle_normal.duplicate() as StyleBoxFlat
+		test_idle_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
+		btn_toggle_sandbox.add_theme_stylebox_override("normal", test_idle_normal)
+		btn_toggle_sandbox.add_theme_stylebox_override("hover", test_idle_hover)
+		btn_toggle_sandbox.add_theme_stylebox_override("pressed", test_idle_pressed)
+		btn_toggle_sandbox.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		btn_toggle_sandbox.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
+		btn_toggle_sandbox.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_MUTED)
+	btn_toggle_sandbox.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+
+func _enter_sandbox_mode() -> void:
+	if is_sandbox_mode:
+		return
+	if GameController == null or GameController.game == null:
+		return
+	_cancel_analysis_if_running()
+	_sandbox_saved_pgn = GameController.game.export_pgn(false)
+	_sandbox_saved_ply_idx = GameController.current_ply_index
+	_sandbox_saved_game_id = GameController.current_game_id
+	if advantage_graph != null:
+		_sandbox_saved_evals = advantage_graph.evaluations.duplicate(true)
+	else:
+		_sandbox_saved_evals = []
+	is_sandbox_mode = true
+	# Vider current_game_id pour éviter tout enregistrement en BDD durant l'exploration
+	GameController.current_game_id = ""
+	_update_sandbox_button_style()
+	_show_toast("Mode Test activé (variations libres)", true)
+
+func _exit_sandbox_mode() -> void:
+	if not is_sandbox_mode:
+		return
+	is_sandbox_mode = false
+	if GameController and GameController.game:
+		GameController.is_loading_game = true
+		if _sandbox_saved_pgn != "":
+			GameController.game.load_pgn(_sandbox_saved_pgn)
+		GameController.current_game_id = _sandbox_saved_game_id
+		GameController.is_loading_game = false
+		if _sandbox_saved_ply_idx >= -1:
+			GameController.navigate_to_ply(_sandbox_saved_ply_idx)
+	if advantage_graph != null and not _sandbox_saved_evals.is_empty():
+		advantage_graph.set_evaluations(_sandbox_saved_evals)
+	_sandbox_saved_pgn = ""
+	_sandbox_saved_ply_idx = -1
+	_sandbox_saved_game_id = ""
+	_sandbox_saved_evals = []
+	_update_sandbox_button_style()
+	_update_player_labels()
+	var cur_ply = GameController.current_ply_index if GameController else -1
+	_sync_eval_to_ply(cur_ply)
+	if live_eval_enabled:
+		_trigger_live_eval()
+	_show_toast("Retour à la partie originale", true)
+
+func _on_btn_toggle_sandbox_pressed() -> void:
+	if is_sandbox_mode:
+		_exit_sandbox_mode()
+	else:
+		_enter_sandbox_mode()
+
 func _on_btn_toggle_live_pressed() -> void:
 	live_eval_enabled = not live_eval_enabled
 	_update_live_button_style()
@@ -1392,14 +1495,28 @@ func _update_graph_phase_boundaries(report: Dictionary) -> void:
 			break
 	advantage_graph.set_phase_boundaries(bounds)
 
-## T1.1 — Prévisualise la première position d'une ligne choisie sur l'échiquier.
+## T1.1 — Joue le premier coup de la ligne moteur choisie en mode Test (sandbox).
 func _on_engine_line_selected(_rank: int, pv: Array, best_move: String) -> void:
 	var move_uci := best_move
 	if move_uci == "" and pv.size() > 0:
 		move_uci = str(pv[0])
-	if chess_board == null or move_uci.length() < 4:
+	if move_uci.length() < 4:
 		return
-	chess_board.set_best_move_arrow(move_uci)
+	if chess_board != null:
+		chess_board.set_best_move_arrow(move_uci)
+	_play_engine_move_on_board(move_uci)
+
+func _play_engine_move_on_board(move_uci: String) -> void:
+	if GameController == null or GameController.game == null:
+		return
+	var found_move: ChessMove = GameController.game.find_move(move_uci)
+	if found_move == null:
+		return
+	if not is_sandbox_mode:
+		_enter_sandbox_mode()
+	var played: bool = GameController.try_play_move(found_move.from_sq, found_move.to_sq, found_move.promotion)
+	if played and chess_board != null:
+		chess_board.set_best_move_arrow("")
 
 # --- BANDEAU D'ERREURS À L'ÉCRAN ---
 
