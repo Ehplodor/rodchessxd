@@ -21,6 +21,10 @@ boot_splash/bg_color=Color(0.0705882, 0.0823529, 0.109804, 1)
 boot_splash/show_image=false
 config/icon="res://icon.svg"
 
+[audio]
+
+general/text_to_speech=true
+
 [autoload]
 
 SettingsManager="*res://src/core/SettingsManager.gd"

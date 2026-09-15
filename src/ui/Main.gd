@@ -13,6 +13,7 @@ const ChessComImportModal = preload("res://src/ui/components/ChessComImportModal
 const EngineHubModal = preload("res://src/ui/components/EngineHubModal.gd")
 const SettingsModal = preload("res://src/ui/components/SettingsModal.gd")
 const LibraryModal = preload("res://src/ui/components/LibraryModal.gd")
+const CoachReadingModal = preload("res://src/ui/components/CoachReadingModal.gd")
 const CarnetPresenter = preload("res://src/ui/carnet/CarnetPresenter.gd")
 const CarnetOverlay = preload("res://src/ui/carnet/CarnetOverlay.gd")
 const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
@@ -51,6 +52,67 @@ var is_landscape_layout: bool = false
 @onready var turn_badge_label_top: Label = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop/TurnBadgeLabelTop
 @onready var turn_badge_bottom: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom
 @onready var turn_badge_label_bottom: Label = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom/TurnBadgeLabelBottom
+
+@onready var player_shortcuts_top: HBoxContainer = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerShortcutsTop
+@onready var player_shortcuts_bottom: HBoxContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerShortcutsBottom
+
+const PLAYER_PROMPTS := [
+	{
+		"icon": "💡",
+		"type": "why",
+		"title": "Pourquoi ce coup ?",
+		"query_white": "Explique dans un langage naturel, fluide et vivant pourquoi le coup joué est bon ou mauvais pour les Blancs et comment les Blancs doivent réagir.",
+		"query_black": "Explique dans un langage naturel, fluide et vivant pourquoi le coup joué est bon ou mauvais pour les Noirs et comment les Noirs doivent réagir."
+	},
+	{
+		"icon": "🎯",
+		"type": "plan",
+		"title": "Quel est mon plan ?",
+		"query_white": "Explique de vive voix avec des mots simples et naturels quel est le plan stratégique principal pour les Blancs dans cette position.",
+		"query_black": "Explique de vive voix avec des mots simples et naturels quel est le plan stratégique principal pour les Noirs dans cette position."
+	},
+	{
+		"icon": "🧗",
+		"type": "comeback",
+		"title": "Remonter la pente",
+		"query_white": "Les Blancs sont en difficulté ou cherchent à renverser la tendance. En tant que coach bienveillant et stratège, aide les Blancs à remonter la pente dans un style direct, motivant et naturel : donne des principes de défense active, de contre-attaque et de résilience psychologique, et indique les déséquilibres à exploiter pour les Blancs, SANS dévoiler directement le coup exact à jouer.",
+		"query_black": "Les Noirs sont en difficulté ou cherchent à renverser la tendance. En tant que coach bienveillant et stratège, aide les Noirs à remonter la pente dans un style direct, motivant et naturel : donne des principes de défense active, de contre-attaque et de résilience psychologique, et indique les déséquilibres à exploiter pour les Noirs, SANS dévoiler directement le coup exact à jouer."
+	},
+	{
+		"icon": "⚠️",
+		"type": "threats",
+		"title": "Menaces contre moi ?",
+		"query_white": "Explique clairement et de manière vivante quelles sont les menaces tactiques immédiates dirigées contre les Blancs.",
+		"query_black": "Explique clairement et de manière vivante quelles sont les menaces tactiques immédiates dirigées contre les Noirs."
+	},
+	{
+		"icon": "⚔️",
+		"type": "refutation",
+		"title": "Réfutation tactique",
+		"query_white": "Raconte la réfutation tactique coup par coup dans un langage naturel pour permettre aux Blancs de sanctionner l'adversaire.",
+		"query_black": "Raconte la réfutation tactique coup par coup dans un langage naturel pour permettre aux Noirs de sanctionner l'adversaire."
+	},
+	{
+		"icon": "🛡️",
+		"type": "king_safety",
+		"title": "Sécurité du Roi",
+		"query_white": "Décris naturellement la sécurité du Roi blanc, les dangers qui pèsent sur son abri et comment parer les attaques contre lui.",
+		"query_black": "Décris naturellement la sécurité du Roi noir, les dangers qui pèsent sur son abri et comment parer les attaques contre lui."
+	},
+	{
+		"icon": "👶",
+		"type": "simple",
+		"title": "Explique simplement",
+		"query_white": "Explique la situation du point de vue des Blancs comme une histoire vivante, avec des mots très simples, imagés et naturels pour joueur débutant.",
+		"query_black": "Explique la situation du point de vue des Noirs comme une histoire vivante, avec des mots très simples, imagés et naturels pour joueur débutant."
+	}
+]
+
+var top_shortcut_buttons: Array[Button] = []
+var bottom_shortcut_buttons: Array[Button] = []
+var top_speech_btn: Button = null
+var bottom_speech_btn: Button = null
+var _audio_in_progress_side_is_white: Variant = null
 
 @onready var sfx_move: AudioStreamPlayer = $Sounds/SfxMove
 @onready var sfx_capture: AudioStreamPlayer = $Sounds/SfxCapture
@@ -140,12 +202,25 @@ func _ready() -> void:
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		get_window().size_changed.connect(_apply_safe_insets)
 		_apply_safe_insets()
+
+	# Câblage des raccourcis de prompts sur la ligne de chaque joueur
+	_setup_player_shortcuts()
+
+	# Écoute des signaux du Coach IA pour la restitution vocale et les erreurs
+	if AICoach != null:
+		AICoach.coach_speech_started.connect(_on_coach_speech_started)
+		AICoach.coach_speech_finished.connect(_on_coach_speech_finished)
+		AICoach.coach_speech_error.connect(_on_coach_speech_error)
+		AICoach.coach_error.connect(_on_coach_error)
+
 	_update_player_labels()
 	_update_live_button_style()
 	_check_and_update_layout()
 	call_deferred("_start_initial_eval")
 
 func _exit_tree() -> void:
+	if AICoach != null and AICoach.has_method("stop_speech"):
+		AICoach.stop_speech()
 	if analyzer != null and analyzer.is_analyzing:
 		analyzer.cancel_analysis()
 	if analysis_thread != null and analysis_thread.is_started():
@@ -176,6 +251,7 @@ func _check_and_update_layout() -> void:
 	var aspect = cur_w / cur_h
 	var should_be_landscape = (aspect >= 1.15) and (cur_w >= 560.0)
 	_apply_adaptive_layout(should_be_landscape)
+	_adjust_player_row_density()
 
 func _apply_adaptive_layout(target_landscape: bool) -> void:
 	if not is_instance_valid(vbox) or not is_instance_valid(center_area) or not is_instance_valid(board_column) or not is_instance_valid(dashboard) or not is_instance_valid(nav_row):
@@ -337,6 +413,8 @@ func _apply_modern_theme() -> void:
 func _apply_overflow_guards() -> void:
 	clip_contents = true
 	for path in ["VBox", "VBox/TopBar", "VBox/CenterArea", "VBox/CenterArea/BoardColumn",
+			"VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerShortcutsTop",
+			"VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerShortcutsBottom",
 			"VBox/NavRow", "VBox/Dashboard", "AnalyseOverlay", "AnalyseOverlay/Layout",
 			"CoachOverlay", "CoachOverlay/Layout"]:
 		var node := get_node_or_null(path)
@@ -497,6 +575,9 @@ func _update_player_labels() -> void:
 	_style_player_dot(player_dot_top, top_side_white, top_is_active)
 	_style_player_dot(player_dot_bottom, bottom_side_white, bottom_is_active)
 
+	# Mise à jour des raccourcis du Coach IA (adaptés Blancs vs Noirs)
+	_update_player_shortcuts(top_side_white, bottom_side_white)
+
 	# Récupération du dernier coup joué
 	var last_move_text: String = ""
 	if GameController.game and GameController.current_ply_index >= 0 and GameController.current_ply_index < GameController.game.move_history.size():
@@ -556,6 +637,9 @@ func _update_player_labels() -> void:
 		_style_status_badge(turn_badge_top, turn_badge_label_top, "⭐ Au trait" if top_is_active else (("Dernier coup : " + last_move_text) if last_move_text != "" else ""), "active" if top_is_active else "last_move")
 		_style_status_badge(turn_badge_bottom, turn_badge_label_bottom, "⭐ Au trait" if bottom_is_active else (("Dernier coup : " + last_move_text) if last_move_text != "" else ""), "active" if bottom_is_active else "last_move")
 
+	# Sanctuarise la visibilité des badges d'état et évite tout débordement sur petit écran
+	_adjust_player_row_density()
+
 func _style_status_badge(badge: PanelContainer, label: Label, text: String, type: String) -> void:
 	if badge == null or label == null:
 		return
@@ -599,10 +683,238 @@ func _style_status_badge(badge: PanelContainer, label: Label, text: String, type
 	badge.add_theme_stylebox_override("panel", style)
 	label.add_theme_color_override("font_color", text_col)
 
-func _clip_player_name(name: String, max_chars := 24) -> String:
+func _clip_player_name(name: String, max_chars := 14) -> String:
 	if name.length() <= max_chars:
 		return name
 	return name.substr(0, max_chars - 1) + "…"
+
+## Adapte dynamiquement la visibilité des raccourcis et le nom des joueurs pour éviter
+## tout débordement de ligne et sanctuariser la visibilité des informations d'état à droite.
+func _adjust_player_row_density() -> void:
+	if player_top_row == null or player_bottom_row == null:
+		return
+
+	# Largeur disponible estimée pour la ligne du joueur
+	var available_w: float = board_column.size.x if board_column else 0.0
+	if available_w <= 0.0:
+		var vp_rect = get_viewport_rect() if get_viewport() else Rect2(0, 0, 450, 800)
+		available_w = vp_rect.size.x - 32.0
+
+	# Mesure de l'espace requis par les badges de droite
+	var top_badge_w: float = turn_badge_top.get_combined_minimum_size().x if (turn_badge_top and turn_badge_top.visible) else 0.0
+	var bottom_badge_w: float = turn_badge_bottom.get_combined_minimum_size().x if (turn_badge_bottom and turn_badge_bottom.visible) else 0.0
+	var max_badge_w: float = maxf(top_badge_w, bottom_badge_w)
+
+	# Si l'espace est très contraint (smartphone étroit ou badge d'état long comme "Dernier coup : Cg1 ➔ Cf3"),
+	# on adapte le nombre de boutons affichés en priorité décroissante :
+	# Priorité haute : 💡 Pourquoi ce coup (0), 🎯 Mon plan (1), 🧗 Remonter la pente (2), ⚠️ Menaces (3)
+	# Secondaires : ⚔️ Réfutation (4), 🛡️ Sécurité (5), 👶 Simple (6)
+	var max_shortcuts_to_show = PLAYER_PROMPTS.size() # Par défaut 7
+	if available_w < 380.0 or (available_w < 440.0 and max_badge_w > 130.0):
+		max_shortcuts_to_show = 3
+	elif available_w < 430.0 or (available_w < 490.0 and max_badge_w > 140.0):
+		max_shortcuts_to_show = 4
+	elif available_w < 490.0 or (available_w < 540.0 and max_badge_w > 160.0):
+		max_shortcuts_to_show = 5
+
+	for i in range(top_shortcut_buttons.size()):
+		top_shortcut_buttons[i].visible = (i < max_shortcuts_to_show)
+	for i in range(bottom_shortcut_buttons.size()):
+		bottom_shortcut_buttons[i].visible = (i < max_shortcuts_to_show)
+
+	# Tronquer plus fortement le nom si la place manque
+	var name_max_len = 14
+	if available_w < 390.0 or max_badge_w > 130.0:
+		name_max_len = 9
+	elif available_w < 460.0:
+		name_max_len = 11
+
+	if GameController and GameController.game:
+		var headers: Dictionary = GameController.game.pgn_headers
+		var white_raw: String = str(headers.get("White", "")).strip_edges()
+		var black_raw: String = str(headers.get("Black", "")).strip_edges()
+		var white_name: String = "Blancs" if _is_unknown_player(white_raw) else white_raw
+		var black_name: String = "Noirs" if _is_unknown_player(black_raw) else black_raw
+		var flipped: bool = GameController.board_flipped
+		var top_is_white: bool = flipped
+		player_name_top.text = _clip_player_name(white_name if top_is_white else black_name, name_max_len)
+		player_name_bottom.text = _clip_player_name(white_name if not top_is_white else black_name, name_max_len)
+
+# --- RACCOURCIS PROMPTS COACH IA & RESTITUTION ORALE (TTS) ---
+
+func _setup_player_shortcuts() -> void:
+	if player_shortcuts_top == null or player_shortcuts_bottom == null:
+		return
+
+	for c in player_shortcuts_top.get_children():
+		c.queue_free()
+	for c in player_shortcuts_bottom.get_children():
+		c.queue_free()
+	top_shortcut_buttons.clear()
+	bottom_shortcut_buttons.clear()
+
+	var btn_normal := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+			DesignTokens.BORDER, 1, Vector2(0, 0))
+	var btn_hover := btn_normal.duplicate() as StyleBoxFlat
+	btn_hover.bg_color = DesignTokens.BTN_BG_HOVER
+	btn_hover.border_color = DesignTokens.BTN_BORDER_ACTIVE
+	var btn_pressed := btn_normal.duplicate() as StyleBoxFlat
+	btn_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
+	btn_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
+
+	# 1. Raccourcis haut
+	for p in PLAYER_PROMPTS:
+		var btn = Button.new()
+		btn.text = p["icon"]
+		btn.custom_minimum_size = Vector2(28, 28)
+		btn.add_theme_font_size_override("font_size", 13)
+		btn.add_theme_stylebox_override("normal", btn_normal)
+		btn.add_theme_stylebox_override("hover", btn_hover)
+		btn.add_theme_stylebox_override("pressed", btn_pressed)
+		btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		player_shortcuts_top.add_child(btn)
+		top_shortcut_buttons.append(btn)
+
+	top_speech_btn = Button.new()
+	top_speech_btn.text = "🔊"
+	top_speech_btn.tooltip_text = "Conseil vocal en cours (cliquez pour arrêter)"
+	top_speech_btn.custom_minimum_size = Vector2(28, 28)
+	top_speech_btn.add_theme_font_size_override("font_size", 13)
+	var speech_style := DesignTokens.flat(DesignTokens.BTN_BG_HOVER, DesignTokens.RADIUS_SMALL,
+			DesignTokens.ACCENT, 1, Vector2(0, 0))
+	top_speech_btn.add_theme_stylebox_override("normal", speech_style)
+	top_speech_btn.visible = false
+	top_speech_btn.pressed.connect(func():
+		if AICoach:
+			AICoach.stop_speech()
+	)
+	player_shortcuts_top.add_child(top_speech_btn)
+
+	# 2. Raccourcis bas
+	for p in PLAYER_PROMPTS:
+		var btn = Button.new()
+		btn.text = p["icon"]
+		btn.custom_minimum_size = Vector2(28, 28)
+		btn.add_theme_font_size_override("font_size", 13)
+		btn.add_theme_stylebox_override("normal", btn_normal)
+		btn.add_theme_stylebox_override("hover", btn_hover)
+		btn.add_theme_stylebox_override("pressed", btn_pressed)
+		btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		player_shortcuts_bottom.add_child(btn)
+		bottom_shortcut_buttons.append(btn)
+
+	bottom_speech_btn = Button.new()
+	bottom_speech_btn.text = "🔊"
+	bottom_speech_btn.tooltip_text = "Conseil vocal en cours (cliquez pour arrêter)"
+	bottom_speech_btn.custom_minimum_size = Vector2(28, 28)
+	bottom_speech_btn.add_theme_font_size_override("font_size", 13)
+	bottom_speech_btn.add_theme_stylebox_override("normal", speech_style)
+	bottom_speech_btn.visible = false
+	bottom_speech_btn.pressed.connect(func():
+		if AICoach:
+			AICoach.stop_speech()
+	)
+	player_shortcuts_bottom.add_child(bottom_speech_btn)
+
+func _update_player_shortcuts(top_side_white: bool, bottom_side_white: bool) -> void:
+	if top_shortcut_buttons.size() != PLAYER_PROMPTS.size() or bottom_shortcut_buttons.size() != PLAYER_PROMPTS.size():
+		return
+
+	# Ligne du haut
+	for idx in range(PLAYER_PROMPTS.size()):
+		var p = PLAYER_PROMPTS[idx]
+		var btn = top_shortcut_buttons[idx]
+		var side_label = "Blancs" if top_side_white else "Noirs"
+		btn.tooltip_text = "%s %s (Conseils %s • Restitution vocale)" % [p["icon"], p["title"], side_label]
+		for conn in btn.pressed.get_connections():
+			btn.pressed.disconnect(conn.callable)
+		btn.pressed.connect(func():
+			_on_player_shortcut_pressed(top_side_white, p)
+		)
+
+	# Ligne du bas
+	for idx in range(PLAYER_PROMPTS.size()):
+		var p = PLAYER_PROMPTS[idx]
+		var btn = bottom_shortcut_buttons[idx]
+		var side_label = "Blancs" if bottom_side_white else "Noirs"
+		btn.tooltip_text = "%s %s (Conseils %s • Restitution vocale)" % [p["icon"], p["title"], side_label]
+		for conn in btn.pressed.get_connections():
+			btn.pressed.disconnect(conn.callable)
+		btn.pressed.connect(func():
+			_on_player_shortcut_pressed(bottom_side_white, p)
+		)
+
+func _on_player_shortcut_pressed(is_white: bool, p: Dictionary) -> void:
+	if AICoach == null:
+		return
+
+	# Si le coach parle déjà, un nouveau clic stoppe l'audio
+	if AICoach.is_speaking:
+		AICoach.stop_speech()
+		return
+
+	var sm = SettingsManager
+	var openrouter_key = sm.get_setting("api_key_openrouter", "") if sm else ""
+	var active_model = sm.get_setting("active_model_id", "openrouter/free") if sm else "openrouter/free"
+	var prov = sm.get_setting("ai_provider", "openrouter") if sm else "openrouter"
+	var is_free = active_model.begins_with("openrouter/free") or active_model.ends_with(":free") or active_model == "local"
+
+	if prov != "local_slm" and not is_free and openrouter_key.strip_edges() == "":
+		_show_coach_error_modal("Une clé API OpenRouter est requise pour utiliser ce modèle (%s).\n\nRenseignez votre clé dans les Réglages ou le Hub des Modèles." % active_model)
+		return
+
+	var perspective = "white" if is_white else "black"
+	var side_label = "Blancs" if is_white else "Noirs"
+	var query_text = p["query_white"] if is_white else p["query_black"]
+	var label_text = "%s %s (%s)" % [p["icon"], p["title"], side_label]
+
+	_audio_in_progress_side_is_white = is_white
+	_update_speech_indicator(true, "⏳")
+
+	AICoach.execute_coach_prompt(perspective, label_text, query_text, p["type"], true)
+
+func _update_speech_indicator(indicator_visible: bool, icon: String = "🔊") -> void:
+	if top_speech_btn == null or bottom_speech_btn == null:
+		return
+	if not indicator_visible:
+		top_speech_btn.visible = false
+		bottom_speech_btn.visible = false
+		_audio_in_progress_side_is_white = null
+		return
+
+	var is_white = (_audio_in_progress_side_is_white == true)
+	var flipped: bool = GameController.board_flipped if GameController else false
+	var top_is_white: bool = flipped
+
+	var target_top = (top_is_white == is_white)
+	if target_top:
+		top_speech_btn.text = icon
+		top_speech_btn.visible = true
+		bottom_speech_btn.visible = false
+	else:
+		bottom_speech_btn.text = icon
+		bottom_speech_btn.visible = true
+		top_speech_btn.visible = false
+
+func _on_coach_speech_started() -> void:
+	_update_speech_indicator(true, "🔊")
+
+func _on_coach_speech_finished() -> void:
+	_update_speech_indicator(false)
+
+func _on_coach_speech_error(err_msg: String) -> void:
+	_update_speech_indicator(false)
+	_show_coach_error_modal("Erreur de synthèse vocale (T2S) :\n\n%s" % err_msg)
+
+func _on_coach_error(err_msg: String) -> void:
+	_update_speech_indicator(false)
+	# Si l'erreur provient d'une requête audio initiée depuis le plateau, afficher la modale
+	if AICoach and AICoach.last_query_context.get("extra_context", {}).get("request_audio", false):
+		_show_coach_error_modal(err_msg)
+
+func _show_coach_error_modal(error_msg: String) -> void:
+	var modal = CoachReadingModal.new({}, true, error_msg)
+	_open_modal(modal)
 
 func _start_initial_eval() -> void:
 	_trigger_live_eval()

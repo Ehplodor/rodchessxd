@@ -357,7 +357,10 @@ func is_reasoning_model(model_id: String) -> bool:
 		low.contains("o1") or
 		low.contains("o3") or
 		low.contains("thinking") or
-		low.contains("reasoning")
+		low.contains("reasoning") or
+		low.contains("reasoner") or
+		low.contains("ling") or
+		low.contains("thought")
 	)
 
 ## Recherche et filtrage multi-critères CUMULABLES des modèles

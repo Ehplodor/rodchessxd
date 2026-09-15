@@ -156,6 +156,10 @@ layout_mode = 2
 layout_mode = 2
 text = ""
 
+[node name="PlayerShortcutsTop" type="HBoxContainer" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
 [node name="TurnBadgeTop" type="PanelContainer" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
 layout_mode = 2
 size_flags_horizontal = 10
@@ -196,6 +200,10 @@ layout_mode = 2
 [node name="PlayerNameBottom" type="Label" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
 layout_mode = 2
 text = ""
+
+[node name="PlayerShortcutsBottom" type="HBoxContainer" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
 
 [node name="TurnBadgeBottom" type="PanelContainer" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
 layout_mode = 2

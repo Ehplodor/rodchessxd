@@ -461,6 +461,58 @@ func _setup_ui() -> void:
 	)
 	vbox.add_child(pers_opt)
 
+	# Moteur de Synthèse Vocale (TTS)
+	var tts_lbl = Label.new()
+	tts_lbl.text = "Moteur Vocal (TTS) :"
+	tts_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tts_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	vbox.add_child(tts_lbl)
+
+	var tts_opt = OptionButton.new()
+	tts_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tts_opt.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	tts_opt.fit_to_longest_item = false
+	tts_opt.clip_text = true
+	tts_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	tts_opt.add_item("🔊 Local Système (100% Hors-ligne, 0 ms ⚡)", 0)
+	tts_opt.add_item("⚡ Deepgram Flux TTS (Cloud OpenRouter 🆓)", 1)
+
+	var cur_tts = SettingsManager.get_setting("coach_tts_model", "local_system")
+	tts_opt.selected = 1 if cur_tts.contains("flux-tts") else 0
+
+	tts_opt.item_selected.connect(func(idx):
+		if idx == 1:
+			SettingsManager.set_setting("coach_tts_model", "deepgram/flux-tts:free")
+		else:
+			SettingsManager.set_setting("coach_tts_model", "local_system")
+	)
+	vbox.add_child(tts_opt)
+
+	# Voix du Coach IA (Synthèse vocale T2S OpenRouter)
+	var voice_lbl = Label.new()
+	voice_lbl.text = "Voix du Coach IA (Synthèse vocale) :"
+	voice_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	voice_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	vbox.add_child(voice_lbl)
+
+	var voice_opt = OptionButton.new()
+	voice_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	voice_opt.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	voice_opt.fit_to_longest_item = false
+	voice_opt.clip_text = true
+	voice_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	voice_opt.add_item("👩 Féminine (Elise)", 0)
+	voice_opt.add_item("👨 Masculine (Marcelo)", 1)
+
+	var cur_voice = SettingsManager.get_setting("coach_voice_gender", "female")
+	voice_opt.selected = 1 if cur_voice == "male" else 0
+
+	voice_opt.item_selected.connect(func(idx):
+		var chosen_voice = "male" if idx == 1 else "female"
+		SettingsManager.set_setting("coach_voice_gender", chosen_voice)
+	)
+	vbox.add_child(voice_opt)
+
 	# Clé API OpenRouter avec test live et lien direct
 	_add_openrouter_key_section(vbox)
 

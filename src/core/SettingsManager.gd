@@ -40,6 +40,8 @@ var settings := {
 	"last_catalog_sync": "",
 	"local_slm_url": "http://127.0.0.1:11434/api/generate", # Ollama / llama.cpp standard
 	"coach_personality": "mentor", # "mentor", "blunder_hunter", "kids_simple"
+	"coach_voice_gender": "female", # "female", "male"
+	"coach_tts_model": "local_system", # "local_system", "deepgram/flux-tts:free"
 	"flip_board": false,
 	"show_move_hints": true,
 	"app_theme_mode": "dark", # "dark", "light"

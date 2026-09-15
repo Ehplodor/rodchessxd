@@ -8,13 +8,13 @@ extends PanelContainer
 const CoachReadingModalScript = preload("res://src/ui/components/CoachReadingModal.gd")
 
 const PROMPTS := [
-	["💡 Pourquoi ce coup ?", "Explique pourquoi le coup joué est bon ou mauvais et comment mon camp doit réagir.", "why"],
-	["🎯 Quel est mon plan ?", "Quel est le plan stratégique principal pour mon camp dans cette position ?", "plan"],
-	["🧗 Remonter la pente", "Mon camp est en difficulté ou cherche à renverser la tendance. En tant que coach bienveillant et stratège, aide-moi à remonter la pente : donne-moi des principes de défense active, de contre-attaque et de résilience psychologique, et indique les déséquilibres à exploiter, SANS me dévoiler directement le coup exact à jouer.", "comeback"],
-	["⚠️ Menaces contre moi ?", "Quelles sont les menaces tactiques immédiates dirigées contre mon camp ?", "threats"],
-	["⚔️ Réfutation tactique", "Montre la réfutation tactique coup par coup pour sanctionner l'adversaire.", "refutation"],
-	["🛡️ Sécurité de mon Roi", "Analyse la sécurité de mon roi et comment parer les attaques.", "king_safety"],
-	["👶 Explique simplement", "Explique la situation avec des mots simples et concrets pour joueur débutant.", "simple"]
+	["💡 Pourquoi ce coup ?", "Explique dans un langage naturel, fluide et vivant pourquoi le coup joué est bon ou mauvais et comment mon camp doit réagir.", "why"],
+	["🎯 Quel est mon plan ?", "Explique de vive voix avec des mots simples et naturels quel est le plan stratégique principal pour mon camp dans cette position.", "plan"],
+	["🧗 Remonter la pente", "Mon camp est en difficulté ou cherche à renverser la tendance. En tant que coach bienveillant et stratège, aide-moi à remonter la pente dans un style direct, motivant et naturel : donne-moi des principes de défense active, de contre-attaque et de résilience psychologique, et indique les déséquilibres à exploiter, SANS me dévoiler directement le coup exact à jouer.", "comeback"],
+	["⚠️ Menaces contre moi ?", "Explique clairement et de manière vivante quelles sont les menaces tactiques immédiates dirigées contre mon camp.", "threats"],
+	["⚔️ Réfutation tactique", "Raconte la réfutation tactique coup par coup dans un langage naturel pour sanctionner l'adversaire.", "refutation"],
+	["🛡️ Sécurité de mon Roi", "Décris naturellement la sécurité de mon roi, les dangers qui pèsent sur son abri et comment parer les attaques.", "king_safety"],
+	["👶 Explique simplement", "Explique la situation comme une histoire vivante, avec des mots très simples, imagés et naturels pour joueur débutant.", "simple"]
 ]
 
 var move_badge_label: Label
@@ -22,12 +22,14 @@ var model_badge_btn: Button
 var status_label: Label
 var btn_history: Button
 var persp_buttons: Dictionary = {}
+var voice_buttons: Dictionary = {}
 
 var prompt_grid: GridContainer
 var conv_scroll: ScrollContainer
 var conv_list_vbox: VBoxContainer
 
 var active_perspective: String = "white"
+var active_voice_gender: String = "female"
 var is_thinking: bool = false
 var thinking_start_time: float = 0.0
 var active_query_title: String = ""
@@ -75,11 +77,15 @@ func _ready() -> void:
 
 	var sm = _get_settings_manager()
 	if sm:
+		active_voice_gender = sm.get_setting("coach_voice_gender", "female")
 		sm.settings_changed.connect(func(k, _v):
 			if k == "active_model_id" or k == "ai_provider":
 				_update_model_badge()
 			elif k == "app_theme_mode":
 				_refresh_theme_styles()
+			elif k == "coach_voice_gender":
+				active_voice_gender = str(_v)
+				_update_voice_buttons_style()
 		)
 	_update_model_badge()
 	refresh_for_current_ply()
@@ -278,6 +284,33 @@ func _setup_ui() -> void:
 		persp_row.add_child(b)
 	_update_perspective_buttons_style()
 
+	# --- 2b. CHOIX DE LA VOIX DU COACH (Synthèse T2S) ---
+	var voice_row = HBoxContainer.new()
+	voice_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	voice_row.add_theme_constant_override("separation", 6)
+	main_vbox.add_child(voice_row)
+
+	var v_lbl = Label.new()
+	v_lbl.text = "Voix Coach :"
+	v_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	v_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
+	voice_row.add_child(v_lbl)
+
+	for vg in ["female", "male"]:
+		var vb = Button.new()
+		vb.text = "👩 Féminine" if vg == "female" else "👨 Masculine"
+		vb.clip_text = true
+		vb.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vb.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+		vb.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		vb.pressed.connect(func():
+			_set_voice_gender(vg)
+		)
+		voice_buttons[vg] = vb
+		voice_row.add_child(vb)
+	_update_voice_buttons_style()
+
 	# --- 3. TUILES DE PROMPTS DIRECTES ---
 	var prompt_section_lbl = Label.new()
 	prompt_section_lbl.text = "💡 Actions rapides du Coach :"
@@ -380,6 +413,7 @@ func _refresh_theme_styles() -> void:
 		model_badge_btn.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 
 	_update_perspective_buttons_style()
+	_update_voice_buttons_style()
 	_populate_conversation_buttons()
 
 func _update_perspective_buttons_style() -> void:
@@ -404,6 +438,29 @@ func _set_perspective(p: String) -> void:
 	if sm:
 		sm.set_setting("coach_perspective", p)
 	_update_perspective_buttons_style()
+
+func _set_voice_gender(vg: String) -> void:
+	active_voice_gender = vg
+	var sm = _get_settings_manager()
+	if sm:
+		sm.set_setting("coach_voice_gender", vg)
+	_update_voice_buttons_style()
+
+func _update_voice_buttons_style() -> void:
+	for vg in voice_buttons.keys():
+		var b: Button = voice_buttons[vg]
+		if b == null:
+			continue
+		if vg == active_voice_gender:
+			b.add_theme_color_override("font_color", DesignTokens.ACCENT)
+			var active_s = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+					DesignTokens.ACCENT, 1, Vector2(6, 2))
+			b.add_theme_stylebox_override("normal", active_s)
+		else:
+			b.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+			var normal_s = DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+					Color.TRANSPARENT, 0, Vector2(6, 2))
+			b.add_theme_stylebox_override("normal", normal_s)
 
 func _update_model_badge() -> void:
 	if not model_badge_btn:
@@ -831,6 +888,11 @@ func _on_response_with_meta(_response: String, cost_label: String, elapsed_sec: 
 	status_label.add_theme_color_override("font_color", DesignTokens.SUCCESS)
 	_populate_conversation_buttons()
 
+	# Ne pas ouvrir la modale si la requête provient des raccourcis plateau avec restitution vocale
+	var ac = _get_ai_coach()
+	if ac and ac.last_query_context.get("extra_context", {}).get("request_audio", false):
+		return
+
 	# Ouverture automatique de la fenêtre de lecture superposée pour une consultation optimale
 	var dm = _get_database_manager()
 	var gc = _get_game_controller()
@@ -850,4 +912,10 @@ func _on_error(error_msg: String) -> void:
 	status_label.text = "Erreur (cliquez pour voir)"
 	status_label.add_theme_color_override("font_color", DesignTokens.DANGER)
 	_populate_conversation_buttons()
+
+	# Ne pas ouvrir la modale si la requête provient des raccourcis plateau (Main.gd s'en charge déjà)
+	var ac = _get_ai_coach()
+	if ac and ac.last_query_context.get("extra_context", {}).get("request_audio", false):
+		return
+
 	_open_error_modal(error_msg)

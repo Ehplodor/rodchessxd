@@ -7,8 +7,15 @@ signal coach_response_received(response: String)
 signal coach_response_with_meta(response: String, cost_label: String, elapsed_sec: float)
 signal coach_response_detailed(response: String, reasoning: String, cost_label: String, elapsed_sec: float)
 signal coach_error(error_msg: String)
+signal coach_speech_started
+signal coach_speech_finished
+signal coach_speech_error(error_msg: String)
 
 var http_client: HTTPRequest
+var tts_http_client: HTTPRequest
+var audio_player: AudioStreamPlayer
+var is_speaking: bool = false
+var _active_local_utterance_generation: int = 0
 var current_query_start_time: float = 0.0
 var active_query_model_id: String = ""
 
@@ -22,6 +29,21 @@ func _ready() -> void:
 	http_client.timeout = 30.0
 	add_child(http_client)
 	http_client.request_completed.connect(_on_request_completed)
+
+	tts_http_client = HTTPRequest.new()
+	tts_http_client.timeout = 25.0
+	add_child(tts_http_client)
+	tts_http_client.request_completed.connect(_on_tts_request_completed)
+
+	audio_player = AudioStreamPlayer.new()
+	audio_player.finished.connect(_on_audio_player_finished)
+	add_child(audio_player)
+
+	# Initialisation des rappels TTS natifs du système (DisplayServer)
+	if DisplayServer.has_feature(DisplayServer.FEATURE_TEXT_TO_SPEECH):
+		DisplayServer.tts_set_utterance_callback(DisplayServer.TTS_UTTERANCE_STARTED, _on_local_tts_started)
+		DisplayServer.tts_set_utterance_callback(DisplayServer.TTS_UTTERANCE_ENDED, _on_local_tts_ended)
+		DisplayServer.tts_set_utterance_callback(DisplayServer.TTS_UTTERANCE_CANCELED, _on_local_tts_canceled)
 
 func _send_http_request(url: String, headers: Array, body: String, provider_name: String) -> void:
 	if http_client.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
@@ -70,6 +92,66 @@ func _get_database_manager() -> Node:
 	if tree and tree.root and tree.root.has_node("DatabaseManager"):
 		return tree.root.get_node("DatabaseManager")
 	return null
+
+func _get_engine_manager() -> Node:
+	if is_inside_tree():
+		var t = get_tree()
+		if t and t.root and t.root.has_node("EngineManager"):
+			return t.root.get_node("EngineManager")
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree and tree.root and tree.root.has_node("EngineManager"):
+		return tree.root.get_node("EngineManager")
+	return null
+
+## Méthode unifiée pour exécuter un prompt du coach (utilisée par CoachPanel2D et les raccourcis du plateau)
+func execute_coach_prompt(
+	perspective: String,
+	label_text: String,
+	query_text: String,
+	prompt_type: String,
+	request_audio: bool = false
+) -> void:
+	var gc = _get_game_controller()
+	var game = gc.game if gc else null
+	if game == null:
+		return
+	if gc:
+		gc.get_or_create_game_id()
+
+	var current_ply = gc.current_ply_index if gc else -1
+	var fen = game.get_fen()
+	var last_move_san = ""
+	var extra_context = {
+		"perspective": perspective,
+		"prompt_type": prompt_type,
+		"label_text": label_text,
+		"request_audio": request_audio
+	}
+
+	if current_ply >= 0 and current_ply < game.move_history.size():
+		var m = game.move_history[current_ply]
+		last_move_san = m.san
+		extra_context["last_move_natural"] = game.describe_move_natural(m)
+		extra_context["last_move_uci"] = m.uci
+		extra_context["quality"] = m.quality
+		extra_context["cp_loss"] = m.centipawn_loss
+		extra_context["move_number"] = (current_ply / 2) + 1
+		extra_context["ply_index"] = current_ply
+		extra_context["last_move_color"] = "white" if (current_ply % 2 == 0) else "black"
+		extra_context["is_check"] = m.is_check
+		extra_context["is_checkmate"] = m.is_checkmate
+		extra_context["motifs"] = m.motifs
+		extra_context["is_theory"] = m.is_theory
+	else:
+		extra_context["move_number"] = 1
+		extra_context["ply_index"] = -1
+
+	var eng = _get_engine_manager()
+	var eval_cp = eng.eval_score_cp if eng else 0
+	var best_move = eng.best_move_uci if eng else ""
+	var pv = eng.pv_line if eng else []
+
+	ask_coach(fen, last_move_san, eval_cp, best_move, pv, query_text, extra_context)
 
 func _get_setting(key: String, default_val: Variant) -> Variant:
 	var sm = _get_settings()
@@ -175,14 +257,19 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
    - 🎯 **Diagnostic** : En 1 phrase percutante, qualifie l'impact du coup joué et résume l'état de l'évaluation du point de vue du camp conseillé (%s).
    - 💡 **Analyse & Réfutation** : En 1 ou 2 phrases concises, explique pourquoi ce coup est bon ou mauvais, ce qu'il permet ou néglige, et détaille le mécanisme de la variante calculée par le moteur (PV).
    - 📌 **Plan conseillé** : Donne 1 ou 2 conseils pratiques clairs et concrets pour guider le camp conseillé (%s).
-4. RÈGLE D'OR DE CONCISION (LISIBILITÉ MOBILE) :
+4. RÈGLE D'OR DE LANGAGE NATUREL ET FLUIDITÉ ORALE :
+   - Parle dans un langage NATUREL, fluide, vivant et oral, comme un vrai maître assis à côté du joueur.
+   - Évite les tournures robotiques, les successions froides de coordonnées ou les styles télégraphiques.
+   - Privilégie des phrases complètes, agréables à entendre et parfaites pour être restituées oralement par la synthèse vocale (ex: 'Ton Fou en g5 cloue dangereusement le Cavalier', 'Attention à la poussée e5 qui fissure ton centre').
+   - Les coups et variantes doivent être intégrés naturellement dans le fil de la phrase avec leur sens humain.
+5. RÈGLE D'OR DE CONCISION (LISIBILITÉ MOBILE) :
    - Sois ULTRA-CONCIS : 100 à 150 mots au total (format concis : 150 à 220 mots au total). Zéro bavardage ni politesse introductive. Va droit au but dès le premier mot.
-   - Langue : Français soigné, dynamique et motivant.
+   - Langue : Français soigné, direct, dynamique et motivant.
    - Notation : Notation algébrique standard (ex: 1. e4, 2... Cf6, 3. Fb5).
-5. ACTIONS NATURELLES DÉCODÉES (AIDE AU CALCUL) :
+6. ACTIONS NATURELLES DÉCODÉES (AIDE AU CALCUL) :
    - Tous les coups d'échecs (dernier coup joué, meilleur coup recommandé et suite de coups calculée par Stockfish) te sont fournis DÉJÀ DÉCODÉS en actions humaines explicites (ex: 'Dame blanche en c3 prend la Tour noire en e3', 'Cavalier blanc se déplace de g1 en f3').
    - Appuie-toi sur ces actions déjà formulées pour expliquer les gains de matériel, les clouages, les fourchettes et les réfutations sans risque d'erreur sur l'identité des pièces ou des cases.
-6. RÈGLE CRITIQUE D'ENTRÉE DIRECTE (ANTI-BROUILLON) :
+7. RÈGLE CRITIQUE D'ENTRÉE DIRECTE (ANTI-BROUILLON) :
    - Démarre DIRECTEMENT ton texte par la balise '🎯 **Diagnostic** :'.
    - INTERDICTION STRICTE : Ne commence JAMAIS par décoder l'échiquier rangée par rangée (aucun 'Rank 8:', 'Rank 7:', 'White Pawn...', etc.).
    - N'énumère pas la position : les pièces et coups utiles te sont déjà formulés en français dans la fiche technique. Concentre 100%% de ta réponse sur l'explication humaine des 3 rubriques.""" % [perspective_instruction, perspective_label, perspective_label]
@@ -308,6 +395,7 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 
 	user_prompt += "\n\n⚠️ DIRECTIVE DE RESTITUTION STRICTE :\n" \
 		+ "- Démarre DIRECTEMENT ton texte par '🎯 **Diagnostic** :'.\n" \
+		+ "- Exprime-toi dans un style NATUREL, vivant, fluide et oral (idéal pour la synthèse vocale).\n" \
 		+ "- INTERDICTION FORMELLE d'écrire un brouillon d'échiquier (pas de 'Rank 8', 'Rank 7', etc.).\n" \
 		+ "- Respecte impérativement les 3 rubriques Markdown : 🎯 **Diagnostic**, 💡 **Analyse & Réfutation**, 📌 **Plan conseillé** (100 à 180 mots au total)."
 
@@ -550,7 +638,17 @@ func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> voi
 		is_reasoning = cat.is_reasoning_model(model_id)
 	else:
 		var low = model_id.to_lower()
-		is_reasoning = low.contains("r1") or low.contains("qwq") or low.contains("thinking") or low.contains("reasoning")
+		is_reasoning = (
+			low.contains("r1") or
+			low.contains("qwq") or
+			low.contains("o1") or
+			low.contains("o3") or
+			low.contains("thinking") or
+			low.contains("reasoning") or
+			low.contains("reasoner") or
+			low.contains("ling") or
+			low.contains("thought")
+		)
 
 	var url = "https://openrouter.ai/api/v1/chat/completions"
 	var body_dict = {
@@ -559,7 +657,7 @@ func _request_openrouter(prompt_data: Dictionary, model_info: Dictionary) -> voi
 			{"role": "system", "content": prompt_data.get("system", "")},
 			{"role": "user", "content": prompt_data.get("user", "")}
 		],
-		"max_tokens": 1800,
+		"max_tokens": 3000 if is_reasoning else 1800,
 		"temperature": 0.3
 	}
 
@@ -773,7 +871,9 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 			answer = answer.substr(diag_pos).strip_edges()
 
 	# Récupération de secours si le modèle a été interrompu en pleine réflexion avant d'avoir écrit le contenu final
+	var is_reasoning_only: bool = false
 	if answer.strip_edges() == "" and reasoning_text != "":
+		is_reasoning_only = true
 		answer = "⚠️ *Le modèle a atteint sa limite de jetons pendant sa réflexion préliminaire. Voici sa réflexion brute :*\n\n" + reasoning_text
 		reasoning_text = ""
 	elif finish_reason == "length" and answer.strip_edges() != "":
@@ -816,6 +916,14 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 		coach_response_received.emit(answer.strip_edges())
 		coach_response_with_meta.emit(answer.strip_edges(), cost_label, elapsed)
 		coach_response_detailed.emit(answer.strip_edges(), reasoning_text.strip_edges(), cost_label, elapsed)
+
+		# 3. RESTITUTION ORALE (SI DEMANDÉE)
+		var extra = last_query_context.get("extra_context", {})
+		if extra.get("request_audio", false):
+			if is_reasoning_only:
+				coach_error.emit("Le modèle '%s' a épuisé ses jetons pendant sa réflexion préliminaire sans formuler de conseil final.\n\n💡 Conseils :\n• Choisissez un modèle plus direct ou plus véloce (ex: Google Gemini 2.5 Flash, DeepSeek V3) via le sélecteur de modèle.\n• Les modèles à réflexion (thinking) nécessitent parfois davantage de jetons pour conclure." % active_query_model_id)
+			else:
+				speak_text(answer.strip_edges())
 	else:
 		if finish_reason == "length":
 			coach_error.emit("Le modèle '%s' a atteint sa limite de jetons ('finish_reason: length') avant de produire sa réponse.\n\n💡 Conseil : Choisissez un modèle plus véloce (ex: Google Gemini 2.5 Flash, DeepSeek V3) ou une question plus ciblée." % active_query_model_id)
@@ -865,3 +973,247 @@ static func extract_reasoning_from_text(raw_text: String) -> Dictionary:
 		"content": answer,
 		"reasoning": reasoning_text
 	}
+
+# --- SYNTHÈSE VOCALE (TEXT-TO-SPEECH) OPENROUTER ---
+
+## Nettoie le texte Markdown et les symboles pour une diction vocale fluide et naturelle.
+## Coupe proprement à la fin d'une phrase complète avant max_chars pour respecter la limite du fournisseur TTS.
+static func clean_text_for_speech(text: String, max_chars: int = 1500) -> String:
+	var t = text
+	# Si le texte est un avertissement de limite de réflexion brute sans conseil final, ne rien vocaliser
+	if t.begins_with("⚠️ *Le modèle a atteint sa limite de jetons") or t.begins_with("⚠️ Le modèle a atteint sa limite"):
+		return ""
+
+	# Retirer les éventuelles balises de réflexion résiduelles
+	var split_think = extract_reasoning_from_text(t)
+	t = split_think.content
+
+	# Normaliser la notation des coups d'échecs pour une prononciation naturelle (avant le nettoyage Markdown de #)
+	t = t.replace("O-O-O", "Grand roque").replace("0-0-0", "Grand roque")
+	t = t.replace("O-O", "Petit roque").replace("0-0", "Petit roque")
+	t = t.replace("x", " prend ")
+	t = t.replace("#", " échec et mat")
+	t = t.replace("+", " échec")
+
+	# Supprimer les en-têtes Markdown et le gras / italique
+	t = t.replace("**", "").replace("*", "")
+	t = t.replace("###", "").replace("##", "").replace("#", "")
+	t = t.replace("`", "")
+	t = t.replace("- ", " ")
+	t = t.replace("_", " ")
+
+	# Remplacer les rubriques types par des transitions vocales douces
+	t = t.replace("Diagnostic :", "Diagnostic.")
+	t = t.replace("Analyse & Réfutation :", "Analyse.")
+	t = t.replace("Plan conseillé :", "Plan conseillé.")
+
+	# Supprimer les emojis (plages Unicode communes)
+	var regex = RegEx.new()
+	regex.compile("[\\x{1F300}-\\x{1F9FF}|\\x{2600}-\\x{26FF}|\\x{2700}-\\x{27BF}]")
+	t = regex.sub(t, "", true)
+
+	# Normaliser les sauts de ligne et espaces
+	t = t.replace("\r\n", "\n").replace("\r", "\n")
+	t = t.replace("\n\n", ". ").replace("\n", ". ")
+	while ".." in t:
+		t = t.replace("..", ".")
+	while "  " in t:
+		t = t.replace("  ", " ")
+
+	t = t.strip_edges()
+
+	# Troncature propre à la fin d'une phrase complète si le texte dépasse max_chars
+	if max_chars > 0 and t.length() > max_chars:
+		var slice_candidate = t.substr(0, max_chars)
+		var last_punct = -1
+		for p in [". ", "! ", "? ", ".", "!", "?"]:
+			var idx = slice_candidate.rfind(p)
+			if idx > last_punct:
+				last_punct = idx + (1 if not p.ends_with(" ") else 0)
+		if last_punct > 150: # Au moins une phrase significative
+			t = slice_candidate.substr(0, last_punct + 1).strip_edges()
+		else:
+			# Fallback sur le dernier espace
+			var last_space = slice_candidate.rfind(" ")
+			if last_space > 0:
+				t = slice_candidate.substr(0, last_space).strip_edges() + "."
+			else:
+				t = slice_candidate.strip_edges() + "."
+
+	return t
+
+## Synthétise et prononce oralement le texte (100% local via DisplayServer ou cloud optionnel)
+func speak_text(text: String, voice_gender: String = "") -> void:
+	stop_speech()
+
+	# Respect strict du réglage sonore global
+	if not bool(_get_setting("sound_enabled", true)):
+		return
+
+	var clean_text = clean_text_for_speech(text)
+	if clean_text.is_empty():
+		return
+
+	var gender = voice_gender
+	if gender == "":
+		gender = str(_get_setting("coach_voice_gender", "female"))
+
+	var tts_model = str(_get_setting("coach_tts_model", "local_system")).strip_edges()
+	if tts_model == "":
+		tts_model = "local_system"
+
+	# --- 1. MODE 100% LOCAL (DisplayServer) ---
+	if tts_model == "local_system" or tts_model == "local":
+		if DisplayServer.has_feature(DisplayServer.FEATURE_TEXT_TO_SPEECH):
+			var voice_id = _select_local_voice_id(gender)
+			if voice_id == "":
+				# Si aucune voix n'est trouvée pour la langue, essayer la première voix disponible
+				var any_voices = DisplayServer.tts_get_voices()
+				if any_voices.size() > 0:
+					voice_id = str(any_voices[0].get("id", ""))
+
+			if voice_id != "":
+				var vol = int(clamp(_get_setting("sound_volume", 0.8) * 100.0, 10.0, 100.0))
+				_active_local_utterance_generation += 1
+				DisplayServer.tts_speak(clean_text, voice_id, vol, 1.0, 1.0)
+				is_speaking = true
+				coach_speech_started.emit()
+				return
+
+			coach_speech_error.emit("Aucune voix de synthèse vocale locale n'a été détectée sur votre appareil.")
+			return
+		else:
+			coach_speech_error.emit("La synthèse vocale locale n'est pas supportée par ce système d'exploitation.")
+			return
+
+	# --- 2. MODE CLOUD OPTIONNEL (ex: deepgram/flux-tts:free) ---
+	var key = str(_get_setting("api_key_openrouter", "")).strip_edges()
+	if key == "":
+		coach_speech_error.emit("Une clé API OpenRouter est requise pour le moteur vocal distant.")
+		return
+
+	var url = "https://openrouter.ai/api/v1/audio/speech"
+	var body_dict = {
+		"model": tts_model,
+		"input": clean_text,
+		"response_format": "mp3"
+	}
+
+	if tts_model.contains("flux-tts"):
+		var voice_name = "flux-marcelo-en" if gender == "male" else "flux-elise-en"
+		body_dict["voice"] = voice_name
+	elif tts_model.contains("aura-2"):
+		var voice_name = "aura-2-hector-fr" if gender == "male" else "aura-2-agathe-fr"
+		body_dict["voice"] = voice_name
+
+	var body = JSON.stringify(body_dict)
+	var headers = [
+		"Content-Type: application/json",
+		"Authorization: Bearer " + key,
+		"HTTP-Referer: https://rodchessxd.app",
+		"X-Title: RodChessXD"
+	]
+
+	if tts_http_client.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		tts_http_client.cancel_request()
+
+	var err = tts_http_client.request(url, headers, HTTPClient.METHOD_POST, body)
+	if err != OK:
+		coach_speech_error.emit("Impossible d'initialiser la synthèse vocale distante (erreur %d)." % err)
+
+## Sélectionne la meilleure voix système locale en fonction de la langue et du genre (Féminin/Masculin)
+func _select_local_voice_id(gender: String) -> String:
+	var all_voices = DisplayServer.tts_get_voices()
+	if all_voices.is_empty():
+		return ""
+
+	var fr_candidates: Array[Dictionary] = []
+	for v in all_voices:
+		var lang = str(v.get("language", "")).to_lower()
+		var v_id = str(v.get("id", "")).to_lower()
+		var v_name = str(v.get("name", "")).to_lower()
+		if lang.begins_with("fr") or "fr_fr" in lang or "fr-fr" in lang or "frfr" in v_id or "french" in v_name or "fr" in v_name:
+			fr_candidates.append(v)
+
+	var pool = fr_candidates if not fr_candidates.is_empty() else all_voices
+
+	# Tri ou filtrage par genre
+	for c in pool:
+		var name_id = (str(c.get("name", "")) + " " + str(c.get("id", ""))).to_lower()
+		if gender == "male":
+			if "paul" in name_id or "thomas" in name_id or "nicolas" in name_id or "male" in name_id or "homme" in name_id or "hector" in name_id or "claude" in name_id or "david" in name_id:
+				return str(c.get("id", ""))
+		else: # female
+			if "hortense" in name_id or "julie" in name_id or "audrey" in name_id or "amelie" in name_id or "female" in name_id or "femme" in name_id or "agathe" in name_id or "virginie" in name_id:
+				return str(c.get("id", ""))
+
+	# Si aucun genre spécifique n'est matché, retourner le premier candidat de la langue
+	return str(pool[0].get("id", ""))
+
+# --- RAPPELS TTS NATIFS (DisplayServer) ---
+
+func _on_local_tts_started(_utterance_id: int) -> void:
+	if not is_speaking:
+		is_speaking = true
+		coach_speech_started.emit()
+
+func _on_local_tts_ended(_utterance_id: int) -> void:
+	if is_speaking:
+		is_speaking = false
+		coach_speech_finished.emit()
+
+func _on_local_tts_canceled(_utterance_id: int) -> void:
+	# Ignore les annulations différées issues d'énonciations précédentes
+	if is_speaking:
+		is_speaking = false
+		coach_speech_finished.emit()
+
+# --- RAPPELS TTS DISTANT (HTTPRequest) ---
+
+func _on_tts_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS:
+		coach_speech_error.emit("Échec de connexion au service vocal OpenRouter (code %d)." % result)
+		return
+
+	if response_code != 200:
+		var err_detail = body.get_string_from_utf8().strip_edges().substr(0, 300)
+		coach_speech_error.emit("Erreur lors de la génération vocale (HTTP %d) :\n%s" % [response_code, err_detail])
+		return
+
+	if body.is_empty():
+		coach_speech_error.emit("Le service vocal n'a renvoyé aucun son.")
+		return
+
+	var stream = AudioStreamMP3.new()
+	stream.data = body
+	if stream.get_length() <= 0.0:
+		coach_speech_error.emit("Impossible de décoder le fichier audio MP3 de la voix.")
+		return
+
+	audio_player.stream = stream
+	audio_player.play()
+	is_speaking = true
+	coach_speech_started.emit()
+
+func _on_audio_player_finished() -> void:
+	is_speaking = false
+	coach_speech_finished.emit()
+
+func stop_speech() -> void:
+	_active_local_utterance_generation += 1
+
+	# 1. Arrêt du TTS local DisplayServer
+	if DisplayServer.has_feature(DisplayServer.FEATURE_TEXT_TO_SPEECH):
+		DisplayServer.tts_stop()
+
+	# 2. Arrêt du lecteur audio MP3 distant
+	if is_instance_valid(audio_player) and audio_player.playing:
+		audio_player.stop()
+
+	if is_speaking:
+		is_speaking = false
+		coach_speech_finished.emit()
+
+	if is_instance_valid(tts_http_client) and tts_http_client.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		tts_http_client.cancel_request()
+
