@@ -508,16 +508,14 @@ func _build_session() -> void:
 	trait_style.corner_radius_top_right = 12
 	trait_style.corner_radius_bottom_left = 12
 	trait_style.corner_radius_bottom_right = 12
-	trait_style.content_margin_left = 8
-	trait_style.content_margin_right = 8
+	trait_style.content_margin_left = 10
+	trait_style.content_margin_right = 10
 	trait_style.content_margin_top = 4
 	trait_style.content_margin_bottom = 4
 	trait_pill.add_theme_stylebox_override("panel", trait_style)
 	var trait_lbl := Label.new()
 	trait_lbl.text = "⚪ Trait aux Blancs" if trait_is_white else "⚫ Trait aux Noirs"
 	trait_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	trait_lbl.clip_text = true
-	trait_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	trait_pill.add_child(trait_lbl)
 	top_row.add_child(trait_pill)
 
@@ -563,6 +561,8 @@ func _build_session() -> void:
 
 	# 3. Échiquier 2D autonome centré et responsive
 	var board_widget := CarnetBoardWidget.new()
+	# Dimensionnement cible sur mobile : 296x296 (8 x 37 px), reste confortablement sous les 426 px exploitables
+	board_widget.custom_minimum_size = Vector2(296, 296)
 	board_widget.load_position(str(drill.get("position", "")), str(ctx.get("side", "")) == "black", str(ctx.get("last_move_uci", "")))
 	if not result.is_empty():
 		var exp_uci := str(result.get("expected", ""))
@@ -573,6 +573,7 @@ func _build_session() -> void:
 
 	var board_center := CenterContainer.new()
 	board_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	board_center.custom_minimum_size = Vector2(0, 296)
 	board_center.add_child(board_widget)
 	_content.add_child(board_center)
 

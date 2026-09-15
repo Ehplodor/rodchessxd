@@ -31,9 +31,9 @@ var _game: ChessGame = null
 var _selected_sq := -1
 
 func _init() -> void:
-	# Plancher réduit : le widget se dimensionne à la place disponible sans jamais
-	# imposer 256 px (cause de débordement centré sur colonnes étroites).
-	custom_minimum_size = Vector2(96, 96)
+	# Dimensions par défaut adaptées au viewport mobile (450px logique) tout en restant
+	# compact et sans déborder des marges (280x280 = 8 x 35px).
+	custom_minimum_size = Vector2(280, 280)
 	size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -96,8 +96,11 @@ func show_solution(best_uci: String, mistake_uci: String = "") -> void:
 func _update_layout() -> void:
 	var side := minf(size.x, size.y)
 	if side < 160.0:
-		side = 256.0
+		side = custom_minimum_size.x if custom_minimum_size.x >= 160.0 else 280.0
 	_square_size = maxf(24.0, floorf(side / 8.0))
+	var exact_side := _square_size * 8.0
+	if custom_minimum_size != Vector2(exact_side, exact_side):
+		custom_minimum_size = Vector2(exact_side, exact_side)
 	_update_pieces()
 	queue_redraw()
 
