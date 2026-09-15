@@ -16,7 +16,9 @@ const PARITY_COLOR := Color("#38bdf8")
 const BORDER_COLOR := Color("#334155")
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(20, 80)
+	# Hauteur libre : la barre est accolée au plateau et suit exactement sa hauteur
+	# (offsets posés par ChessBoard2D._position_eval_bar) — aucun minimum vertical.
+	custom_minimum_size = Vector2(20, 0)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	
 	score_label = Label.new()
@@ -43,7 +45,9 @@ func _notification(what: int) -> void:
 
 func _update_label_position() -> void:
 	if score_label:
-		var f_size = int(clampf(size.x * 0.55, 10.0, 15.0))
+		# Police proportionnelle à la largeur de la barre : le score (« -9.1 »,
+		# « M4 »…) doit rester entièrement visible même sur barre étroite.
+		var f_size = int(clampf(size.x * 0.36, 9.0, 12.0))
 		score_label.add_theme_font_size_override("font_size", f_size)
 		score_label.size = Vector2(size.x, f_size + 6)
 		# Positionner le badge près de la démarcation

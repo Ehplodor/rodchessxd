@@ -5,7 +5,7 @@ func _probe(ms, tag: String) -> void:
 	var col = ms.get_node_or_null("VBox/CenterArea/BoardColumn")
 	var cont = ms.get_node_or_null("VBox/CenterArea/BoardColumn/BoardContainer")
 	var cb = ms.get_node_or_null("VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard")
-	var eb = ms.get_node_or_null("VBox/CenterArea/EvalBar")
+	var eb = ms.get_node_or_null("VBox/CenterArea/BoardColumn/BoardContainer/EvalBar")
 	var cr = col.get_global_rect(); var ctr = cont.get_global_rect()
 	var bbr = cb.get_global_rect(); var er = eb.get_global_rect()
 	print("%-12s col=(%.0f..%.0f w%.0f) cont=(%.0f..%.0f) board=(%.0f..%.0f w%.0f) evalEnd=%.0f  ovlLeft=%s" % [

@@ -344,7 +344,8 @@ func _setup_ui() -> void:
 	carnet_speed_row.add_child(carnet_speed_lbl)
 
 	var carnet_speed_opt = OptionButton.new()
-	carnet_speed_opt.custom_minimum_size = Vector2(160, DesignTokens.TOUCH_MIN)
+	carnet_speed_opt.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	carnet_speed_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	carnet_speed_opt.fit_to_longest_item = false
 	carnet_speed_opt.clip_text = true
 	carnet_speed_opt.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)

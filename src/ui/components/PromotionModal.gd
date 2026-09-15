@@ -68,7 +68,8 @@ func _setup_ui() -> void:
 
 	for item in choices:
 		var btn = Button.new()
-		btn.custom_minimum_size = Vector2(btn_size, btn_size)
+		# Largeur extensible (min 0) : jamais de débordement si l'écran est étroit.
+		btn.custom_minimum_size = Vector2(0, btn_size)
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.tooltip_text = item["name"]
 		

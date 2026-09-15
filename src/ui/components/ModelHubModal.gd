@@ -144,8 +144,8 @@ func _setup_ui() -> void:
 	update_btn = Button.new()
 	update_btn.text = "🔄 Actualiser"
 	update_btn.tooltip_text = "Synchroniser avec l'API OpenRouter"
-	update_btn.clip_text = true
-	update_btn.custom_minimum_size = Vector2(90, DesignTokens.TOUCH_DENSE)
+	# Sans clip_text : le bouton conserve sa largeur naturelle (sinon ~8 px).
+	update_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
 	DesignTokens.style_button(update_btn, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)
 	update_btn.pressed.connect(_on_refresh_catalog_pressed)
 	top_row.add_child(update_btn)
@@ -163,6 +163,7 @@ func _setup_ui() -> void:
 	var sm = _get_settings()
 	var last_sync = sm.get_setting("last_catalog_sync", "Jamais") if sm else "Jamais"
 	update_status_lbl.text = "Dernière synchro : %s" % (last_sync if last_sync != "" else "Catalogue initial")
+	update_status_lbl.clip_text = true
 	update_status_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	update_status_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	update_status_lbl.custom_minimum_size = Vector2(50, 0)

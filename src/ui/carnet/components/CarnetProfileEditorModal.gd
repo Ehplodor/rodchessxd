@@ -90,7 +90,10 @@ func _setup_ui() -> void:
 	_btn_add_key = Button.new()
 	_btn_add_key.text = "+ Ajouter"
 	_btn_add_key.custom_minimum_size.y = float(DesignTokens.TOUCH_MIN)
-	_btn_add_key.custom_minimum_size.x = 90.0
+	_btn_add_key.custom_minimum_size.x = 0.0
+	# Pas de clip_text : le bouton garde sa largeur naturelle dans la rangée
+	# (le champ de saisie voisin est celui qui s'étend).
+	_btn_add_key.clip_text = false
 	DesignTokens.style_button(_btn_add_key, DesignTokens.FONT_BUTTON, DesignTokens.TOUCH_MIN)
 	_btn_add_key.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	_btn_add_key.pressed.connect(_on_add_key_from_input)
@@ -243,6 +246,7 @@ func _on_delete() -> void:
 		queue_free()
 	)
 	add_child(dialog)
+	DesignTokens.adapt_dialog(dialog)
 	dialog.popup_centered()
 
 func _setup_label(text: String, font_size: int, color: Color) -> Label:

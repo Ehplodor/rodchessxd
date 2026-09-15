@@ -36,7 +36,7 @@ const _FILTERS := [
 ]
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(200, 120)
+	custom_minimum_size = Vector2(0, 120)
 	horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	DesignTokens.touch_scroll(self)
 
@@ -549,6 +549,8 @@ func _add_stat_row(grid: GridContainer, val_w: String, label_text: String, val_b
 	lbl_m.text = label_text
 	lbl_m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lbl_m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_m.clip_text = true
+	lbl_m.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	lbl_m.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	lbl_m.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	grid.add_child(lbl_m)
@@ -659,8 +661,11 @@ func _build_moments_card() -> void:
 			int(swing.get("move_number", 1)), dots, str(swing.get("san", "")),
 			q_sym, loss_pct
 		]
-		btn.custom_minimum_size = Vector2(110, DesignTokens.TOUCH_DENSE)
+		btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+		# Pas de clip_text : dans un HFlowContainer la puce garde sa largeur
+		# naturelle et se replie (clip_text la réduirait à ~8 px).
 		btn.clip_text = false
+		btn.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 		btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		btn.add_theme_color_override("font_color", q_col)
 

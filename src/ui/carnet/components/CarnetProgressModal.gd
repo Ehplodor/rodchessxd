@@ -77,6 +77,7 @@ func _setup_ui(op_title: String, subtitle: String) -> void:
 	# 1. Titre & sous-titre
 	_title_lbl = Label.new()
 	_title_lbl.text = op_title
+	_title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	_title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	vbox.add_child(_title_lbl)
@@ -84,6 +85,7 @@ func _setup_ui(op_title: String, subtitle: String) -> void:
 	if subtitle != "":
 		_subtitle_lbl = Label.new()
 		_subtitle_lbl.text = subtitle
+		_subtitle_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_subtitle_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		_subtitle_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_SECONDARY)
 		vbox.add_child(_subtitle_lbl)
@@ -102,6 +104,8 @@ func _setup_ui(op_title: String, subtitle: String) -> void:
 
 	_counter_lbl = Label.new()
 	_counter_lbl.text = "Initialisation... (0 / %d)" % _total
+	_counter_lbl.clip_text = true
+	_counter_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_counter_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	_counter_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	global_header.add_child(_counter_lbl)
@@ -212,6 +216,8 @@ func _setup_ui(op_title: String, subtitle: String) -> void:
 
 	_engine_depth_lbl = Label.new()
 	_engine_depth_lbl.text = ""
+	_engine_depth_lbl.clip_text = true
+	_engine_depth_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_engine_depth_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
 	_engine_depth_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	card_vbox.add_child(_engine_depth_lbl)

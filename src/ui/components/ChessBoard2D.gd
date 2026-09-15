@@ -8,6 +8,9 @@ const _PromotionModal = preload("res://src/ui/components/PromotionModal.gd")
 # doit pouvoir rétrécir pour tenir dans l'espace disponible (aucun minimum 240px).
 const MIN_BOARD_SIDE := 48.0
 
+## Espace entre la barre d'évaluation et le bord gauche du plateau (groupe accolé).
+const EVAL_BAR_GAP := 6.0
+
 # Accélération des animations pendant l'analyse automatisée : les mouvements restent
 # pleinement visibles (glissement + rebond d'échelle + capture), mais à durée réduite
 # pour ne pas immobiliser le thread d'analyse. 0,5 => 0,14 s par coup au lieu de 0,28 s.
@@ -79,6 +82,9 @@ const THEMES := {
 
 var board_size: float = 400.0
 var square_size: float = 50.0
+
+## Barre d'évaluation sœur (EvalBar) accolée au bord gauche du plateau, si présente.
+var eval_bar_ref: Control = null
 
 var piece_sprites: Dictionary = {} # sq -> TextureRect
 var piece_textures: Dictionary = {}
@@ -237,6 +243,7 @@ func _ready() -> void:
 	set_process(false)
 	
 	_preload_piece_textures()
+	eval_bar_ref = get_parent().get_node_or_null("EvalBar") as Control
 	_update_dimensions()
 	_create_piece_nodes()
 	
@@ -288,12 +295,19 @@ func _notification(what: int) -> void:
 
 func _update_dimensions() -> void:
 	# Zone = BoardContainer, la région strictement entre les bandeaux joueurs.
-	# Le plateau est un carré = min(largeur, hauteur) de cette zone, centré dedans.
+	# Le plateau est un carré : il vise la pleine largeur de la zone et plafonne à
+	# la hauteur disponible. La barre d'évaluation (EvalBar) est accolée à sa gauche
+	# et l'ensemble « barre + plateau » est centré horizontalement dans la zone,
+	# si bien qu'aucun espace mort n'apparaît le long du plateau.
 	var p := get_parent() as Control
 	var avail := Vector2(size.x, size.y)
 	if p != null and p.size.x > 0.0 and p.size.y > 0.0:
 		avail = p.size
-	var side = minf(avail.x, avail.y)
+	var bar_w := 0.0
+	if eval_bar_ref != null and is_instance_valid(eval_bar_ref) and eval_bar_ref.visible:
+		bar_w = maxf(0.0, eval_bar_ref.custom_minimum_size.x)
+	var group_extra := EVAL_BAR_GAP + bar_w if bar_w > 0.0 else 0.0
+	var side = minf(avail.y, avail.x - group_extra)
 	if side < MIN_BOARD_SIDE:
 		side = MIN_BOARD_SIDE
 	board_size = side
@@ -304,13 +318,29 @@ func _update_dimensions() -> void:
 	if fx_layer:
 		fx_layer.size = Vector2(board_size, board_size)
 		fx_layer.position = Vector2.ZERO
-	# Recentre le plateau dans sa zone (le contrôle est ancré pleine largeur du parent).
+	# Centre le groupe « barre + plateau » dans sa zone (contrôle ancré plein rect).
 	if p != null and p.size.x > 0.0 and p.size.y > 0.0:
-		var half := (p.size - Vector2(board_size, board_size)) * 0.5
-		offset_left = half.x
-		offset_top = half.y
-		offset_right = -half.x
-		offset_bottom = -half.y
+		var group_w := board_size + group_extra
+		var left_pad := (avail.x - group_w) * 0.5 + group_extra
+		var half_y := (avail.y - board_size) * 0.5
+		offset_left = left_pad
+		offset_top = half_y
+		offset_right = -(avail.x - left_pad - board_size)
+		offset_bottom = -half_y
+		_position_eval_bar(p.size.x, left_pad, group_extra > 0.0, half_y)
+
+## Accole la barre d'évaluation au bord gauche du plateau, à sa hauteur exacte.
+## NB : parent_width est requis car offset_right/offset_bottom sont relatifs aux
+## anchors droit/bas (plein rect), pas au bord gauche du conteneur.
+func _position_eval_bar(parent_w: float, board_left: float, has_bar: bool, half_y: float) -> void:
+	if eval_bar_ref == null or not is_instance_valid(eval_bar_ref):
+		return
+	if not has_bar:
+		return
+	eval_bar_ref.offset_left = board_left - EVAL_BAR_GAP - eval_bar_ref.custom_minimum_size.x
+	eval_bar_ref.offset_right = board_left - EVAL_BAR_GAP - parent_w
+	eval_bar_ref.offset_top = half_y
+	eval_bar_ref.offset_bottom = -half_y
 
 ## Recalcule la taille du plateau quand son conteneur (BoardContainer) change de
 ## dimensions : c'est là qu'est fixée la vraie place entre les bandeaux joueurs.

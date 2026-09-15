@@ -85,7 +85,7 @@ Ordre de chargement défini dans `project.godot` → `[autoload]` :
 
 ```
 ┌────────────────────────────── COUCHE UI (src/ui) ──────────────────────────────┐
-│  Main.tscn : TopBar · CenterArea (EvalBar · ChessBoard2D) · NavRow ·           │
+│  Main.tscn : TopBar · CenterArea (BoardColumn > BoardContainer (ChessBoard2D + EvalBar)) · NavRow ·           │
 │              BottomTabs [Bilan: Stats/AdvantageGraph2D/MoveList2D | Coach:     │
 │              CoachPanel2D]  +  modales Window (OCR, PGN, Chess.com, Engine     │
 │              Hub, Library, Settings, Model Hub)                                │

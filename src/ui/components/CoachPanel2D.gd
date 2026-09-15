@@ -209,6 +209,7 @@ func _setup_ui() -> void:
 
 	move_badge_label = Label.new()
 	move_badge_label.text = "♟️ Position"
+	move_badge_label.clip_text = true
 	move_badge_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	move_badge_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	move_badge_label.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
@@ -217,6 +218,7 @@ func _setup_ui() -> void:
 
 	status_label = Label.new()
 	status_label.text = "Prêt"
+	status_label.clip_text = true
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	status_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -765,6 +767,7 @@ func _populate_conversation_buttons() -> void:
 		var q_title = note.get("user_question", "Conseil")
 		var title_lbl = Label.new()
 		title_lbl.text = q_title
+		title_lbl.clip_text = true
 		title_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -776,6 +779,7 @@ func _populate_conversation_buttons() -> void:
 		var clean_resp = resp_full.replace("\n", " ").replace("#", "").replace("*", "").strip_edges()
 		var sub_lbl = Label.new()
 		sub_lbl.text = "%s • %s" % [model_name, clean_resp]
+		sub_lbl.clip_text = true
 		sub_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		sub_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		sub_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)

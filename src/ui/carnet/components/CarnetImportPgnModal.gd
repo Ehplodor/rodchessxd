@@ -119,6 +119,7 @@ func _do_import(pgn_text: String) -> void:
 			_after_key_action(game_id)
 		)
 		add_child(dialog)
+		DesignTokens.adapt_dialog(dialog)
 		dialog.popup_centered()
 
 func _after_key_action(game_id: String) -> void:

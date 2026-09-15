@@ -692,6 +692,8 @@ func _build_continuation_card(drill: Dictionary) -> Control:
 
 	var engine_lbl := Label.new()
 	engine_lbl.text = str(cont.get("engine_label", "Stockfish 18"))
+	engine_lbl.clip_text = true
+	engine_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	engine_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	engine_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	header_hbox.add_child(engine_lbl)
@@ -780,6 +782,8 @@ func _build_continuation_card(drill: Dictionary) -> Control:
 				move_lbl.text = "%s  (%s)" % [str(s.get("label", "")), san_intl]
 			else:
 				move_lbl.text = str(s.get("label", ""))
+			move_lbl.clip_text = true
+			move_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			move_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			move_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 			s_head.add_child(move_lbl)
@@ -791,6 +795,8 @@ func _build_continuation_card(drill: Dictionary) -> Control:
 			var act_lbl := Label.new()
 			var act_str := str(s.get("action", ""))
 			act_lbl.text = "[%s]" % act_str
+			act_lbl.clip_text = true
+			act_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			act_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 			if act_str.find("mat") != -1:
 				act_lbl.add_theme_color_override("font_color", DesignTokens.DANGER)
@@ -1264,6 +1270,7 @@ func _on_delete_profile(profile_id: String) -> void:
 		dialog.queue_free()
 	)
 	add_child(dialog)
+	DesignTokens.adapt_dialog(dialog)
 	dialog.popup_centered()
 
 func _on_import_pgn() -> void:
@@ -1356,9 +1363,9 @@ func _on_game_reanalyze(game_id: String) -> void:
 	dialog.dialog_text = "Cette partie possède déjà une analyse en bibliothèque.\n\n• Ré-analyser avec le moteur : recalcule l'évaluation avec %s (%s).\n• Recalculer les atomes : ré-extrait les atomes sans relancer le moteur." % [
 		eng_name, speed_lbl
 	]
-	dialog.ok_button_text = "⚡ Ré-analyser (%s)" % speed_lbl
+	dialog.ok_button_text = "⚡ Ré-analyser"
 	dialog.cancel_button_text = "Annuler"
-	var btn_quick := dialog.add_button("⟳ Recalculer les atomes", true, "quick")
+	var btn_quick := dialog.add_button("⟳ Recalculer", true, "quick")
 	btn_quick.pressed.connect(func():
 		dialog.hide()
 		dialog.queue_free()
@@ -1377,6 +1384,7 @@ func _on_game_reanalyze(game_id: String) -> void:
 		_show_batch_modal()
 	)
 	add_child(dialog)
+	DesignTokens.adapt_dialog(dialog)
 	dialog.popup_centered()
 
 func _on_game_perspective_cycle(game_id: String) -> void:
@@ -1504,9 +1512,9 @@ func _on_recalculate_profile() -> void:
 	dialog.dialog_text = "Souhaitez-vous recalculer rapidement les atomes ou relancer une analyse complète avec le moteur ?\n\n• Recalcul rapide : met à jour instantanément les atomes depuis les analyses en bibliothèque.\n• Ré-analyser avec le moteur : recalcule l'intégralité des parties avec %s (%s, prof. %d)." % [
 		eng_name, speed_lbl, int(speed_cfg.get("depth", 8))
 	]
-	dialog.ok_button_text = "⚡ Ré-analyser tout (%s)" % speed_lbl
+	dialog.ok_button_text = "⚡ Ré-analyser tout"
 	dialog.cancel_button_text = "Annuler"
-	var btn_quick := dialog.add_button("⟳ Recalcul rapide (atomes)", true, "quick_recalc")
+	var btn_quick := dialog.add_button("⟳ Recalcul rapide", true, "quick_recalc")
 	btn_quick.pressed.connect(func():
 		dialog.hide()
 		dialog.queue_free()
@@ -1517,6 +1525,7 @@ func _on_recalculate_profile() -> void:
 		_launch_full_reanalysis()
 	)
 	add_child(dialog)
+	DesignTokens.adapt_dialog(dialog)
 	dialog.popup_centered()
 
 func _launch_algorithmic_recalculate() -> void:
@@ -1594,6 +1603,7 @@ func _on_game_remove(game_id: String) -> void:
 		dialog.queue_free()
 	)
 	add_child(dialog)
+	DesignTokens.adapt_dialog(dialog)
 	dialog.popup_centered()
 
 func _on_profile_updated(profile_id: String) -> void:

@@ -134,6 +134,8 @@ func _setup_ui() -> void:
 	moves_option = OptionButton.new()
 	moves_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	moves_option.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+	moves_option.fit_to_longest_item = false
+	moves_option.clip_text = true
 	moves_option.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	moves_option.add_item("tous")
 	moves_option.add_item("moins de")
@@ -450,6 +452,7 @@ func _confirm_delete_single(game_id: String) -> void:
 		_refresh_games_list()
 	)
 	add_child(dialog)
+	DesignTokens.adapt_dialog(dialog)
 	dialog.popup_centered()
 
 func _on_delete_visible_pressed() -> void:
@@ -478,6 +481,7 @@ func _on_delete_visible_pressed() -> void:
 		_toast("🗑️ %d partie(s) supprimée(s)." % removed)
 	)
 	add_child(dialog)
+	DesignTokens.adapt_dialog(dialog)
 	dialog.popup_centered()
 
 func _toast(msg: String) -> void:

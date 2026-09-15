@@ -68,7 +68,7 @@ func _setup_ui() -> void:
 
 	var btn_fetch = Button.new()
 	btn_fetch.text = "🔍 Chercher"
-	btn_fetch.custom_minimum_size = Vector2(100, DesignTokens.TOUCH_MIN)
+	btn_fetch.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	DesignTokens.style_button(btn_fetch)
 	btn_fetch.pressed.connect(_start_fetch)
 	input_row.add_child(btn_fetch)
@@ -82,10 +82,11 @@ func _setup_ui() -> void:
 	status_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
 	vbox.add_child(status_lbl)
 
-	# 3. Filtres de cadence (Blitz, Rapide, Bullet, etc.)
-	var filters_row = HBoxContainer.new()
+	# 3. Filtres de cadence (Blitz, Rapide, Bullet, etc.) — rangée repliable.
+	var filters_row := HFlowContainer.new()
 	filters_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	filters_row.add_theme_constant_override("separation", 4)
+	filters_row.add_theme_constant_override("h_separation", 4)
+	filters_row.add_theme_constant_override("v_separation", 4)
 	vbox.add_child(filters_row)
 
 	_add_filter_btn(filters_row, "Tout", "all")
@@ -126,8 +127,8 @@ func _get_settings() -> Node:
 func _add_filter_btn(parent: Node, label_text: String, filter_key: String) -> void:
 	var btn = Button.new()
 	btn.text = label_text
-	btn.clip_text = true
-	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# Pas de clip_text : en HFlowContainer les filtres se replient d'eux-mêmes
+	# (clip_text réduirait leur largeur minimale à ~8 px).
 	btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
 	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	btn.pressed.connect(func():
@@ -251,7 +252,9 @@ func _show_diagnostic_popup(diag: Dictionary) -> void:
 	overlay.add_child(center)
 
 	var card = PanelContainer.new()
-	card.custom_minimum_size = Vector2(360, 0)
+	# Largeur naturelle; contrainte par le CenterContainer (jamais > écran).
+	card.custom_minimum_size = Vector2(0, 0)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var card_style = DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM, DesignTokens.BORDER, 2, Vector2(16, 16))
 	card.add_theme_stylebox_override("panel", card_style)
 	center.add_child(card)
@@ -435,6 +438,7 @@ func _add_game_card(game_data: Dictionary) -> void:
 	# Ligne 1 : Blancs
 	var w_lbl = Label.new()
 	w_lbl.text = "⚪ %s (%d)" % [game_data.get("white_user", "Inconnu"), game_data.get("white_rating", 0)]
+	w_lbl.clip_text = true
 	w_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	w_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	w_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -447,6 +451,7 @@ func _add_game_card(game_data: Dictionary) -> void:
 	# Ligne 2 : Noirs
 	var b_lbl = Label.new()
 	b_lbl.text = "⚫ %s (%d)" % [game_data.get("black_user", "Inconnu"), game_data.get("black_rating", 0)]
+	b_lbl.clip_text = true
 	b_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	b_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
@@ -474,6 +479,7 @@ func _add_game_card(game_data: Dictionary) -> void:
 		parts_meta.append(date_str)
 
 	meta_lbl.text = " • ".join(parts_meta)
+	meta_lbl.clip_text = true
 	meta_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	meta_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	meta_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
@@ -484,7 +490,10 @@ func _add_game_card(game_data: Dictionary) -> void:
 	var btn_analyze = Button.new()
 	btn_analyze.text = "▶ Analyser"
 	btn_analyze.tooltip_text = "Charger cette partie sur l'échiquier et ouvrir l'analyse"
-	btn_analyze.custom_minimum_size = Vector2(84, DesignTokens.TOUCH_DENSE)
+	btn_analyze.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
+	# Pas de clip_text : largeur naturelle, les libellés voisins s'étendent.
+	btn_analyze.clip_text = false
+	btn_analyze.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 	btn_analyze.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	btn_analyze.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 

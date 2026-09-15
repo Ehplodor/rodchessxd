@@ -26,7 +26,7 @@ const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
 @onready var nav_row: HBoxContainer = $VBox/NavRow
 @onready var dashboard: VBoxContainer = $VBox/Dashboard
 
-@onready var eval_bar: EvalBar2D = $VBox/CenterArea/EvalBar
+@onready var eval_bar: EvalBar2D = $VBox/CenterArea/BoardColumn/BoardContainer/EvalBar
 @onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
 @onready var advantage_graph: AdvantageGraph2D = $VBox/Dashboard/GraphPanel/AdvantageGraph
 @onready var engine_lines_panel: EngineLinesPanel2D = $VBox/Dashboard/EngineLinesPanel
@@ -41,6 +41,9 @@ const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
 @onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
 
 var is_landscape_layout: bool = false
+
+## Écart barre d'évaluation ↔ plateau (doit refléter ChessBoard2D.EVAL_BAR_GAP).
+const EVAL_BAR_GAP := 6.0
 
 @onready var player_top_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerTop
 @onready var player_bottom_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerBottom
@@ -221,6 +224,13 @@ func _ready() -> void:
 
 	_update_player_labels()
 	_update_live_button_style()
+	_move_graph_hud_to_engine_panel()
+	# Re-répartition dynamique dès qu'un bloc du bas change de hauteur (lignes
+	# moteur dépliées/repliées, bandeaux joueurs, densité des raccourcis…).
+	for layout_child in [top_bar, nav_row, dashboard, player_top_row, player_bottom_row]:
+		if is_instance_valid(layout_child) \
+				and not layout_child.resized.is_connected(_on_layout_child_resized):
+			layout_child.resized.connect(_on_layout_child_resized)
 	_check_and_update_layout()
 	call_deferred("_start_initial_eval")
 
@@ -284,8 +294,10 @@ func _apply_adaptive_layout(target_landscape: bool) -> void:
 		dashboard.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		
 		center_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		dashboard.custom_minimum_size = Vector2.ZERO
 		if is_instance_valid(eval_bar):
-			eval_bar.custom_minimum_size = Vector2(24, 0)
+			# Assez large pour afficher le score (ex. « -9.1 ») sans être rogné.
+			eval_bar.custom_minimum_size = Vector2(30, 0)
 	else:
 		# --- MODE PORTRAIT (9/16, Smartphones standard) ---
 		# Restauration de l'arborescence verticale initiale dans vbox
@@ -307,12 +319,110 @@ func _apply_adaptive_layout(target_landscape: bool) -> void:
 		
 		center_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		if is_instance_valid(eval_bar):
-			eval_bar.custom_minimum_size = Vector2(20, 0)
+			# Assez large pour afficher le score (ex. « -9.1 ») sans être rogné.
+			eval_bar.custom_minimum_size = Vector2(30, 0)
+		# Le plateau est l'élément central : on lui réserve en priorité la place
+		# nécessaire pour atteindre la pleine largeur, le tableau de bord absorbant
+		# le reste (compact au minimum sur les écrans courts, extensible au-delà).
+		_update_board_priority_allocation()
 
 	if analyse_overlay and analyse_overlay.visible:
 		_dock_overlay(analyse_overlay)
 	if coach_overlay and coach_overlay.visible:
 		_dock_overlay(coach_overlay)
+
+## Allocation « plateau d'abord » (portrait) : le plateau doit pouvoir atteindre la
+## pleine largeur de l'écran dès que la hauteur le permet. On fixe alors la hauteur
+## du tableau de bord pour absorber exactement le restant (il reste compact à son
+## minimum sur les écrans courts, et s'étend gracieusement sur les écrans longs —
+## 9/16 jusqu'aux 9/19,5 — sans jamais pousser le VBox en débordement).
+func _update_board_priority_allocation() -> void:
+	if not is_inside_tree():
+		return
+	if is_landscape_layout:
+		dashboard.custom_minimum_size = Vector2.ZERO
+		return
+	if not (is_instance_valid(vbox) and is_instance_valid(top_bar) and is_instance_valid(nav_row) \
+			and is_instance_valid(dashboard) and is_instance_valid(player_top_row) \
+			and is_instance_valid(player_bottom_row)):
+		return
+	var sep_v := float(vbox.get_theme_constant("separation"))
+	var col_sep := float(board_column.get_theme_constant("separation"))
+	var top_h := _min_height(top_bar)
+	var nav_h := _min_height(nav_row)
+	var bands := _min_height(player_top_row) + _min_height(player_bottom_row)
+	var bar_w := 0.0
+	if is_instance_valid(eval_bar):
+		bar_w = maxf(0.0, eval_bar.custom_minimum_size.x)
+	var avail := vbox.size.y if vbox.size.y > 0.0 else size.y
+	if avail <= 0.0:
+		return
+	# Côté visé pour le plateau : toute la largeur moins (écart + barre d'éval).
+	var side_target := maxf(ChessBoard2D.MIN_BOARD_SIDE, size.x - EVAL_BAR_GAP - bar_w)
+	var center_needed := bands + col_sep * 2.0 + side_target
+	var fixed := top_h + nav_h + sep_v * 3.0
+	# Hauteur de CONTENU du dashboard (sans le minimum posé au passage précédent,
+	# sinon il jouerait le rôle de plancher gonflé et bloquerait le plateau).
+	var dash_min := _content_min_height(dashboard)
+	var dash_target: float
+	if fixed + dash_min + center_needed <= avail:
+		# Assez de hauteur : plateau pleine largeur, le dashboard absorbe le surplus.
+		dash_target = maxf(dash_min, avail - fixed - center_needed)
+	else:
+		# Écran trop court : plateau limité par la hauteur, dashboard compact.
+		dash_target = dash_min
+	dashboard.custom_minimum_size = Vector2(0, dash_target)
+
+static func _min_height(c: Control) -> float:
+	if c == null or not is_instance_valid(c):
+		return 0.0
+	return c.get_combined_minimum_size().y
+
+## Hauteur minimale intrinsèque d'un VBoxContainer : somme des enfants visibles
+## (get_combined_minimum_size inclut custom_minimum_size du conteneur lui-même,
+## ce qui fausserait la répartition — on agrège donc les enfants manuellement).
+static func _content_min_height(box: VBoxContainer) -> float:
+	if box == null or not is_instance_valid(box):
+		return 0.0
+	var sep := float(box.get_theme_constant("separation"))
+	var total := 0.0
+	for child in box.get_children():
+		var ctrl := child as Control
+		if ctrl == null or not ctrl.visible:
+			continue
+		if total > 0.0:
+			total += sep
+		total += ctrl.get_combined_minimum_size().y
+	return total
+
+## Si un bloc du bas (lignes moteur dépliées, bandeaux joueurs…) change de hauteur,
+## on re-répartit pour garantir zéro débordement et un plateau toujours maximal.
+func _on_layout_child_resized() -> void:
+	if not is_landscape_layout:
+		call_deferred("_update_board_priority_allocation")
+
+## Transfère le HUD moteur du graphe (badge de profondeur + bascule d'analyses)
+## vers l'en-tête du panneau « Ligne moteur ». C'est son emplacement naturel :
+## informations du moteur regroupées avec sa sortie, aucun coût vertical (la
+## rangée d'en-tête existe déjà), et surtout AUCUN risque de débordement de la
+## barre du haut (le panneau occupe toute la largeur, titre extensible/tronqué).
+## Idempotent (sécurisé si les nœuds manquent).
+func _move_graph_hud_to_engine_panel() -> void:
+	if not is_instance_valid(advantage_graph) or not is_instance_valid(engine_lines_panel):
+		return
+	if not engine_lines_panel.has_method("header_row"):
+		return
+	var host: HBoxContainer = engine_lines_panel.header_row()
+	if host == null or not is_instance_valid(host):
+		return
+	for hud in [advantage_graph.depth_badge, advantage_graph.btn_switch_analysis]:
+		if hud == null or not is_instance_valid(hud):
+			continue
+		if hud.get_parent() != host:
+			hud.reparent(host)
+		hud.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if is_instance_valid(advantage_graph.depth_badge):
+		advantage_graph.depth_badge.queue_redraw()
 
 func _apply_modern_theme() -> void:
 	# Fond principal de l'application
@@ -439,13 +549,15 @@ func _apply_overflow_guards() -> void:
 		(eval_badge as Control).custom_minimum_size = Vector2(44, 36)
 	for path in ["VBox/TopBar/MarginContainer/TitleBox/AppTitle",
 			"VBox/TopBar/MarginContainer/TitleBox/VersionLabel",
+			"VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop",
+			"VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom",
 			"AnalyseOverlay/Layout/Header/Title", "CoachOverlay/Layout/Header/Title"]:
 		var label := get_node_or_null(path)
 		if label is Label:
 			(label as Label).clip_text = true
 			(label as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			(label as Label).custom_minimum_size.x = 0
-	for bar_path in ["VBox/TopBar", "VBox/NavRow", "AnalyseOverlay/Layout/Header",
+	for bar_path in ["VBox/TopBar", "AnalyseOverlay/Layout/Header",
 			"CoachOverlay/Layout/Header"]:
 		var bar := get_node_or_null(bar_path)
 		if bar == null:
@@ -458,6 +570,16 @@ func _apply_overflow_guards() -> void:
 				child.clip_text = true
 				child.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 				child.custom_minimum_size.x = minf(child.custom_minimum_size.x, float(DesignTokens.TOUCH_MIN))
+	# NavRow : « Analyser » est extensible (min 0) et « Live » doit garder sa
+	# largeur naturelle pour ne pas couper son libellé en plein mot.
+	if is_instance_valid(btn_analyze_game):
+		btn_analyze_game.clip_text = true
+		btn_analyze_game.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		btn_analyze_game.custom_minimum_size.x = 0
+	if is_instance_valid(btn_toggle_live):
+		btn_toggle_live.clip_text = false
+		btn_toggle_live.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+		btn_toggle_live.custom_minimum_size.x = 78
 	_harden_dropdowns(self)
 
 static func _has_ascii_letter(text: String) -> bool:
@@ -1354,6 +1476,7 @@ func _show_toast(msg: String, is_success: bool = true) -> void:
 		toast_label.add_theme_stylebox_override("normal", style)
 		toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		toast_label.add_theme_color_override("font_color", Color.WHITE)
 		toast_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 		toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1368,6 +1491,8 @@ func _show_toast(msg: String, is_success: bool = true) -> void:
 	_toast_token += 1
 	var token := _toast_token
 	toast_label.text = msg
+	# Hauteur adaptée au texte (multi-lignes) : jamais de message tronqué.
+	toast_label.offset_bottom = toast_label.offset_top + _measure_error_height(msg)
 	toast_label.show()
 	move_child(toast_label, get_child_count() - 1)
 	var timer := get_tree().create_timer(2.8)
@@ -1609,6 +1734,7 @@ func _on_btn_new_game_pressed() -> void:
 		dialog.cancel_button_text = "Annuler"
 		dialog.confirmed.connect(_do_reset_game)
 		add_child(dialog)
+		DesignTokens.adapt_dialog(dialog)
 		dialog.popup_centered()
 	else:
 		_do_reset_game()

@@ -240,6 +240,7 @@ func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bo
 	var title_lbl = Label.new()
 	title_lbl.text = name
 	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_lbl.clip_text = true
 	title_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	title_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
@@ -253,7 +254,7 @@ func _add_engine_card(parent: Node, name: String, desc: String, is_installed: bo
 	text_box.add_child(desc_lbl)
 
 	var action_btn = Button.new()
-	action_btn.custom_minimum_size = Vector2(90, DesignTokens.TOUCH_MIN)
+	action_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	action_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 	if on_download.is_valid() and action_label != "" and action_label != "Télécharger":
 		action_btn.text = action_label

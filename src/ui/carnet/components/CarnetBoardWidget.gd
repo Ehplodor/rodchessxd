@@ -31,7 +31,9 @@ var _game: ChessGame = null
 var _selected_sq := -1
 
 func _init() -> void:
-	custom_minimum_size = Vector2(256, 256)
+	# Plancher réduit : le widget se dimensionne à la place disponible sans jamais
+	# imposer 256 px (cause de débordement centré sur colonnes étroites).
+	custom_minimum_size = Vector2(96, 96)
 	size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mouse_filter = Control.MOUSE_FILTER_STOP

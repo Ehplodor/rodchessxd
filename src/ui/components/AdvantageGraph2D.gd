@@ -33,7 +33,9 @@ var _geom_dirty: bool = true
 var _cached_size: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(250, 130)
+	# Compact : le graphe cède la place au plateau (élément central) sur les écrans
+	# courts, et s'étend au-delà quand la hauteur disponible le permet.
+	custom_minimum_size = Vector2(0, 96)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	var gc = get_node_or_null("/root/GameController")
 	if gc:
@@ -76,12 +78,18 @@ func _setup_hud() -> void:
 
 	depth_label = Label.new()
 	depth_label.text = "⚡ %s • Prêt" % _get_active_engine_name()
-	depth_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	# Police d'un cran plus petite et largeur confortable : les glyphes émoji
+	# (⚡/✓) sont plus larges sur appareil que dans les métriques de test.
+	depth_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 2)
 	depth_label.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	# Doit pouvoir se compacter dans la TopBar sur écrans étroits (360 px).
+	depth_label.clip_text = true
+	depth_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	depth_label.custom_minimum_size.x = 0
 	badge_vbox.add_child(depth_label)
 
 	depth_progress_bar = ProgressBar.new()
-	depth_progress_bar.custom_minimum_size = Vector2(100, 3)
+	depth_progress_bar.custom_minimum_size = Vector2(130, 3)
 	depth_progress_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	depth_progress_bar.show_percentage = false
 	depth_progress_bar.min_value = 0
@@ -101,8 +109,10 @@ func _setup_hud() -> void:
 	# Bouton pour basculer entre les analyses enregistrées (si multi-analyses)
 	btn_switch_analysis = Button.new()
 	btn_switch_analysis.visible = false
-	btn_switch_analysis.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	btn_switch_analysis.custom_minimum_size = Vector2(0, 32)
+	btn_switch_analysis.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
+	btn_switch_analysis.custom_minimum_size = Vector2(140, 32)
+	btn_switch_analysis.clip_text = true
+	btn_switch_analysis.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	btn_switch_analysis.tooltip_text = "Cliquer pour basculer entre les différentes analyses de moteurs enregistrées"
 	btn_switch_analysis.add_theme_stylebox_override("normal", chip_normal)
 	btn_switch_analysis.add_theme_stylebox_override("hover", chip_hover)
@@ -113,15 +123,19 @@ func _setup_hud() -> void:
 
 	_update_button_positions()
 
+## Positionnement manuel du HUD : uniquement s'il vit encore dans le graphe.
+## Dans la TopBar (cas nominal), le HBoxContainer gère la disposition.
 func _update_button_positions() -> void:
+	if depth_badge == null or not is_instance_valid(depth_badge) \
+			or depth_badge.get_parent() != self:
+		return
 	var right_cursor = size.x - 8
 	var min_allowed_x = 36.0
-	if depth_badge:
-		depth_badge.reset_size()
-		var badge_w = depth_badge.size.x
-		var badge_x = maxf(min_allowed_x, right_cursor - badge_w)
-		depth_badge.position = Vector2(badge_x, 6)
-		right_cursor = badge_x - 6.0
+	depth_badge.reset_size()
+	var badge_w = depth_badge.size.x
+	var badge_x = maxf(min_allowed_x, right_cursor - badge_w)
+	depth_badge.position = Vector2(badge_x, 6)
+	right_cursor = badge_x - 6.0
 	if btn_switch_analysis and btn_switch_analysis.visible:
 		btn_switch_analysis.reset_size()
 		var btn_w = btn_switch_analysis.size.x
@@ -291,7 +305,9 @@ func _draw() -> void:
 
 	var left_margin = 32.0
 	var right_margin = 12.0
-	var top_margin = 46.0   # Bande haute : HUD dynamique moteur & bascule d'analyse
+	# La bande HUD moteur a été déplacée dans la TopBar (Main) : la courbe occupe
+	# désormais presque toute la hauteur du panneau.
+	var top_margin = 10.0
 	var bottom_margin = 26.0 # Bande basse : libellé du coup courant, hors courbe
 
 	var graph_w = maxf(10.0, w - left_margin - right_margin)

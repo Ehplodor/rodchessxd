@@ -68,7 +68,10 @@ func _setup_ui() -> void:
 		for f in range(8):
 			var sq = (7 - r) * 8 + f
 			var btn = Button.new()
-			btn.custom_minimum_size = Vector2(47, 47)  # M1 : grille dense (8 colonnes, fenêtre 410 px)
+			# Cellules extensibles : 8 colonnes réparties sur la largeur réellement
+			# disponible (plus de minimum fixe 47 px qui déborde sur écran étroit).
+			btn.custom_minimum_size = Vector2(0, 40)
+			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			btn.flat = false
 			btn.add_theme_font_size_override("font_size", 24)
 			var is_light = (r + f) % 2 == 0
@@ -91,9 +94,10 @@ func _setup_ui() -> void:
 	main_vbox.add_child(palette_lbl)
 
 	# Rangée Blancs
-	var row_white = HBoxContainer.new()
-	row_white.alignment = BoxContainer.ALIGNMENT_CENTER
-	row_white.add_theme_constant_override("separation", 6)
+	var row_white = HFlowContainer.new()
+	row_white.alignment = FlowContainer.ALIGNMENT_CENTER
+	row_white.add_theme_constant_override("h_separation", 6)
+	row_white.add_theme_constant_override("v_separation", 6)
 	main_vbox.add_child(row_white)
 
 	var lbl_w = Label.new()
@@ -105,9 +109,10 @@ func _setup_ui() -> void:
 		_add_palette_btn(row_white, t, ChessPiece.PieceColor.WHITE)
 
 	# Rangée Noirs + Gomme
-	var row_black = HBoxContainer.new()
-	row_black.alignment = BoxContainer.ALIGNMENT_CENTER
-	row_black.add_theme_constant_override("separation", 6)
+	var row_black = HFlowContainer.new()
+	row_black.alignment = FlowContainer.ALIGNMENT_CENTER
+	row_black.add_theme_constant_override("h_separation", 6)
+	row_black.add_theme_constant_override("v_separation", 6)
 	main_vbox.add_child(row_black)
 
 	var lbl_b = Label.new()
@@ -120,7 +125,9 @@ func _setup_ui() -> void:
 
 	var btn_empty = Button.new()
 	btn_empty.text = "🗑️ Vide"
-	btn_empty.custom_minimum_size = Vector2(50, DesignTokens.TOUCH_MIN)
+	# Pas de clip_text : dans un HFlowContainer le bouton garde sa largeur naturelle
+	# et se replie ; clip_text le réduirait à ~8 px.
+	btn_empty.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_empty.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	btn_empty.pressed.connect(func(): selected_palette_piece = {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE})
 	row_black.add_child(btn_empty)
@@ -171,8 +178,10 @@ func _setup_ui() -> void:
 
 func _add_palette_btn(parent: Node, type: int, color: int) -> void:
 	var btn = Button.new()
-	# M1 : palette dense — 44 px ferait déborder la rangée noire (396 > 386 px), 40 px minimum retenu
+	# Minimum réduit + extensible : la rangée se replie (HFlowContainer) au lieu
+	# de déborder sur écran étroit.
 	btn.custom_minimum_size = Vector2(40, 40)
+	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var path = ChessPiece.asset_path(type, color)
 	if ResourceLoader.exists(path):
 		btn.icon = load(path)
@@ -192,7 +201,8 @@ func _reset_board() -> void:
 	_update_fen_display()
 
 func _open_file_dialog() -> void:
-	file_dialog.popup_centered(Vector2i(380, 500))
+	DesignTokens.adapt_modal_size(file_dialog, 380, 500)
+	file_dialog.popup_centered()
 
 func _on_image_file_selected(path: String) -> void:
 	var img = ChessOCR.load_image(path)

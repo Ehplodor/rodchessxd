@@ -6,6 +6,7 @@ extends VBoxContainer
 signal line_selected(rank: int, pv: Array, best_move: String)
 
 var _header_btn: Button
+var _header_row: HBoxContainer
 var _rows_box: VBoxContainer
 var _collapsed := false
 var _lines: Array = []
@@ -17,16 +18,24 @@ var _san_cache: Dictionary = {}
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 2)
+	# En-tête : titre extensible (repliable) + emplacement pour le HUD moteur
+	# (chip de profondeur + bascule d'analyses), placés ici par Main — c'est
+	# l'emplacement naturel de ces informations, sans coût vertical ni débordement.
+	_header_row = HBoxContainer.new()
+	_header_row.add_theme_constant_override("separation", 6)
+	add_child(_header_row)
+
 	_header_btn = Button.new()
 	_header_btn.flat = true
 	_header_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_header_btn.clip_text = true
 	_header_btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_header_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_header_btn.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_DENSE)
 	_header_btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	_header_btn.add_theme_color_override("font_color", DesignTokens.ACCENT)
 	_header_btn.pressed.connect(_toggle)
-	add_child(_header_btn)
+	_header_row.add_child(_header_btn)
 
 	_rows_box = VBoxContainer.new()
 	_rows_box.add_theme_constant_override("separation", 2)
@@ -51,6 +60,10 @@ func _ready() -> void:
 		_row_data.append({})
 
 	_update_header()
+
+## Rangée d'en-tête où Main vient accrocher le HUD moteur (chip + bascule).
+func header_row() -> HBoxContainer:
+	return _header_row
 
 func _on_row_pressed(idx: int) -> void:
 	if idx < 0 or idx >= _row_data.size():
@@ -86,7 +99,9 @@ func _update_header() -> void:
 		return
 	var arrow := "▸" if _collapsed else "▾"
 	var title_lines := "Ligne moteur" if _lines.size() <= 1 else ("Lignes moteur (%d)" % _lines.size())
-	_header_btn.text = "%s %s — %s d%d" % [arrow, title_lines, _engine_name, _depth]
+	# Le moteur et la profondeur sont affichés par le HUD (chip) à droite :
+	# on évite la redondance et la troncature du titre sur écran étroit.
+	_header_btn.text = "%s %s" % [arrow, title_lines]
 
 func _rebuild() -> void:
 	if _rows_box == null:

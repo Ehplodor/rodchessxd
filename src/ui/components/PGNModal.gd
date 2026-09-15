@@ -104,7 +104,8 @@ func _setup_ui() -> void:
 	add_child(file_dialog)
 
 func _open_file_dialog() -> void:
-	file_dialog.popup_centered(Vector2i(380, 500))
+	DesignTokens.adapt_modal_size(file_dialog, 380, 500)
+	file_dialog.popup_centered()
 
 func _on_file_selected(path: String) -> void:
 	var f = FileAccess.open(path, FileAccess.READ)

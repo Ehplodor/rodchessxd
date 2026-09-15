@@ -51,7 +51,7 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-grow_horizontal = 2
+grow_horizontal = 1
 grow_vertical = 2
 theme_override_constants/separation = 6
 
@@ -125,12 +125,6 @@ size_flags_vertical = 3
 alignment = 1
 theme_override_constants/separation = 6
 
-[node name="EvalBar" type="Control" parent="VBox/CenterArea"]
-custom_minimum_size = Vector2(20, 0)
-layout_mode = 2
-size_flags_vertical = 3
-script = ExtResource("2_eval")
-
 [node name="BoardColumn" type="VBoxContainer" parent="VBox/CenterArea"]
 layout_mode = 2
 size_flags_horizontal = 3
@@ -182,6 +176,16 @@ grow_vertical = 2
 layout_mode = 1
 script = ExtResource("3_board")
 
+[node name="EvalBar" type="Control" parent="VBox/CenterArea/BoardColumn/BoardContainer"]
+custom_minimum_size = Vector2(20, 0)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("2_eval")
+
 [node name="PlayerBottom" type="MarginContainer" parent="VBox/CenterArea/BoardColumn"]
 layout_mode = 2
 theme_override_constants/margin_left = 8
@@ -214,7 +218,6 @@ text = ""
 
 [node name="NavRow" type="HBoxContainer" parent="VBox"]
 layout_mode = 2
-alignment = 1
 theme_override_constants/separation = 4
 
 [node name="BtnFirst" type="Button" parent="VBox/NavRow"]
@@ -242,14 +245,14 @@ tooltip_text = "Fin de la partie"
 text = "⏭"
 
 [node name="BtnAnalyzeGame" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(105, 52)
+custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 size_flags_horizontal = 3
 tooltip_text = "Analyser toute la partie (moteur d'échecs)"
 text = "🔍 Analyser"
 
 [node name="BtnToggleLive" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(60, 52)
+custom_minimum_size = Vector2(78, 52)
 layout_mode = 2
 tooltip_text = "Activer ou désactiver l'évaluation Stockfish continue en direct"
 text = "⚡ Live"
@@ -259,7 +262,7 @@ layout_mode = 2
 theme_override_constants/separation = 6
 
 [node name="GraphPanel" type="PanelContainer" parent="VBox/Dashboard"]
-custom_minimum_size = Vector2(0, 150)
+custom_minimum_size = Vector2(0, 104)
 layout_mode = 2
 size_flags_vertical = 3
 

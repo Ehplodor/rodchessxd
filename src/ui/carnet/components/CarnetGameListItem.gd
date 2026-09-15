@@ -160,7 +160,8 @@ func set_game(game_data: Dictionary) -> void:
 	var btn_remove := Button.new()
 	btn_remove.text = "🗑 Retirer du carnet"
 	btn_remove.tooltip_text = "Retirer cette partie de ce carnet (la partie reste précieusement archivée dans votre bibliothèque)"
-	btn_remove.custom_minimum_size = Vector2(130.0, float(DesignTokens.TOUCH_DENSE))
+	btn_remove.custom_minimum_size = Vector2(0, float(DesignTokens.TOUCH_DENSE))
+	btn_remove.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_remove.clip_text = true
 	btn_remove.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	DesignTokens.style_button(btn_remove, DesignTokens.FONT_CAPTION, DesignTokens.TOUCH_DENSE)

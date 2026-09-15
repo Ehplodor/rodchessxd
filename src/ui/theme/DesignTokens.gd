@@ -195,20 +195,23 @@ static func scrollbar_big(ctrl: Control, px: int = SCROLLBAR_W) -> void:
 	ctrl.add_theme_constant_override("h_scroll", px)
 	ctrl.add_theme_constant_override("v_scroll", px)
 
-## Calcule une dimension de fenêtre modale sécurisée et adaptée à la taille de l'écran (mobile portrait ou écran large).
-static func adapt_modal_size(win: Window, base_w: float = 410.0, base_h: float = 560.0) -> void:
-	var screen_w = 450.0
-	var screen_h = 800.0
+## Taille de l'écran visible (viewport logique), avec repli sûr.
+static func screen_size() -> Vector2:
 	var tree = Engine.get_main_loop() as SceneTree
 	if tree and tree.root:
 		var root_rect = tree.root.get_visible_rect()
-		if root_rect.size.x > 0:
-			screen_w = root_rect.size.x
-			screen_h = root_rect.size.y
-	elif DisplayServer.window_get_size().x > 0:
-		var win_s = DisplayServer.window_get_size()
-		screen_w = win_s.x
-		screen_h = win_s.y
+		if root_rect.size.x > 0.0 and root_rect.size.y > 0.0:
+			return root_rect.size
+	var win_s = DisplayServer.window_get_size()
+	if win_s.x > 0:
+		return Vector2(win_s)
+	return Vector2(450, 800)
+
+## Calcule une dimension de fenêtre modale sécurisée et adaptée à la taille de l'écran (mobile portrait ou écran large).
+static func adapt_modal_size(win: Window, base_w: float = 410.0, base_h: float = 560.0) -> void:
+	var screen = screen_size()
+	var screen_w = screen.x
+	var screen_h = screen.y
 
 	var is_landscape: bool = (screen_w / maxf(1.0, screen_h)) >= 1.15 and screen_w >= 560.0
 	var max_w = 480.0 if is_landscape else 420.0
@@ -216,6 +219,39 @@ static func adapt_modal_size(win: Window, base_w: float = 410.0, base_h: float =
 	var target_w = int(clampf(screen_w * factor_w, 320.0, minf(base_w, max_w)))
 	var target_h = int(clampf(screen_h * 0.88, 380.0, base_h))
 	win.size = Vector2i(target_w, target_h)
+
+## Prépare un dialogue de confirmation (ConfirmationDialog/AcceptDialog) pour
+## mobile : texte multilignes (autowrap) et largeur bornée à l'écran. À appeler
+## AVANT popup_centered() : le dialogue s'ouvre alors à cette taille exacte.
+static func adapt_dialog(dialog: AcceptDialog, base_w: float = 390.0, base_h: float = 320.0) -> void:
+	if dialog == null or not is_instance_valid(dialog):
+		return
+	dialog.dialog_autowrap = true
+	# wrap_controls (défaut) ferait élargir le dialogue jusqu'au minimum de son
+	# contenu (texte non replié) : on impose notre largeur bornée à la place.
+	dialog.wrap_controls = false
+	# Le Label interne conserve sinon une largeur minimale égale au texte (Godot
+	# clampe la taille d'un Control à son minimum) : clip_text la ramène à 1 px,
+	# l'autowrap replie alors le texte sur la largeur du dialogue.
+	var lbl := dialog.get_label()
+	if lbl != null:
+		lbl.clip_text = true
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.custom_minimum_size = Vector2.ZERO
+	var screen = screen_size()
+	var is_landscape: bool = (screen.x / maxf(1.0, screen.y)) >= 1.15 and screen.x >= 560.0
+	var max_w = 480.0 if is_landscape else 420.0
+	var factor_w = 0.5 if is_landscape else 0.92
+	var target_w = int(clampf(screen.x * factor_w, 300.0, minf(base_w, max_w)))
+	var target_h = int(clampf(screen.y * 0.5, 200.0, base_h))
+	# NB : ne JAMAIS poser clip_text sur les boutons du dialogue — cela annule leur
+	# largeur minimale et les écrase. On réduit seulement la police si la rangée
+	# de boutons dépasse la largeur cible.
+	if dialog.get_contents_minimum_size().x > float(target_w) - 8.0:
+		dialog.add_theme_font_size_override("font_size", FONT_CAPTION)
+	dialog.size = Vector2i(target_w, target_h)
+	# popup_centered() sans argument repart de min_size : on l'aligne sur la cible.
+	dialog.min_size = Vector2i(target_w, target_h)
 
 ## Initialise la police vectorielle universelle et les polices de secours d'icônes/symboles/émojis
 ## garantissant un rendu identique, exhaustif et net sur toutes les plateformes (Web, Android, iOS, Desktop).
