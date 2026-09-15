@@ -35,6 +35,14 @@ var black_estimated_elo: int = 1500
 var white_elo_ci_margin: int = 70
 var black_elo_ci_margin: int = 70
 var elo_stat_test: Dictionary = {}
+## Point 2 — ELO IPR (Regan) par camp, exposé comme métadonnée explicative.
+var white_ipr_elo: int = 1500
+var black_ipr_elo: int = 1500
+## Point 1 — Complexité moyenne des demi-coups hors théorie par camp.
+var white_complexity_avg: float = 1.0
+var black_complexity_avg: float = 1.0
+## Point 4 — Vrai si l'horloge PGN (%clk) a alimenté la modulation temporelle.
+var has_clock_data: bool = false
 
 var white_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0, "miss": 0}
 var black_stats := {"brilliant": 0, "great": 0, "best": 0, "excellent": 0, "good": 0, "inaccuracy": 0, "mistake": 0, "blunder": 0, "miss": 0}
@@ -90,6 +98,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 
 	var moves = game.move_history
 	var total_plies = moves.size()
+	var clock_deltas := _extract_clock_deltas(moves)
 	
 	if total_plies == 0:
 		is_analyzing = false
@@ -135,6 +144,9 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		var fen_before: String = prev_fen
 		var pv_before: Array = prev_pv
 		var multipv_before: Array = prev_multipv
+
+		# Point 1 — Nombre de coups légaux dans la position AVANT le coup (complexité).
+		var legal_moves_count := sim_game.get_legal_moves(sim_game.active_color).size()
 
 		# Exécution du coup
 		sim_game.make_move(move)
@@ -190,8 +202,9 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		var eff_d = eval_after_data.get("depth", depth)
 
 		# Mise à jour pour le coup suivant (le MultiPV courant concernera le coup i+1)
+		var prev_move: ChessMove = moves[i - 1] if i > 0 else null
 		var ply_metrics := _evaluate_ply_quality(move, i, score_before, score_after, expected_best_move,
-				fen_before, pv_before, multipv_before, is_white)
+				fen_before, pv_before, multipv_before, is_white, legal_moves_count, prev_move)
 		prev_score_cp = score_after
 		prev_best_move = reply_best_move
 		prev_fen = fen_after
@@ -201,6 +214,9 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		var quality: int = ply_metrics["quality"]
 		var cp_loss: int = ply_metrics["cp_loss"]
 		var is_theory: bool = ply_metrics["is_theory"]
+		var time_spent := -1.0
+		if i < clock_deltas.size():
+			time_spent = float(clock_deltas[i])
 
 		# Les coups de théorie n'entrent ni dans l'ACPL, ni dans la précision, ni dans l'ELO.
 		if not is_theory:
@@ -243,6 +259,8 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 			"winpct_loss": ply_metrics["winpct_loss"],
 			"is_theory": is_theory,
 			"motifs": ply_metrics["motifs"],
+			"complexity": ply_metrics["complexity"],
+			"time_spent_sec": time_spent,
 			"best_move": reply_best_move,
 			"best_alternative": expected_best_move,
 			"fen": fen_after,
@@ -279,6 +297,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 	black_estimated_elo = b_stat["elo"]
 	white_elo_ci_margin = w_stat["ci_margin"]
 	black_elo_ci_margin = b_stat["ci_margin"]
+	_apply_elo_metadata(w_stat, b_stat)
 	elo_stat_test = _perform_elo_comparison_test(w_stat, b_stat)
 
 	is_analyzing = false
@@ -321,6 +340,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 
 	var moves = game.move_history
 	var total_plies = moves.size()
+	var clock_deltas := _extract_clock_deltas(moves)
 	
 	if total_plies == 0:
 		is_analyzing = false
@@ -381,6 +401,9 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		var fen_before: String = prev_fen
 		var pv_before: Array = prev_pv
 		var multipv_before: Array = prev_multipv
+
+		# Point 1 — Nombre de coups légaux dans la position AVANT le coup (complexité).
+		var legal_moves_count := sim_game.get_legal_moves(sim_game.active_color).size()
 
 		# Exécution du coup
 		sim_game.make_move(move)
@@ -445,8 +468,9 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		var reply_best_move = eval_after_data.get("best_move", "")
 		var depth_reached = eval_after_data.get("depth", depth)
 
+		var prev_move: ChessMove = moves[i - 1] if i > 0 else null
 		var ply_metrics := _evaluate_ply_quality(move, i, score_before, score_after, expected_best_move,
-				fen_before, pv_before, multipv_before, is_white)
+				fen_before, pv_before, multipv_before, is_white, legal_moves_count, prev_move)
 		prev_score_cp = score_after
 		prev_best_move = reply_best_move
 		prev_fen = fen_after
@@ -456,6 +480,9 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		var qual: int = ply_metrics["quality"]
 		var cp_loss: int = ply_metrics["cp_loss"]
 		var is_theory: bool = ply_metrics["is_theory"]
+		var time_spent := -1.0
+		if i < clock_deltas.size():
+			time_spent = float(clock_deltas[i])
 
 		if not is_theory:
 			if is_white:
@@ -494,6 +521,8 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 			"winpct_loss": ply_metrics["winpct_loss"],
 			"is_theory": is_theory,
 			"motifs": ply_metrics["motifs"],
+			"complexity": ply_metrics["complexity"],
+			"time_spent_sec": time_spent,
 			"best_move": reply_best_move,
 			"best_alternative": expected_best_move,
 			"fen": fen_after,
@@ -531,6 +560,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 	black_estimated_elo = b_stat["elo"]
 	white_elo_ci_margin = w_stat["ci_margin"]
 	black_elo_ci_margin = b_stat["ci_margin"]
+	_apply_elo_metadata(w_stat, b_stat)
 	elo_stat_test = _perform_elo_comparison_test(w_stat, b_stat)
 
 	_release_async_engine_session()
@@ -559,13 +589,16 @@ func _reset_stats() -> void:
 		white_stats[k] = 0
 		black_stats[k] = 0
 
-## T0.2/T0.3/T0.4/T1.2/T1.4 — Calcule les métriques d'un demi-coup à partir des
-## évaluations avant/après, de la ligne principale et du MultiPV de la position AVANT
-## le coup. Ne touche pas aux sommes ACPL/aux compteurs (fait par l'appelant).
+## T0.2/T0.3/T0.4/T1.2/T1.4 + Plan ELO avancé (point 1) — Calcule les métriques d'un
+## demi-coup à partir des évaluations avant/après, de la ligne principale et du MultiPV
+## de la position AVANT le coup. Ne touche pas aux sommes ACPL/aux compteurs (fait par l'appelant).
+## `legal_moves_count` (nb de coups légaux avant le coup) et `prev_move` (demi-coup
+## précédent, pour la détection de recapture évidente) alimentent l'indice de complexité.
 func _evaluate_ply_quality(
 		move: ChessMove, ply: int, score_before: int, score_after: int,
 		expected_best_move: String, prev_fen: String, prev_pv: Array,
-		prev_multipv: Array, is_white: bool) -> Dictionary:
+		prev_multipv: Array, is_white: bool, legal_moves_count: int = -1,
+		prev_move: ChessMove = null) -> Dictionary:
 	var is_theory := ply < theory_plies
 	var win_before := MoveQualityService.win_for(score_before, is_white)
 	var win_after := MoveQualityService.win_for(score_after, is_white)
@@ -573,11 +606,14 @@ func _evaluate_ply_quality(
 
 	var quality := ChessMove.Quality.NONE
 	var motifs: Array = []
+	var complexity := 1.0
 	if not is_theory:
 		var second_score: int = MoveQualityService.NO_SECOND_LINE
+		var has_second := false
 		if prev_multipv is Array and prev_multipv.size() >= 2:
 			var second_line: Dictionary = prev_multipv[1]
 			second_score = int(second_line.get("score_cp", MoveQualityService.NO_SECOND_LINE))
+			has_second = true
 		var pv: Array = prev_pv if prev_pv is Array else []
 		# Le sacrifice n'est testé que pour le coup #1 non-pion (prérequis au « brillant ») :
 		# évite une simulation coûteuse sur chaque demi-coup.
@@ -586,6 +622,16 @@ func _evaluate_ply_quality(
 			is_sac = MoveQualityService.is_sacrifice(prev_fen, move.uci, pv)
 		quality = MoveQualityService.classify(move.uci, expected_best_move, score_before, score_after,
 				loss_cp, is_white, is_sac, second_score)
+		# Point 1 — Indice de complexité : coup forcé, recapture évidente, écart à la 2e ligne.
+		var is_recapture := false
+		if prev_move != null and int(move.captured_piece) != ChessPiece.Type.NONE \
+				and int(prev_move.captured_piece) != ChessPiece.Type.NONE \
+				and prev_move.to_sq == move.to_sq:
+			is_recapture = true
+		var second_gap := -1.0
+		if has_second and second_score != MoveQualityService.NO_SECOND_LINE:
+			second_gap = maxf(0.0, win_before - MoveQualityService.win_for(second_score, is_white))
+		complexity = MoveQualityService.move_complexity(legal_moves_count, is_recapture, second_gap)
 		# Motifs calculés uniquement pour les coups notables (perf + pertinence).
 		if MoveQualityService.group(quality) > 0 or quality == ChessMove.Quality.BRILLIANT or quality == ChessMove.Quality.GREAT:
 			motifs = TacticalMotifDetector.detect(prev_fen, move.uci)
@@ -597,6 +643,7 @@ func _evaluate_ply_quality(
 		"win_after": win_after,
 		"winpct_loss": MoveQualityService.winpct_loss(win_before, win_after),
 		"is_theory": is_theory,
+		"complexity": complexity,
 		"motifs": motifs
 	}
 
@@ -607,6 +654,28 @@ func _moves_to_uci(history: Array) -> Array:
 		if m is ChessMove:
 			out.append(m.uci)
 	return out
+
+## Point 4 — Temps passé par demi-coup (secondes) dérivé des annotations [%clk] du PGN.
+## Le temps du coup i = horloge du coup précédent du MÊME camp − horloge après le coup i.
+## Retourne -1.0 quand l'horloge n'est pas connue (premier coup du camp ou PGN sans %clk) :
+## le facteur temps reste alors neutre (rétrocompatibilité parfaite).
+static func _extract_clock_deltas(moves: Array) -> Array:
+	var deltas := []
+	deltas.resize(moves.size())
+	for i in range(moves.size()):
+		deltas[i] = -1.0
+	var last_clock := {}
+	for i in range(moves.size()):
+		var m = moves[i]
+		if not (m is ChessMove) or m.clock_sec < 0.0:
+			continue
+		var col := int(m.color)
+		if col == ChessPiece.PieceColor.NONE:
+			col = 0 if i % 2 == 0 else 1
+		if last_clock.has(col):
+			deltas[i] = maxf(0.0, float(last_clock[col]) - float(m.clock_sec))
+		last_clock[col] = float(m.clock_sec)
+	return deltas
 
 func _increment_quality_stat(stats: Dictionary, q: ChessMove.Quality) -> void:
 	match q:
@@ -626,16 +695,17 @@ func _win_percentage(score_cp: int) -> float:
 	# Source unique : évite la dérive entre classification (MoveQualityService) et CAPS2/ELO.
 	return MoveQualityService.win_percentage(score_cp)
 
-## Précision CAPS2 (Chess.com / Lichess) calculée coup par coup avec pondération contextuelle
+## Précision CAPS2 (Chess.com / Lichess) calculée coup par coup avec pondération contextuelle :
+## progressivité des premiers coups, sévérité tactique, **complexité positionnelle** (point 1)
+## et **gestion du temps** (point 4, uniquement si l'horloge PGN est disponible).
 func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> float:
-	var move_accuracies: Array[float] = []
-	var move_weights: Array[float] = []
+	# Passe 1 : collecte des demi-coups du camp (perte de win%, complexité, temps, qualité).
+	var records: Array = []
 	var prev_cp = 20 # Score de départ égalité légère blanc
 
 	for ev in evals:
 		var cur_cp = ev.get("score_cp", 0)
 		var is_white_move = ev.get("is_white", true)
-		var ply_idx = ev.get("ply", 0)
 
 		# T1.2 — La théorie d'ouverture est exclue de la précision.
 		if ev.get("is_theory", false):
@@ -657,24 +727,50 @@ func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> floa
 			# Formule officielle CAPS2 : 103.1668 * exp(-0.04354 * win_loss) - 3.1669
 			var acc = 103.1668 * exp(-0.04354 * win_loss) - 3.1669
 			acc = clampf(acc, 0.0, 100.0)
-			move_accuracies.append(acc)
-
-			# Pondération contextuelle :
-			# 1. Les tous premiers coups d'ouverture théoriques (plies 0 à 6) ont un poids progressif
-			# pour éviter une sur-évaluation artificielle de 100% sur les débuts de partie.
-			var weight = 1.0
-			if ply_idx < 6:
-				weight = 0.65 + (float(ply_idx) / 6.0) * 0.35 # 0.65 -> 1.0
-			# 2. Les coups tactiques décisifs ou gaffes critiques comptent pleinement
-			var qual = ev.get("quality", ChessMove.Quality.NONE)
-			if qual == ChessMove.Quality.BLUNDER or qual == ChessMove.Quality.BRILLIANT:
-				weight *= 1.25
-			move_weights.append(weight)
+			records.append({
+				"acc": acc,
+				"ply": int(ev.get("ply", 0)),
+				"quality": int(ev.get("quality", ChessMove.Quality.NONE)),
+				"complexity": float(ev.get("complexity", 1.0)),
+				"time": float(ev.get("time_spent_sec", -1.0))
+			})
 
 		prev_cp = cur_cp
 
-	if move_accuracies.is_empty():
+	if records.is_empty():
 		return 50.0
+
+	# Temps moyen par coup du camp (si des données d'horloge existent).
+	var time_sum := 0.0
+	var time_count := 0
+	for r in records:
+		if float(r["time"]) >= 0.0:
+			time_sum += float(r["time"])
+			time_count += 1
+	var mean_time := -1.0
+	if time_count > 0:
+		mean_time = time_sum / float(time_count)
+
+	# Passe 2 : pondération composite de chaque coup.
+	var move_accuracies: Array[float] = []
+	var move_weights: Array[float] = []
+	for r in records:
+		var weight = 1.0
+		var ply_idx: int = r["ply"]
+		# 1. Les tous premiers coups d'ouverture théoriques (plies 0 à 6) ont un poids progressif
+		# pour éviter une sur-évaluation artificielle de 100% sur les débuts de partie.
+		if ply_idx < 6:
+			weight = 0.65 + (float(ply_idx) / 6.0) * 0.35 # 0.65 -> 1.0
+		# 2. Les coups tactiques décisifs ou gaffes critiques comptent pleinement
+		var qual: int = r["quality"]
+		if qual == ChessMove.Quality.BLUNDER or qual == ChessMove.Quality.BRILLIANT:
+			weight *= 1.25
+		# 3. Point 1 — un coup trouvé dans une position complexe compte plus qu'un coup forcé.
+		weight *= clampf(float(r["complexity"]), MoveQualityService.COMPLEXITY_MIN, MoveQualityService.COMPLEXITY_MAX)
+		# 4. Point 4 — modulation par le temps dépensé vs la cadence du joueur.
+		weight *= _time_weight_factor(float(r["time"]), float(r["complexity"]), mean_time)
+		move_accuracies.append(float(r["acc"]))
+		move_weights.append(weight)
 
 	var sum_acc = 0.0
 	var sum_weights = 0.0
@@ -688,30 +784,26 @@ func _calculate_caps_accuracy(evals: Array[Dictionary], for_white: bool) -> floa
 
 	return clampf(sum_acc / sum_weights, 5.0, 99.8)
 
-## Modèle d'estimation ELO réaliste et étalonné
+## Point 4 — Facteur de poids lié à la pendule (neutre = 1.0 sans horloge).
+## - Intuition tactique : coup complexe (C > 1.3) trouvé très vite (< 0.3 × temps moyen) → léger sur-poids.
+## - Hésitation sur l'évident : beaucoup de temps (> 2.5 × temps moyen) sur une position triviale (C < 0.4) → léger sous-poids.
+static func _time_weight_factor(time_sec: float, complexity: float, mean_time: float) -> float:
+	if time_sec < 0.0 or mean_time <= 0.0:
+		return 1.0
+	if complexity > 1.3 and time_sec < 0.3 * mean_time:
+		return 1.1
+	if complexity < 0.4 and time_sec > 2.5 * mean_time:
+		return 0.9
+	return 1.0
+
+## Modèle d'estimation ELO réaliste et étalonné (branche CAPS2)
 ## Évite l'inflation absurde à 2800 ELO sur les ouvertures courtes
 func _estimate_elo(accuracy: float, acpl: float, stats: Dictionary, moves_count: int) -> int:
 	if moves_count == 0:
 		return 1500
 
 	# 1. Base ELO dérivée de la précision de jeu (étalonné sur Chess.com Game Review)
-	var base_elo: float = 0.0
-	if accuracy >= 98.0:
-		base_elo = 2500.0 + (accuracy - 98.0) * 125.0 # 98% -> 2500, 100% -> 2750
-	elif accuracy >= 95.0:
-		base_elo = 2200.0 + (accuracy - 95.0) * 100.0 # 95% -> 2200, 98% -> 2500
-	elif accuracy >= 90.0:
-		base_elo = 1850.0 + (accuracy - 90.0) * 70.0  # 90% -> 1850, 95% -> 2200
-	elif accuracy >= 82.0:
-		base_elo = 1500.0 + (accuracy - 82.0) * 43.75 # 82% -> 1500, 90% -> 1850
-	elif accuracy >= 72.0:
-		base_elo = 1200.0 + (accuracy - 72.0) * 30.0  # 72% -> 1200, 82% -> 1500
-	elif accuracy >= 60.0:
-		base_elo = 900.0 + (accuracy - 60.0) * 25.0   # 60% -> 900,  72% -> 1200
-	elif accuracy >= 45.0:
-		base_elo = 600.0 + (accuracy - 45.0) * 20.0   # 45% -> 600,  60% -> 900
-	else:
-		base_elo = maxf(300.0, 300.0 + accuracy * 6.66) # <45% -> 300 à 600
+	var base_elo: float = _accuracy_to_elo_base(accuracy)
 
 	# 2. Modulateur ACPL : une perte moyenne élevée plafonne le niveau maximum crédible
 	if acpl > 110.0:
@@ -738,6 +830,155 @@ func _estimate_elo(accuracy: float, acpl: float, stats: Dictionary, moves_count:
 	var calibrated_elo = (base_elo * confidence) + (median_anchor * (1.0 - confidence))
 
 	return clampi(int(round(calibrated_elo)), 300, 2850)
+
+## ── Courbe de calibrage partagée (CAPS2 ↔ ELO) ──────────────────────────────
+
+## Base ELO en fonction de la précision CAPS2 (segments linéaires, étalonnage Chess.com).
+static func _accuracy_to_elo_base(accuracy: float) -> float:
+	if accuracy >= 98.0:
+		return 2500.0 + (accuracy - 98.0) * 125.0 # 98% -> 2500, 100% -> 2750
+	elif accuracy >= 95.0:
+		return 2200.0 + (accuracy - 95.0) * 100.0 # 95% -> 2200, 98% -> 2500
+	elif accuracy >= 90.0:
+		return 1850.0 + (accuracy - 90.0) * 70.0  # 90% -> 1850, 95% -> 2200
+	elif accuracy >= 82.0:
+		return 1500.0 + (accuracy - 82.0) * 43.75 # 82% -> 1500, 90% -> 1850
+	elif accuracy >= 72.0:
+		return 1200.0 + (accuracy - 72.0) * 30.0  # 72% -> 1200, 82% -> 1500
+	elif accuracy >= 60.0:
+		return 900.0 + (accuracy - 60.0) * 25.0   # 60% -> 900,  72% -> 1200
+	elif accuracy >= 45.0:
+		return 600.0 + (accuracy - 45.0) * 20.0   # 45% -> 600,  60% -> 900
+	return maxf(300.0, 300.0 + accuracy * 6.66)   # <45% -> 300 à 600
+
+## Pente locale dELO/dPrécision de la courbe de calibrage (pour les IC).
+static func _elo_slope_for_accuracy(accuracy: float) -> float:
+	if accuracy >= 98.0:
+		return 125.0
+	elif accuracy >= 95.0:
+		return 100.0
+	elif accuracy >= 90.0:
+		return 70.0
+	elif accuracy >= 82.0:
+		return 43.75
+	elif accuracy >= 72.0:
+		return 30.0
+	elif accuracy >= 60.0:
+		return 25.0
+	elif accuracy >= 45.0:
+		return 20.0
+	return 6.66
+
+## Inverse de la courbe de calibrage : ELO → précision CAPS2 attendue (monotone croissante).
+static func _elo_base_to_accuracy(elo: float) -> float:
+	if elo >= 2500.0:
+		return 98.0 + (elo - 2500.0) / 125.0
+	elif elo >= 2200.0:
+		return 95.0 + (elo - 2200.0) / 100.0
+	elif elo >= 1850.0:
+		return 90.0 + (elo - 1850.0) / 70.0
+	elif elo >= 1500.0:
+		return 82.0 + (elo - 1500.0) / 43.75
+	elif elo >= 1200.0:
+		return 72.0 + (elo - 1200.0) / 30.0
+	elif elo >= 900.0:
+		return 60.0 + (elo - 900.0) / 25.0
+	elif elo >= 600.0:
+		return 45.0 + (elo - 600.0) / 20.0
+	return clampf((elo - 300.0) / 6.66, 0.0, 45.0)
+
+## ── Point 2 — Modèle IPR de Ken Regan (Intrinsic Performance Rating) ─────────
+## Modèle log-odds : la probabilité qu'un joueur de niveau θ joue un coup perdant
+## δ points de win% décroît exponentiellement, P(m | θ) ∝ exp(-λ(θ) · δ), où
+## λ(θ) = 1/μ(θ) et μ(θ) = perte moyenne de win% attendue au niveau θ (déduite de la
+## courbe CAPS2 via la formule inverse de la précision par coup).
+## L'estimateur est la vraisemblance maximale (MLE) pondérée par la complexité :
+## le maximum est atteint pour μ(θ) = μ̂ = Σ(wᵢ·δᵢ) / Σwᵢ ; on résout μ(θ) = μ̂
+## par bisection monotone sur [300, 2850] (convergence garantie, < 5 ms).
+
+## Perte moyenne de win% attendue (par coup) d'un joueur de niveau `elo` (dérivée CAPS2).
+static func _regan_mu(elo: float) -> float:
+	var acc := clampf(_elo_base_to_accuracy(elo), 0.0, 99.95)
+	var mu := log(103.1668 / (acc + 3.1669)) / 0.04354
+	return clampf(mu, 0.0, 120.0)
+
+## Log-vraisemblance pondérée des pertes observées sous le modèle exponentiel de paramètre μ.
+static func _regan_log_likelihood(mu: float, losses: Array[float], weights: Array[float]) -> float:
+	var lam := 1.0 / maxf(0.02, mu)
+	var ll := 0.0
+	for j in range(losses.size()):
+		var w = weights[j]
+		ll += w * (log(lam) - lam * losses[j])
+	return ll
+
+## Recherche du paramètre de sensibilité maximisant la vraisemblance :
+## grille grossière sur [300, 2850] (pas de 50) puis bisection locale par dichotomie
+## sur la dérivée de la log-vraisemblance (fonction concave en μ).
+func _estimate_elo_regan_ipr(evals: Array[Dictionary], for_white: bool) -> Dictionary:
+	var losses: Array[float] = []
+	var weights: Array[float] = []
+	for ev in evals:
+		if ev.get("is_theory", false):
+			continue
+		if bool(ev.get("is_white", true)) != for_white:
+			continue
+		losses.append(maxf(0.0, float(ev.get("winpct_loss", 0.0))))
+		weights.append(clampf(float(ev.get("complexity", 1.0)),
+				MoveQualityService.COMPLEXITY_MIN, MoveQualityService.COMPLEXITY_MAX))
+	if losses.is_empty():
+		return {"elo": 1500, "mean_loss": 0.0, "n": 0}
+
+	var wsum := 0.0
+	var wloss := 0.0
+	for j in range(losses.size()):
+		wsum += weights[j]
+		wloss += weights[j] * losses[j]
+	var mean_loss := wloss / maxf(0.001, wsum)
+
+	var lo := 300.0
+	var hi := 2850.0
+	# MLE en λ : λ* = Σw / Σ(w·δ) → μ̂ = 1/λ* = moyenne pondérée des pertes.
+	var mu_star := mean_loss
+	# Bornes : pertes quasi nulles → plafond ; pertes massives → plancher.
+	if mu_star <= _regan_mu(hi):
+		return {"elo": int(hi), "mean_loss": mean_loss, "n": losses.size()}
+	if mu_star >= _regan_mu(lo):
+		return {"elo": int(lo), "mean_loss": mean_loss, "n": losses.size()}
+	# Grille grossière (sécurité anti-concavité locale), puis bisection monotone sur μ(elo).
+	var grid_best_elo := lo
+	var grid_best_ll := -INF
+	var e := lo
+	while e <= hi + 0.5:
+		var ll := _regan_log_likelihood(_regan_mu(e), losses, weights)
+		if ll > grid_best_ll:
+			grid_best_ll = ll
+			grid_best_elo = e
+		e += 50.0
+	var span := 50.0
+	var blo := maxf(lo, grid_best_elo - span)
+	var bhi := minf(hi, grid_best_elo + span)
+	# μ(elo) est strictement décroissante : bisection sur μ(elo) - μ̂.
+	for _it in range(40):
+		var mid := 0.5 * (blo + bhi)
+		if _regan_mu(mid) > mu_star:
+			blo = mid
+		else:
+			bhi = mid
+	var ipr_elo := int(round(clampf(0.5 * (blo + bhi), 300.0, 2850.0)))
+	return {"elo": ipr_elo, "mean_loss": mean_loss, "n": losses.size()}
+
+## Complexité moyenne pondérée des demi-coups du camp (métadonnée explicative du rapport).
+func _average_complexity(evals: Array[Dictionary], for_white: bool) -> float:
+	var total := 0.0
+	var count := 0
+	for ev in evals:
+		if ev.get("is_theory", false):
+			continue
+		if bool(ev.get("is_white", true)) != for_white:
+			continue
+		total += clampf(float(ev.get("complexity", 1.0)), MoveQualityService.COMPLEXITY_MIN, MoveQualityService.COMPLEXITY_MAX)
+		count += 1
+	return (total / float(count)) if count > 0 else 1.0
 
 func _get_settings_manager() -> Node:
 	if settings_manager != null:
@@ -814,14 +1055,27 @@ static func _calculate_eval_ci_margin(depth: int, cp_loss: int, is_tactical: boo
 	var se = base_se * tactical_mult
 	return 1.96 * se
 
-## Estimation ELO biostatistique avec intervalle de confiance à 95%
+## Estimation ELO biostatistique avec intervalle de confiance à 95%.
+## Synthèse hybride du plan : 60% modèle IPR Regan (MLE pondérée complexité) +
+## 40% branche CAPS2 calibrée, modulée par la gestion du temps (%clk) si disponible.
+## Les statistiques de précision (variance, effectif efficace) sont pondérées par
+## wᵢ = Cᵢ (complexité) × facteur temps, conformément au plan.
 func _calculate_elo_statistics(evals: Array[Dictionary], for_white: bool, accuracy: float, acpl: float, stats: Dictionary, moves_count: int) -> Dictionary:
+	var ipr_data = _estimate_elo_regan_ipr(evals, for_white)
+	var complexity_avg = _average_complexity(evals, for_white)
 	var base_elo = _estimate_elo(accuracy, acpl, stats, moves_count)
 	if moves_count <= 0:
-		return {"elo": base_elo, "se": 70.0, "ci_margin": 140, "ci_lower": base_elo - 140, "ci_upper": base_elo + 140, "n": 0}
+		return {"elo": base_elo, "se": 70.0, "ci_margin": 140, "ci_lower": base_elo - 140, "ci_upper": base_elo + 140,
+				"n": 0, "ipr_elo": int(ipr_data.get("elo", 1500)), "complexity_avg": complexity_avg,
+				"time_delta": 0.0, "has_clock": false}
 	
 	var move_accuracies: Array[float] = []
+	var move_weights: Array[float] = []
+	var move_times: Array[float] = []
+	var move_complexities: Array[float] = []
 	var prev_cp = 20
+	var time_sum := 0.0
+	var time_count := 0
 	for ev in evals:
 		var cur_cp = ev.get("score_cp", 0)
 		var is_w = ev.get("is_white", true)
@@ -833,41 +1087,128 @@ func _calculate_elo_statistics(evals: Array[Dictionary], for_white: bool, accura
 			var win_after = _win_percentage(cur_cp) if for_white else (100.0 - _win_percentage(cur_cp))
 			var win_loss = maxf(0.0, win_before - win_after)
 			var acc = clampf(103.1668 * exp(-0.04354 * win_loss) - 3.1669, 0.0, 100.0)
+			var c := clampf(float(ev.get("complexity", 1.0)),
+					MoveQualityService.COMPLEXITY_MIN, MoveQualityService.COMPLEXITY_MAX)
+			var t := float(ev.get("time_spent_sec", -1.0))
+			if t >= 0.0:
+				time_sum += t
+				time_count += 1
 			move_accuracies.append(acc)
+			move_complexities.append(c)
+			move_times.append(t)
 		prev_cp = cur_cp
 	
+	var mean_time := -1.0
+	if time_count > 0:
+		mean_time = time_sum / float(time_count)
 	var n = move_accuracies.size()
-	var mean_acc = accuracy
-	var var_acc = 0.0
-	for a in move_accuracies:
-		var_acc += pow(a - mean_acc, 2)
-	var s_acc = sqrt(var_acc / float(maxi(1, n - 1)))
-	var se_acc = s_acc / sqrt(float(maxi(1, n)))
+	for j in range(n):
+		# Poids composite : complexité (point 1) × facteur temps (point 4, neutre sans %clk).
+		move_weights.append(move_complexities[j] * _time_weight_factor(move_times[j], move_complexities[j], mean_time))
 	
-	# Pente locale df/dA dérivée de la fonction de calibrage
-	var slope = 43.75
-	if mean_acc >= 98.0: slope = 125.0
-	elif mean_acc >= 95.0: slope = 100.0
-	elif mean_acc >= 90.0: slope = 70.0
-	elif mean_acc >= 82.0: slope = 43.75
-	elif mean_acc >= 72.0: slope = 30.0
-	elif mean_acc >= 60.0: slope = 25.0
-	elif mean_acc >= 45.0: slope = 20.0
-	else: slope = 6.66
+	var sum_w := 0.0
+	var sum_w2 := 0.0
+	var var_acc := 0.0
+	for j in range(n):
+		var w = move_weights[j]
+		sum_w += w
+		sum_w2 += w * w
+		var_acc += w * pow(move_accuracies[j] - accuracy, 2)
+	var s_acc := sqrt(maxf(0.0, (var_acc / sum_w) if sum_w > 0.0 else 0.0))
+	# Effectif échantillonnal effectif de Kish (poids inégaux : (Σw)²/Σw²).
+	var n_eff := float(n)
+	if sum_w2 > 0.0 and sum_w > 0.0:
+		n_eff = (sum_w * sum_w) / sum_w2
+	n_eff = clampf(n_eff, 1.0, float(n))
+	var se_acc = s_acc / sqrt(n_eff)
 	
-	var sample_mult = sqrt(20.0 / float(maxi(1, n))) if n < 20 else 1.0
+	# Pente locale dELO/dA dérivée de la fonction de calibrage
+	var slope = _elo_slope_for_accuracy(accuracy)
+	
+	var sample_mult = sqrt(20.0 / n_eff) if n_eff < 20.0 else 1.0
 	var se_elo = maxf(28.0, slope * se_acc * sample_mult)
 	var t_crit = 1.96 if n >= 20 else (2.10 if n >= 10 else 2.30)
 	var ci_margin = int(round(t_crit * se_elo))
 	
+	# IPR ajusté par la confiance d'échantillon (même amortisseur que la branche CAPS2).
+	var confidence = clampf(float(moves_count) / 20.0, 0.25, 1.0)
+	var ipr_raw = float(ipr_data.get("elo", base_elo))
+	var ipr_adj = ipr_raw * confidence + 1250.0 * (1.0 - confidence)
+	
+	# Synthèse robuste : 60 % IPR (modélisation probabiliste) + 40 % CAPS2 (calibrage empirique).
+	var combined = 0.6 * ipr_adj + 0.4 * float(base_elo)
+	
+	# Point 4 — modulation finale par la gestion du temps (neutre sans %clk).
+	var time_mod = _compute_time_management(evals, for_white, moves_count)
+	combined += float(time_mod.get("elo_delta", 0.0))
+	
+	# Point 1 — Amortisseur d'information : une partie faite de coups triviaux
+	# (forcés / recaptures, complexité < neutre) porte peu de signal → régression
+	# vers l'ancrage médian ; les positions complexes ne dépassent jamais le plafond.
+	var cx_conf = clampf(complexity_avg / MoveQualityService.COMPLEXITY_NEUTRAL, 0.4, 1.0)
+	combined = combined * cx_conf + 1250.0 * (1.0 - cx_conf)
+	
+	var final_elo = clampi(int(round(combined)), 300, 2850)
+	
 	return {
-		"elo": base_elo,
+		"elo": final_elo,
 		"se": se_elo,
 		"ci_margin": ci_margin,
-		"ci_lower": base_elo - ci_margin,
-		"ci_upper": base_elo + ci_margin,
-		"n": n
+		"ci_lower": final_elo - ci_margin,
+		"ci_upper": final_elo + ci_margin,
+		"n": n,
+		"ipr_elo": int(round(ipr_adj)),
+		"complexity_avg": complexity_avg,
+		"time_delta": float(time_mod.get("elo_delta", 0.0)),
+		"has_clock": bool(time_mod.get("has_clock", false))
 	}
+
+## Point 4 — Modulation ELO par la gestion du temps (±60 ELO max, neutre sans horloge).
+## - Intuition tactique : coups complexes (C > 1.3) joués très vite (< 0.3 × temps moyen) → bonus.
+## - Hésitation sur l'évident : coups triviaux (C < 0.4) qui ont coûté > 2.5 × le temps moyen → amortisseur.
+func _compute_time_management(evals: Array[Dictionary], for_white: bool, moves_count: int) -> Dictionary:
+	if moves_count <= 0:
+		return {"elo_delta": 0.0, "has_clock": false, "fast_count": 0, "slow_count": 0}
+	var time_sum := 0.0
+	var time_count := 0
+	var complexities: Array[float] = []
+	var times: Array[float] = []
+	for ev in evals:
+		if ev.get("is_theory", false):
+			continue
+		if bool(ev.get("is_white", true)) != for_white:
+			continue
+		var c = clampf(float(ev.get("complexity", 1.0)), MoveQualityService.COMPLEXITY_MIN, MoveQualityService.COMPLEXITY_MAX)
+		var t = float(ev.get("time_spent_sec", -1.0))
+		complexities.append(c)
+		times.append(t)
+		if t >= 0.0:
+			time_sum += t
+			time_count += 1
+	if time_count == 0:
+		return {"elo_delta": 0.0, "has_clock": false, "fast_count": 0, "slow_count": 0}
+	var mean_time := time_sum / float(time_count)
+	var fast := 0
+	var slow := 0
+	for j in range(complexities.size()):
+		var t = times[j]
+		if t < 0.0:
+			continue
+		if complexities[j] > 1.3 and t < 0.3 * mean_time:
+			fast += 1
+		elif complexities[j] < 0.4 and t > 2.5 * mean_time:
+			slow += 1
+	var bonus := 60.0 * float(fast) / float(maxi(1, moves_count))
+	var penalty := 40.0 * float(slow) / float(maxi(1, moves_count))
+	return {"elo_delta": bonus - penalty, "has_clock": true, "fast_count": fast, "slow_count": slow}
+
+## Propage les métadonnées explicatives du modèle enrichi (IPR, complexité, horloge).
+func _apply_elo_metadata(w_stat: Dictionary, b_stat: Dictionary) -> void:
+	white_ipr_elo = int(w_stat.get("ipr_elo", white_estimated_elo))
+	black_ipr_elo = int(b_stat.get("ipr_elo", black_estimated_elo))
+	white_complexity_avg = float(w_stat.get("complexity_avg", 1.0))
+	black_complexity_avg = float(b_stat.get("complexity_avg", 1.0))
+	has_clock_data = bool(w_stat.get("has_clock", false)) or bool(b_stat.get("has_clock", false))
 
 ## Test statistique de comparaison des deux ELOs (test de Welch / Wald bilatéral)
 func _perform_elo_comparison_test(w_data: Dictionary, b_data: Dictionary) -> Dictionary:
@@ -1082,8 +1423,15 @@ func _classify_move(i: int, moves: Array, pos_evals: Array, depth: int) -> Dicti
 	var before_mpv: Array = before.get("multipv_lines", [])
 	if not (before_mpv is Array):
 		before_mpv = []
+	# Point 1 — complexité : nb de coups légaux avant le coup (reconstruction FEN) + recapture.
+	var legal_moves_count := -1
+	if fen_before != "":
+		var sim = ChessGame.new()
+		if sim.load_fen(fen_before):
+			legal_moves_count = sim.get_legal_moves(sim.active_color).size()
+	var prev_move: ChessMove = moves[i - 1] if i > 0 else null
 	var ply_metrics := _evaluate_ply_quality(move, i, score_before, score_after, expected_best_move,
-			fen_before, before_pv, before_mpv, is_white)
+			fen_before, before_pv, before_mpv, is_white, legal_moves_count, prev_move)
 	var quality: int = ply_metrics["quality"]
 	var cp_loss: int = ply_metrics["cp_loss"]
 	var is_theory: bool = ply_metrics["is_theory"]
@@ -1111,6 +1459,8 @@ func _classify_move(i: int, moves: Array, pos_evals: Array, depth: int) -> Dicti
 		"winpct_loss": ply_metrics["winpct_loss"],
 		"is_theory": is_theory,
 		"motifs": ply_metrics["motifs"],
+		"complexity": ply_metrics["complexity"],
+		"time_spent_sec": -1.0,
 		"best_move": reply_best_move,
 		"best_alternative": expected_best_move,
 		"fen": str(after.get("fen", "")),
@@ -1125,6 +1475,7 @@ func _classify_move(i: int, moves: Array, pos_evals: Array, depth: int) -> Dicti
 func _finalize_from_evals(moves: Array, pos_evals: Array, depth: int) -> void:
 	move_evaluations.clear()
 	_reset_stats()
+	var clock_deltas := _extract_clock_deltas(moves)
 	var white_loss_sum := 0
 	var black_loss_sum := 0
 	var white_moves_count := 0
@@ -1132,6 +1483,8 @@ func _finalize_from_evals(moves: Array, pos_evals: Array, depth: int) -> void:
 	var n := maxi(0, pos_evals.size() - 1)
 	for i in range(n):
 		var rec := _classify_move(i, moves, pos_evals, depth)
+		if i < clock_deltas.size():
+			rec["time_spent_sec"] = float(clock_deltas[i])
 		move_evaluations.append(rec)
 		if not bool(rec.get("is_theory", false)):
 			if bool(rec.get("is_white", true)):
@@ -1154,6 +1507,7 @@ func _finalize_from_evals(moves: Array, pos_evals: Array, depth: int) -> void:
 	black_estimated_elo = b_stat["elo"]
 	white_elo_ci_margin = w_stat["ci_margin"]
 	black_elo_ci_margin = b_stat["ci_margin"]
+	_apply_elo_metadata(w_stat, b_stat)
 	elo_stat_test = _perform_elo_comparison_test(w_stat, b_stat)
 
 func _budget_select_positions(provisional: Array, max_deep: int, min_crit: float) -> Array:
@@ -1425,6 +1779,11 @@ func _build_final_report() -> Dictionary:
 		"black_estimated_elo": black_estimated_elo,
 		"white_elo_ci": white_elo_ci_margin,
 		"black_elo_ci": black_elo_ci_margin,
+		"white_ipr_elo": white_ipr_elo,
+		"black_ipr_elo": black_ipr_elo,
+		"white_complexity_avg": white_complexity_avg,
+		"black_complexity_avg": black_complexity_avg,
+		"has_clock_data": has_clock_data,
 		"elo_comparison": elo_stat_test,
 		"white_stats": white_stats,
 		"black_stats": black_stats,

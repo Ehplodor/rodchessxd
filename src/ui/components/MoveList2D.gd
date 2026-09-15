@@ -379,6 +379,28 @@ func _build_summary_card() -> void:
 		elo_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
 		vbox.add_child(elo_lbl)
 
+		# Plan ELO avancé — métadonnées explicatives : complexité moyenne (point 1)
+		# et prise en compte de la cadence (point 4) si l'horloge PGN est présente.
+		var w_cx = float(_analysis_report.get("white_complexity_avg", 1.0))
+		var b_cx = float(_analysis_report.get("black_complexity_avg", 1.0))
+		var avg_cx = (w_cx + b_cx) * 0.5
+		var cx_word := "Modérée"
+		if avg_cx >= 1.2:
+			cx_word = "Élevée"
+		elif avg_cx < 0.7:
+			cx_word = "Faible"
+		var meta_parts: Array = ["🧠 Complexité moy. : %s (%.1f)" % [cx_word, avg_cx]]
+		if bool(_analysis_report.get("has_clock_data", false)):
+			meta_parts.append("⏱ Cadence prise en compte")
+		var meta_lbl = Label.new()
+		meta_lbl.text = " • ".join(meta_parts)
+		meta_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		meta_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		meta_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		meta_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+		meta_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		vbox.add_child(meta_lbl)
+
 	# Résumé synthétique des types de coups (de brillants aux grosses gaffes)
 	var breakdown_lbl = Label.new()
 	breakdown_lbl.text = "Répartition : ⚪ [★ %d • ✓ %d • ?! %d • ?? %d]   VS   ⚫ [★ %d • ✓ %d • ?! %d • ?? %d]" % [

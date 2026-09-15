@@ -17,6 +17,35 @@ const WINPCT_BLUNDER := 30.0
 ## meilleur coup est considéré « seul coup préservant le résultat » (GREAT).
 const WINPCT_ONLY_MOVE := 15.0
 
+## ── Complexité positionnelle (moteur ELO avancé, points 1/2/4 du plan) ──
+## Source unique des seuils : GameAnalyzer (pondération ELO) et Carnet lisent ici.
+## Poids réduit : coup forcé (unique légal) — peu de mérite à le trouver.
+const COMPLEXITY_FORCED := 0.25
+## Poids réduit : recapture évidente sur la case de la capture adverse précédente.
+const COMPLEXITY_TRIVIAL_RECAPTURE := 0.35
+## Poids neutre : position « plurielle » (plusieurs coups équivalents, risque de gaffe faible).
+const COMPLEXITY_NEUTRAL := 0.85
+## Poids de base d'un coup unique critique (Δ 2e ligne ≥ WINPCT_ONLY_MOVE).
+const COMPLEXITY_UNIQUE_BASE := 1.0
+## Diviseur du bonus héroïque : Δ 2e ligne / 30 → jusqu'à +1.0 (soit 2.0× au total).
+const COMPLEXITY_HERO_DIVISOR := 30.0
+const COMPLEXITY_MIN := 0.25
+const COMPLEXITY_MAX := 2.0
+
+## Indice de complexité d'un demi-coup C ∈ [COMPLEXITY_MIN, COMPLEXITY_MAX].
+## - `legal_moves_count` : nb de coups légaux avant le coup (-1 si inconnu).
+## - `is_recapture` : capture de reprise évidente sur la case de la capture adverse.
+## - `second_gap_winpct` : écart de win% (points) entre la 1re et la 2e ligne MultiPV
+##   (point de vue du camp qui joue) ; < 0 si la 2e ligne est inconnue.
+static func move_complexity(legal_moves_count: int, is_recapture: bool, second_gap_winpct: float) -> float:
+	if legal_moves_count >= 0 and legal_moves_count <= 1:
+		return COMPLEXITY_FORCED
+	if is_recapture:
+		return COMPLEXITY_TRIVIAL_RECAPTURE
+	if second_gap_winpct >= WINPCT_ONLY_MOVE:
+		return minf(COMPLEXITY_MAX, COMPLEXITY_UNIQUE_BASE + minf(1.0, second_gap_winpct / COMPLEXITY_HERO_DIVISOR))
+	return COMPLEXITY_NEUTRAL
+
 ## Ratio 0..1 d'une perte cp (saturé au seuil de la gaffe) pour la mini-barre.
 static func loss_ratio(loss_cp: int) -> float:
 	return clampf(float(loss_cp) / float(MAX_BAR_LOSS), 0.0, 1.0)
