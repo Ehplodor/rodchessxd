@@ -1518,22 +1518,7 @@ func _flush_annotation_save() -> void:
 func _sync_cached_game_moves(game: Dictionary) -> void:
 	if GameController == null or GameController.game == null:
 		return
-	var live: ChessGame = GameController.game
-	var moves_arr: Array = []
-	for i in range(live.move_history.size()):
-		var m = live.move_history[i]
-		moves_arr.append({
-			"ply": i,
-			"move_number": (i / 2) + 1,
-			"is_white": (i % 2 == 0),
-			"san": m.san,
-			"uci": m.uci,
-			"quality": m.quality,
-			"loss_cp": m.centipawn_loss
-		})
-	game["moves"] = moves_arr
-	game["pgn_text"] = live.export_pgn()
-	game["result"] = live.pgn_headers.get("Result", game.get("result", "*"))
+	GameSnapshot.apply_live_state(game, GameController.game)
 
 ## T2.1 — Recharge les annotations de la position affichée.
 func _load_annotations_for_ply() -> void:
@@ -1552,20 +1537,7 @@ func _load_annotations_for_ply() -> void:
 func _update_graph_phase_boundaries(report: Dictionary) -> void:
 	if advantage_graph == null:
 		return
-	var evals: Array = report.get("evaluations", [])
-	var theory: int = int(report.get("theory_plies", 0))
-	var bounds: Array = []
-	if theory > 0:
-		bounds.append(theory)
-	for ev in evals:
-		if ev.get("is_theory", false):
-			continue
-		if GamePhaseService.phase_for(str(ev.get("fen", "")), int(ev.get("ply", 0)), theory) == "endgame":
-			var es := int(ev.get("ply", 0))
-			if es > 0:
-				bounds.append(es)
-			break
-	advantage_graph.set_phase_boundaries(bounds)
+	advantage_graph.set_phase_boundaries(GameSnapshot.phase_boundaries(report))
 
 ## T1.1 — Joue le premier coup de la ligne moteur choisie en mode Test (sandbox).
 func _on_engine_line_selected(_rank: int, pv: Array, best_move: String) -> void:
