@@ -2260,6 +2260,30 @@ func _on_btn_analyze_game_pressed() -> void:
 			analyzer.start_game_analysis(GameController.game, a_depth, options)
 		)
 
+## Archive une analyse moteur pour la partie active et rafraîchit les analyses stockées
+## du graphe. Source unique pour l'analyse classique et l'analyse unifiée CHESS-CLIFF.
+## `depth <= 0` : reprend la profondeur réglée dans les préférences.
+func _persist_engine_analysis(report: Dictionary, evaluations: Array, depth: int,
+		cliff_data: Dictionary = {}) -> void:
+	var dm = get_node_or_null("/root/DatabaseManager")
+	if dm == null or GameController == null:
+		return
+	var gid = GameController.get_or_create_game_id()
+	if gid == "":
+		return
+	var sm = get_node_or_null("/root/SettingsManager")
+	var def_anal := EngineAnalysisEntry.default_depth()
+	var a_depth = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
+	var a_mode = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
+	var entry := EngineAnalysisEntry.build(
+			report, evaluations, depth if depth > 0 else a_depth, a_mode,
+			EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
+			cliff_data)
+	dm.add_engine_analysis(gid, entry)
+	var game_rec = dm.get_game(gid)
+	if advantage_graph != null:
+		advantage_graph.update_stored_analyses(game_rec.get("engine_analyses", []))
+
 func _on_analysis_finished(report: Dictionary) -> void:
 	# Force le rafraîchissement du panneau MultiPV au retour du Live.
 	_engine_lines_last_fen = ""
@@ -2291,20 +2315,7 @@ func _on_analysis_finished(report: Dictionary) -> void:
 		_trigger_live_eval()
 
 	# Archivage automatique dans DatabaseManager pour la partie active
-	var dm = get_node_or_null("/root/DatabaseManager")
-	if dm and GameController:
-		var gid = GameController.get_or_create_game_id()
-		if gid != "":
-			var sm = get_node_or_null("/root/SettingsManager")
-			var def_anal := EngineAnalysisEntry.default_depth()
-			var a_depth = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
-			var a_mode = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
-			var analysis_entry := EngineAnalysisEntry.build(
-					report, evals, a_depth, a_mode,
-					EngineManager.get_engine_display_name() if EngineManager else "Stockfish")
-			dm.add_engine_analysis(gid, analysis_entry)
-			var game_rec = dm.get_game(gid)
-			advantage_graph.update_stored_analyses(game_rec.get("engine_analyses", []))
+	_persist_engine_analysis(report, evals, 0)
 
 	if move_list:
 		move_list.set_analysis_report(report)
@@ -2893,22 +2904,7 @@ func _on_cliff_full_finished(report: Dictionary) -> void:
 			game_review_panel.set_report(classic_report)
 
 		# Sauvegarde dans DatabaseManager de l'analyse unifiée
-		var dm = get_node_or_null("/root/DatabaseManager")
-		if dm:
-			var gid = GameController.get_or_create_game_id()
-			if gid != "":
-				var sm = get_node_or_null("/root/SettingsManager")
-				var def_anal := EngineAnalysisEntry.default_depth()
-				var a_depth = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
-				var a_mode = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
-				var analysis_entry := EngineAnalysisEntry.build(
-						classic_report, evals, deep_d if deep_d > 0 else a_depth, a_mode,
-						EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
-						report)
-				dm.add_engine_analysis(gid, analysis_entry)
-				var game_rec = dm.get_game(gid)
-				if advantage_graph != null:
-					advantage_graph.update_stored_analyses(game_rec.get("engine_analyses", []))
+		_persist_engine_analysis(classic_report, evals, deep_d, report)
 
 	var cur_ply = GameController.current_ply_index if GameController else -1
 	_sync_eval_to_ply(cur_ply)
