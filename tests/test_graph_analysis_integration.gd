@@ -14,6 +14,15 @@ func _init() -> void:
 
 	await create_timer(0.3).timeout
 
+	# L'évaluation Live de démarrage peut laisser un stop résiduel qui fait avaler le
+	# bestmove de la position de départ. On la désactive et on repart d'un moteur
+	# UCI neuf avant de lancer l'analyse.
+	main_node.live_eval_enabled = false
+	var em = root.get_node_or_null("EngineManager")
+	if em != null:
+		em.restart_engine()
+	await create_timer(2.0).timeout
+
 	# Charger une partie PGN de test
 	var pgn = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. d3 Nf6 5. O-O d6"
 	var gc = root.get_node("GameController")

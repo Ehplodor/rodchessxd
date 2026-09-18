@@ -15,7 +15,9 @@ func _init() -> void:
 
 	# 1. Vérification de SettingsModal
 	print("  -> Test 1: Layout et bouton fixe de SettingsModal...")
-	main_node._on_btn_settings_pressed()
+	# Le bouton ⚙️ ouvre désormais un menu (Réglages / Moteurs) : on instancie la
+	# modale directement, comme le fait l'entrée de menu.
+	main_node._open_modal(load("res://src/ui/components/SettingsModal.gd").new())
 	await create_timer(0.1).timeout
 
 	var settings = null
@@ -58,7 +60,7 @@ func _init() -> void:
 
 	# 3. Test de EngineHubModal : bouton Redémarrer disponible
 	print("  -> Test 3: Bouton Redémarrer dans EngineHubModal...")
-	main_node._on_btn_engine_hub_pressed()
+	main_node._open_modal(load("res://src/ui/components/EngineHubModal.gd").new())
 	await create_timer(0.1).timeout
 
 	var hub = null
