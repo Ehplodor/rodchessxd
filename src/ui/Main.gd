@@ -2861,15 +2861,31 @@ func study_full_game() -> void:
 		engine_lines_panel.set_frozen(true)
 	if cliff_dock != null:
 		cliff_dock.clear()
+		cliff_dock.set_dock_title("🏔️ CHESS-CLIFF · Super-Analyse")
 		cliff_dock.show_computing(0, GameController.game.move_history.size())
-		cliff_dock.set_source_label("Analyse de toute la partie · %d coups" % GameController.game.move_history.size())
+		cliff_dock.set_source_label("Super-Analyse de la partie · %d coups" % GameController.game.move_history.size())
 	if EngineManager != null and EngineManager.has_method("stop_evaluation"):
 		EngineManager.stop_evaluation()
-	_show_toast("🏔️ Analyse cognitive de la partie en cours…", true)
+	_show_toast("🏔️ Super-Analyse de la partie en cours…", true)
+
+	# Remise visuelle à la position de départ pour suivre le déplacement des pièces coup par coup
+	GameController.current_ply_index = -1
+	GameController.game.restore_state(0)
+	GameController.position_changed.emit()
+	if chess_board:
+		chess_board.last_move_from = -1
+		chess_board.last_move_to = -1
+		chess_board.best_move_arrow_from = -1
+		chess_board.best_move_arrow_to = -1
+		chess_board.clear_cliff_overlay()
+		chess_board.reset_board_visuals()
 
 	_cliff_full_analyzer = CliffAnalyzer.new(EngineManager)
 	_cliff_full_analyzer.progress.connect(func(cur: int, tot: int):
 		call_deferred("_on_cliff_full_progress", cur, tot)
+	)
+	_cliff_full_analyzer.ply_cliff_computed.connect(func(ply: int, data: Dictionary):
+		call_deferred("_on_cliff_full_ply_step", ply, data)
 	)
 	var game_ref = GameController.game
 	if OS.has_feature("web"):
@@ -2883,6 +2899,42 @@ func study_full_game() -> void:
 			var rep = _cliff_full_analyzer.analyze_game(game_ref, opts)
 			call_deferred("_on_cliff_full_finished", rep)
 		)
+
+func _on_cliff_full_ply_step(ply_idx: int, step_data: Dictionary) -> void:
+	if not _cliff_full_running:
+		return
+	if GameController == null or GameController.game == null:
+		return
+	var total_moves = GameController.game.move_history.size()
+	if ply_idx < 0 or ply_idx >= total_moves:
+		return
+
+	GameController.current_ply_index = ply_idx
+	GameController.game.restore_state(ply_idx + 1)
+
+	if chess_board != null:
+		var move: ChessMove = GameController.game.move_history[ply_idx]
+		chess_board.best_move_arrow_depth = 0
+		chess_board.best_move_arrow_from = -1
+		chess_board.best_move_arrow_to = -1
+		if chess_board.arrow_overlay:
+			chess_board.arrow_overlay.queue_redraw()
+		chess_board.queue_redraw()
+
+		if move.captured_piece != ChessPiece.Type.NONE:
+			_on_play_sound("capture")
+		elif move.is_check:
+			_on_play_sound("check")
+		else:
+			_on_play_sound("move")
+		chess_board._animate_navigation_forward(move, true)
+		_apply_cliff_overlay_for_step(step_data)
+
+	if cliff_dock != null:
+		cliff_dock.set_step(step_data)
+
+	_update_player_labels()
+
 
 func _on_cliff_full_progress(cur: int, tot: int) -> void:
 	if cliff_dock != null:

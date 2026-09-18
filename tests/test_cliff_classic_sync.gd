@@ -94,3 +94,24 @@ func test_cliff_to_classic_report_bridge(em: Node) -> void:
 		assert(ev.has("best_move"), "Eval record must have best_move")
 
 	print("  ok: All 4 move evaluations successfully populated for AdvantageGraph & MoveList")
+
+	# Test du comportement coup-par-coup de la Super-Analyse
+	var main_scene = load("res://src/ui/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	var gc = root.get_node_or_null("GameController")
+	if gc != null and gc.game != null and gc.game.move_history.size() > 0:
+		main_scene._cliff_full_running = true
+		var step_dummy: Dictionary = {
+			"fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+			"best_move_uci": "e2e4",
+			"tactical_profile": "EQUILIBRE",
+			"tactical_weight": 0.2,
+			"delta_wp": 0.0,
+			"phase_point": Vector2(0.5, 0.5)
+		}
+		main_scene._on_cliff_full_ply_step(0, step_dummy)
+		assert(gc.current_ply_index == 0, "GameController current_ply_index should be advanced to ply 0")
+		print("  ok: Super-Analyse advances board ply index step by step")
+		main_scene._cliff_full_running = false
+	main_scene.queue_free()
+

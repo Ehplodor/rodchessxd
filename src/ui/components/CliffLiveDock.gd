@@ -740,6 +740,7 @@ var _btn_mode_bras: Button
 var _btn_mode_equateur: Button
 var _btn_mode_ravin: Button
 var _narrative: Label
+var _title_label: Label
 var _btn_replay: Button
 var _btn_full: Button
 var _btn_close: Button
@@ -777,14 +778,14 @@ func _build() -> void:
 	var header := HBoxContainer.new()
 	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_theme_constant_override("separation", 4)
-	var title := Label.new()
-	title.text = "🏔️ CHESS-CLIFF · Super Live"
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.clip_text = true
-	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	title.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	title.add_theme_color_override("font_color", Color("#c084fc"))
-	header.add_child(title)
+	_title_label = Label.new()
+	_title_label.text = "🏔️ CHESS-CLIFF · Super-Analyse"
+	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_title_label.clip_text = true
+	_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_title_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	_title_label.add_theme_color_override("font_color", Color("#c084fc"))
+	header.add_child(_title_label)
 	_btn_stop = Button.new()
 	_btn_stop.text = "⏹ Stop"
 	_btn_stop.clip_text = true
@@ -948,9 +949,9 @@ func _build() -> void:
 	actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	actions.add_theme_constant_override("h_separation", 6)
 	actions.add_theme_constant_override("v_separation", 4)
-	_btn_replay = _make_action("▶ Rejouer", func(): _toggle_replay())
+	_btn_replay = _make_action("▶ Super-Replay", func(): _toggle_replay())
 	actions.add_child(_btn_replay)
-	_btn_full = _make_action("🔎 Toute la partie", func(): full_game_requested.emit())
+	_btn_full = _make_action("🔎 Super-Analyse", func(): full_game_requested.emit())
 	actions.add_child(_btn_full)
 	vbox.add_child(actions)
 
@@ -1035,7 +1036,7 @@ func clear() -> void:
 	if is_instance_valid(_progress):
 		_progress.visible = false
 	if is_instance_valid(_btn_replay):
-		_btn_replay.text = "▶ Rejouer"
+		_btn_replay.text = "▶ Super-Replay"
 		_btn_replay.disabled = true
 	if is_instance_valid(_btn_full):
 		_btn_full.disabled = false
@@ -1052,6 +1053,10 @@ func show_computing(cur: int, total: int) -> void:
 	_progress.visible = true
 	_progress.max_value = float(maxi(1, total))
 	_progress.value = float(cur)
+
+func set_dock_title(title_text: String) -> void:
+	if is_instance_valid(_title_label):
+		_title_label.text = title_text
 
 func set_source_label(text: String) -> void:
 	if is_instance_valid(_source_label):
@@ -1188,7 +1193,7 @@ func highlight_step(idx: int) -> void:
 
 func _toggle_replay() -> void:
 	_replaying = not _replaying
-	_btn_replay.text = "⏸ Pause" if _replaying else "▶ Rejouer"
+	_btn_replay.text = "⏸ Pause" if _replaying else "▶ Super-Replay"
 	replay_toggled.emit(_replaying)
 
 func is_replaying() -> bool:
@@ -1197,7 +1202,7 @@ func is_replaying() -> bool:
 func stop_replay() -> void:
 	_replaying = false
 	if is_instance_valid(_btn_replay):
-		_btn_replay.text = "▶ Rejouer"
+		_btn_replay.text = "▶ Super-Replay"
 
 # --- Interne ------------------------------------------------------------
 
