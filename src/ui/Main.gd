@@ -2039,20 +2039,12 @@ func _apply_safe_insets() -> void:
 
 # --- MODALES D'IMPORT & GESTION ---
 
-var current_modal: Window = null
+var _modal_manager: ModalManager = null
 
 func _open_modal(modal_node: Window) -> void:
-	if current_modal and is_instance_valid(current_modal):
-		current_modal.hide()
-		current_modal.queue_free()
-	current_modal = modal_node
-	add_child(modal_node)
-	var vis: Vector2 = get_viewport().get_visible_rect().size
-	if vis.x > 0 and vis.y > 0:
-		var max_w = int(vis.x * 0.94)
-		var max_h = int(vis.y * 0.92)
-		modal_node.size = Vector2i(mini(modal_node.size.x, max_w), mini(modal_node.size.y, max_h))
-	modal_node.popup_centered(modal_node.size)
+	if _modal_manager == null:
+		_modal_manager = ModalManager.new(self)
+	_modal_manager.open(modal_node)
 
 func _on_btn_import_png_pressed() -> void:
 	_open_modal(OCREditorModal.new())
