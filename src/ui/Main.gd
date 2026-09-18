@@ -2596,33 +2596,14 @@ func _on_cliff_super_live_step(_idx: int, uci: String, fen_after: String, data: 
 func _apply_cliff_overlay_for_step(step: Dictionary) -> void:
 	if chess_board == null:
 		return
-	var piste := int(step.get("piste", 0))
-	var san := str(step.get("san", step.get("move_uci", "")))
-	var is_vital := bool(step.get("is_vital", false))
-	var nature := int(step.get("move_nature", CliffTypes.MoveNature.VITAL if is_vital else CliffTypes.MoveNature.SAFE))
-	var label := "Joué : %s · %s · D=%d" % [san, CliffTypes.get_piste_name(piste), int(step.get("indice_d", 0))]
-	if is_vital:
-		label = "🧗 Coup unique vital : %s (D=%d)" % [san, int(step.get("indice_d", 0))]
-	elif nature == CliffTypes.MoveNature.FORCED:
-		label = "🛡️ Suite forcée : %s (D=%d)" % [san, int(step.get("indice_d", 0))]
-	elif nature == CliffTypes.MoveNature.ATTACK:
-		label = "⚡ Attaque directe : %s (D=%d)" % [san, int(step.get("indice_d", 0))]
-
-	var best_u := str(step.get("best_move", step.get("move_uci", "")))
-	if not _cliff_xray_enabled() and not is_vital and step.get("poisoned_squares", []).is_empty():
-		if best_u != "":
-			chess_board.set_best_move_arrow(best_u)
+	var visual := CliffAnnotations.build_step_visual(step, _cliff_xray_enabled())
+	var overlay: Dictionary = visual.get("overlay", {})
+	if overlay.is_empty():
+		var focus_u: String = str(visual.get("best_uci", ""))
+		if focus_u != "":
+			chess_board.set_best_move_arrow(focus_u)
 		return
-
-	chess_board.set_cliff_overlay({
-		"best_uci": best_u,
-		"bait_uci": str(step.get("bait_move_uci", "")),
-		"mines": step.get("mines", []),
-		"poisoned_squares": step.get("poisoned_squares", []),
-		"is_vital": is_vital,
-		"move_nature": nature,
-		"label": label
-	})
+	chess_board.set_cliff_overlay(overlay)
 
 func _on_cliff_super_live_finished(report: Dictionary) -> void:
 	_join_thread(cliff_thread)
@@ -2646,24 +2627,15 @@ func _on_cliff_super_live_finished(report: Dictionary) -> void:
 
 	# Badge de piste sur la ligne étudiée.
 	if is_instance_valid(engine_lines_panel):
-		var sw: Dictionary = report.get("summary_white", {})
-		var sb: Dictionary = report.get("summary_black", {})
 		var is_white_turn := true
 		if GameController and GameController.game:
 			is_white_turn = (GameController.game.active_color == ChessPiece.PieceColor.WHITE)
-		var summary: Dictionary = sw if is_white_turn else sb
 		engine_lines_panel.set_line_pistes({
-			_cliff_studied_rank: {
-				"piste": int(summary.get("global_piste", -1)),
-				"indice_d": int(summary.get("indice_d", -1)),
-				"delta": float(summary.get("max_delta_chute", 0.0)),
-				"bait": float(summary.get("max_bait", 0.0)),
-				"p_survie": float(summary.get("p_survie_ligne", 1.0))
-			}
+			_cliff_studied_rank: CliffAnnotations.line_piste_summary(report, is_white_turn)
 		})
-		var plies: Array = report.get("plies", [])
-		if not plies.is_empty() and chess_board != null:
-			chess_board.set_best_move_arrow(str((plies[0] as Dictionary).get("move_uci", "")))
+		var best_u := CliffAnnotations.first_step_best_uci(report)
+		if best_u != "" and chess_board != null:
+			chess_board.set_best_move_arrow(best_u)
 
 	_show_toast("🏔️ Étude Cliff de la ligne terminée !", true)
 
@@ -2705,16 +2677,7 @@ func _on_cliff_step_preview_requested(fen: String, uci: String) -> void:
 		chess_board.set_best_move_arrow(uci)
 
 func _find_cliff_step(uci: String, fen: String) -> Dictionary:
-	var plies: Array = _cliff_last_report.get("plies", [])
-	if fen != "":
-		for p in plies:
-			if str(p.get("fen_after", "")) == fen or str(p.get("fen_before", "")) == fen:
-				return p
-	if uci != "":
-		for p in plies:
-			if str(p.get("move_uci", "")) == uci:
-				return p
-	return {}
+	return CliffAnnotations.find_step(_cliff_last_report.get("plies", []), uci, fen)
 
 ## Rejeu pas-à-pas (1 s/pas) sur l'échiquier, non destructif.
 func _on_cliff_replay_toggled(playing: bool) -> void:
@@ -2925,17 +2888,4 @@ func _archive_cliff_report(report: Dictionary) -> void:
 func _apply_cliff_data_to_moves(cliff_report: Dictionary) -> void:
 	if GameController == null or GameController.game == null:
 		return
-	var plies: Array = cliff_report.get("plies", [])
-	var history = GameController.game.move_history
-	for p_data in plies:
-		var move_idx: int = int(p_data.get("ply", p_data.get("step", -1)))
-		if move_idx < 0 or move_idx >= history.size():
-			continue
-		var m: ChessMove = history[move_idx]
-		m.cliff_piste = int(p_data.get("piste", -1))
-		m.cliff_delta_chute = float(p_data.get("delta_chute", 0.0))
-		m.cliff_bait = float(p_data.get("bait", 0.0))
-		m.cliff_p_survie = float(p_data.get("p_survie", 1.0))
-		m.cliff_indice_d = int(p_data.get("effort_d", p_data.get("indice_d", -1)))
-		m.cliff_surprise_nature = int(p_data.get("surprise_nature", CliffTypes.SurpriseNature.NORMAL))
-		m.cliff_surprise_delta = int(p_data.get("surprise_delta", 0))
+	CliffAnnotations.apply_to_moves(GameController.game.move_history, cliff_report)
