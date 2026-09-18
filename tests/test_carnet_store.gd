@@ -39,6 +39,7 @@ func _process(_delta: float) -> bool:
 	_test_analysis_speed_config()
 	_test_profile_delete_purges_data()
 	_test_malformed_sync_resilience()
+	_test_mastery_wiring()
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -339,4 +340,88 @@ func _test_malformed_sync_resilience() -> void:
 	# Les parcours d'entrées (recent/dernier) ne doivent plus planter.
 	var plan := CarnetStore.refresh_plan("2026-09-10")
 	_check(plan.has("plan"), "refresh_plan survit à un sync.json malformé")
+
+func _mastery_atom(id: String, gid: String, ply: int, date_iso: String, type_finale: String) -> Dictionary:
+	# Atome « propre » : un seul motif (type_finale) pour éviter que la non-redondance
+	# ne le rétrograde en motif « général » à cause de champs partagés.
+	var a := _atom(id, gid, ply)
+	a["date_iso"] = date_iso
+	a["type_finale"] = type_finale
+	a["phase"] = ""
+	a["regime"] = ""
+	a["features"] = {}
+	a["eco"] = ""
+	a["tranche"] = ""
+	a["schemas"] = []
+	a["qualite"] = ""
+	return a
+
+## Câblage complet de la maîtrise (§4.11 D) : seuil de réussites, exclusion du plan,
+## et réactivation si le motif réapparaît dans la fenêtre récente.
+func _test_mastery_wiring() -> void:
+	CarnetProfiles.reset()
+	var pid := CarnetProfiles.create("Maîtrise", "local", ["maitrise"])
+
+	# Motif cible : 3 atomes négatifs « type_finale|tours » sur la partie gA (ancienne).
+	CarnetStore.ingest_game("gA", [
+		_mastery_atom("a0", "gA", 0, "2026-01-01", "tours"),
+		_mastery_atom("a1", "gA", 1, "2026-01-01", "tours"),
+		_mastery_atom("a2", "gA", 2, "2026-01-01", "tours"),
+	], {"date_iso": "2026-01-01"}, pid)
+	# 4 autres parties anciennes → G ≥ 5 (condition d'établissement du motif).
+	for i in range(4):
+		var gid := "gOld%d" % i
+		CarnetStore.ingest_game(gid,
+				[_mastery_atom("o%d" % i, gid, 0, "2026-01-02", "aucune")],
+				{"date_iso": "2026-01-02"}, pid)
+	# 11 parties récentes → gA sort de la fenêtre MASTERY_WINDOW (10).
+	for i in range(11):
+		var gid := "gNew%d" % i
+		var d := "2026-06-%02d" % (1 + i)
+		CarnetStore.ingest_game(gid, [_mastery_atom("n%d" % i, gid, 0, d, "aucune")],
+				{"date_iso": d}, pid)
+
+	# 1re compilation : le drill du motif cible est généré.
+	CarnetStore.refresh_plan("2026-09-01", {}, pid)
+	var target_id := ""
+	for drill in CarnetStore.get_trainer_state(pid).get("drills", []):
+		if drill is Dictionary and str(drill.get("motif", "")) == "type_finale|tours":
+			target_id = str(drill.get("drill_id", ""))
+			break
+	_check(target_id != "", "drill du motif cible généré")
+
+	# 3 réussites → seuil MASTERY_DRILLS atteint.
+	for k in range(3):
+		CarnetStore.record_review(target_id, 5, "2026-09-0%d" % (2 + k), pid)
+
+	# 2e compilation : le motif est déclaré maîtrisé et sort du plan.
+	var result := CarnetStore.refresh_plan("2026-09-05", {}, pid)
+	var target_mastered := false
+	var mastered_total := 0
+	for drill in CarnetStore.get_trainer_state(pid).get("drills", []):
+		if not (drill is Dictionary):
+			continue
+		if bool(drill.get("maitrise", false)):
+			mastered_total += 1
+		if str(drill.get("motif", "")) == "type_finale|tours":
+			target_mastered = bool(drill.get("maitrise", false))
+	_check(target_mastered, "motif type_finale|tours marqué maîtrisé après 3 réussites")
+	_check(mastered_total >= 1, "au moins un drill maîtrisé persisté")
+	var in_plan := false
+	for drill in (result.get("plan", {}) as Dictionary).get("drills", []):
+		if drill is Dictionary and str(drill.get("motif", "")) == "type_finale|tours":
+			in_plan = true
+	_check(not in_plan, "drill maîtrisé exclu du plan du jour")
+
+	# Réactivation : le motif réapparaît dans une partie récente → maîtrise levée.
+	CarnetStore.ingest_game("gRecent",
+			[_mastery_atom("r0", "gRecent", 0, "2026-12-01", "tours")],
+			{"date_iso": "2026-12-01"}, pid)
+	CarnetStore.refresh_plan("2026-12-02", {}, pid)
+	var reactivated := false
+	for drill in CarnetStore.get_trainer_state(pid).get("drills", []):
+		if drill is Dictionary and str(drill.get("motif", "")) == "type_finale|tours":
+			reactivated = not bool(drill.get("maitrise", false))
+	_check(reactivated, "motif réapparu récemment → maîtrise levée (retravaillable)")
+	CarnetProfiles.reset()
 

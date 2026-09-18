@@ -637,6 +637,9 @@ func _advance() -> void:
 	session_changed.emit()
 	if str(session["phase"]) == "done":
 		session_finished.emit(session_summary())
+		# Recalcule plan/carnet pour refléter immédiatement les maîtrises acquises
+		# pendant la séance (les réussites viennent d'être enregistrées).
+		refresh_plan()
 
 func session_summary() -> Dictionary:
 	var total := session_size()

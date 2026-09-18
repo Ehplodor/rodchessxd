@@ -585,6 +585,19 @@ static func refresh_plan(today_iso: String = "", options: Dictionary = {}, profi
 			atoms, faiblesses, forces, curiosites)
 	var merged := _merge_drills(existing, generated)
 
+	# Maîtrise (§4.11 D) : un motif établi, négatif, absent de la fenêtre récente et dont
+	# les drills cumulent assez de réussites est considéré acquis → ses drills sortent du
+	# plan. Recalcul systématique (idempotent) : si le motif réapparaît dans les parties
+	# récentes, `maitrise` repasse à false et le drill redevient travaillable.
+	var mastered_keys := CarnetTrainer.detect_mastery(
+			ledger.get("motifs", []), merged, _recent_game_ids(pid, CarnetConfig.MASTERY_WINDOW))
+	var mastered := {}
+	for key in mastered_keys:
+		mastered[str(key)] = true
+	for drill in merged:
+		if drill is Dictionary:
+			drill["maitrise"] = mastered.has(str(drill.get("motif", "")))
+
 	var plan_options := options.duplicate()
 	plan_options["today_iso"] = today
 	plan_options["derniere_partie_id"] = _latest_game_id(pid)
@@ -674,7 +687,7 @@ static func _list_atom_files(profile_id: String) -> Array:
 	out.sort()
 	return out
 
-static func _recent_game_ids(profile_id: String) -> Array:
+static func _recent_game_ids(profile_id: String, count: int = CarnetConfig.RECENT_GAMES) -> Array:
 	var db := _db()
 	if db == null:
 		return []
@@ -684,7 +697,7 @@ static func _recent_game_ids(profile_id: String) -> Array:
 		entries.append({"id": str(gid), "date": str(sync[gid].get("date_iso", ""))})
 	entries.sort_custom(func(a, b): return str(a["date"]) < str(b["date"]))
 	var out: Array = []
-	var start: int = maxi(0, entries.size() - CarnetConfig.RECENT_GAMES)
+	var start: int = maxi(0, entries.size() - maxi(0, count))
 	for i in range(start, entries.size()):
 		out.append(entries[i]["id"])
 	return out
