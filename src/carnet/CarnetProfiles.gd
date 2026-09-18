@@ -101,9 +101,12 @@ static func update(profile_id: String, fields: Dictionary) -> void:
 	data["profiles"] = profiles
 	_save(data)
 
-## Supprime un profil (son dossier de carnet est retiré par CarnetStore si souhaité).
+## Supprime un profil et TOUTES ses données de carnet (atomes, sync, trainer, lot).
+## Le profil par défaut n'est jamais supprimable ; l'identifiant est validé pour empêcher
+## toute sortie de PROFILES_DIR.
 static func delete(profile_id: String) -> void:
-	if profile_id == DEFAULT_PROFILE_ID:
+	if profile_id == "" or profile_id == DEFAULT_PROFILE_ID \
+			or profile_id.contains("/") or profile_id.contains("\\") or profile_id.contains(".."):
 		return
 	var data := _load()
 	var kept: Array = []
@@ -114,6 +117,10 @@ static func delete(profile_id: String) -> void:
 	if str(data.get("active", "")) == profile_id:
 		data["active"] = str(kept[0].get("id", DEFAULT_PROFILE_ID)) if not kept.is_empty() else ""
 	_save(data)
+	# Purge du dossier de données : sinon atomes/sync/trainer/batch restent orphelins
+	# alors que l'UI annonce « toutes ses données » supprimées.
+	_remove_dir_recursive(DatabaseManagerClass.PROFILES_DIR + "/" + profile_id)
+	DatabaseManagerClass.sync_filesystem()
 
 static func add_player_key(profile_id: String, key: String) -> void:
 	var normalized := DatabaseManagerClass.normalize_player_key(key)

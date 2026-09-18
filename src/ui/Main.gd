@@ -262,6 +262,7 @@ func _ready() -> void:
 	call_deferred("_start_initial_eval")
 
 func _exit_tree() -> void:
+	_flush_pending_annotations()
 	if AICoach != null and AICoach.has_method("stop_speech"):
 		AICoach.stop_speech()
 	if analyzer != null and analyzer.is_analyzing:
@@ -288,9 +289,14 @@ func _notification(what: int) -> void:
 			and (OS.has_feature("android") or OS.has_feature("ios")):
 		_apply_safe_insets()
 	elif what == NOTIFICATION_APPLICATION_PAUSED:
+		_flush_pending_annotations()
 		var dm = get_node_or_null("/root/DatabaseManager")
 		if dm and dm.has_method("sync_to_storage"):
 			dm.sync_to_storage()
+	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_flush_pending_annotations()
+	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_flush_pending_annotations()
 	elif what == NOTIFICATION_RESIZED:
 		_check_and_update_layout()
 
@@ -1541,6 +1547,13 @@ func _on_user_annotations_changed() -> void:
 	game["annotations"] = ann
 	_ensure_annotation_timer()
 	_annotation_save_timer.start()
+
+## Force l'écriture immédiate d'annotations en attente (pause, perte de focus, fermeture).
+## Sans cela, une rafale de flèches suivie d'un passage en arrière-plan était perdue.
+func _flush_pending_annotations() -> void:
+	if _annotation_save_timer != null and not _annotation_save_timer.is_stopped():
+		_annotation_save_timer.stop()
+		_flush_annotation_save()
 
 ## Écrit une seule fois pour une rafale d'annotations.
 func _flush_annotation_save() -> void:

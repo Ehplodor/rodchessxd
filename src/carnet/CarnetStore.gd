@@ -632,8 +632,15 @@ static func record_review(drill_id: String, note: int, today_iso: String = "", p
 static func _load_sync(profile_id: String) -> Dictionary:
 	var db := _db()
 	var sync: Dictionary = db.load_json(_sync_path(profile_id)) if db != null else {}
-	if not (sync.get("entries") is Dictionary):
-		sync["entries"] = {}
+	# Assainit `entries` : chaque valeur doit être un Dictionary. Un sync.json corrompu
+	# (valeur scalaire/array) ferait planter tous les accès `entry.get(...)` en aval.
+	var raw = sync.get("entries", {})
+	var entries: Dictionary = {}
+	if raw is Dictionary:
+		for gid in raw.keys():
+			if raw[gid] is Dictionary:
+				entries[gid] = raw[gid]
+	sync["entries"] = entries
 	sync["schema_version"] = CarnetConfig.CARNET_SCHEMA_VERSION
 	return sync
 

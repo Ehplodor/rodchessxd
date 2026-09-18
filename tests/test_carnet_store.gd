@@ -37,6 +37,8 @@ func _process(_delta: float) -> bool:
 	_test_chesscom_dedup_and_keys()
 	_test_batch_runner()
 	_test_analysis_speed_config()
+	_test_profile_delete_purges_data()
+	_test_malformed_sync_resilience()
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -299,4 +301,42 @@ func _test_analysis_speed_config() -> void:
 	_check(int(cfg_deep.get("depth", 0)) == 16, "vitesse approfondie: profondeur 16")
 	_check(is_equal_approx(float(cfg_deep.get("dynamic_base", 0.0)), 0.20), "vitesse approfondie: base 0.20s")
 	_check(is_equal_approx(float(cfg_deep.get("dynamic_max", 0.0)), 0.80), "vitesse approfondie: max 0.80s")
+
+func _test_profile_delete_purges_data() -> void:
+	var pid := CarnetProfiles.create("Ephémère", "local", ["ephemere"])
+	CarnetStore.ingest_game("gE", [_atom("e1", "gE", 0)], {"date_iso": "2026-08-10"}, pid)
+	var dir := "user://library/carnets/profiles/%s" % pid
+	_check(DirAccess.dir_exists_absolute(dir), "dossier du profil créé sur disque")
+	_check(CarnetStore.get_atoms(pid).size() == 1, "atomes présents avant suppression")
+
+	# Profil par défaut : protégé, le dossier ne doit jamais être purgé.
+	CarnetProfiles.delete(CarnetProfiles.DEFAULT_PROFILE_ID)
+	_check(not CarnetProfiles.get_profile(CarnetProfiles.DEFAULT_PROFILE_ID).is_empty(),
+			"profil par défaut non supprimable")
+
+	# Identifiants invalides (traversal) : ignorés sans toucher au disque.
+	CarnetProfiles.delete("../evil")
+	_check(not CarnetProfiles.get_profile(pid).is_empty(), "identifiant invalide ignoré")
+
+	CarnetProfiles.delete(pid)
+	_check(CarnetProfiles.get_profile(pid).is_empty(), "profil retiré de l'index")
+	_check(not DirAccess.dir_exists_absolute(dir), "dossier de données du profil purgé")
+	_check(CarnetStore.get_atoms(pid).is_empty(), "atomes purgés avec le profil")
+
+func _test_malformed_sync_resilience() -> void:
+	var path := _base() + "/sync.json"
+	_db.save_json_atomic(path, {"entries": {
+		"good": {"date_iso": "2026-08-10"},
+		"scalar": 42,
+		"array": [],
+		"null": null,
+	}})
+	var sync := CarnetStore._load_sync(_pid())
+	_check(sync["entries"].has("good"), "entrée valide conservée")
+	_check(not sync["entries"].has("scalar"), "entrée scalaire écartée")
+	_check(not sync["entries"].has("array"), "entrée tableau écartée")
+	_check(not sync["entries"].has("null"), "entrée nulle écartée")
+	# Les parcours d'entrées (recent/dernier) ne doivent plus planter.
+	var plan := CarnetStore.refresh_plan("2026-09-10")
+	_check(plan.has("plan"), "refresh_plan survit à un sync.json malformé")
 
