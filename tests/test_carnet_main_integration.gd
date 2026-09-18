@@ -21,7 +21,7 @@ func _process(_delta: float) -> bool:
 	var main = load("res://src/ui/Main.tscn").instantiate()
 	root.add_child(main)
 
-	var top = main.get_node_or_null("VBox/TopBar")
+	var top = main.top_bar if main.top_bar != null else main.get_node_or_null("MainScroll/VBox/TopBar")
 	_check(top != null, "TopBar présente")
 	var btn = top.get_node_or_null("BtnCarnet") if top != null else null
 	_check(btn != null, "bouton 📓 ajouté à la TopBar")

@@ -17,48 +17,52 @@ const CoachReadingModal = preload("res://src/ui/components/CoachReadingModal.gd"
 const CarnetPresenter = preload("res://src/ui/carnet/CarnetPresenter.gd")
 const CarnetOverlay = preload("res://src/ui/carnet/CarnetOverlay.gd")
 const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
+const CliffAnalyzer = preload("res://src/engine/CliffAnalyzer.gd")
+const CliffTypes = preload("res://src/engine/CliffTypes.gd")
 
-@onready var vbox: VBoxContainer = $VBox
-@onready var top_bar: HBoxContainer = $VBox/TopBar
-@onready var center_area: HBoxContainer = $VBox/CenterArea
-@onready var board_column: VBoxContainer = $VBox/CenterArea/BoardColumn
-@onready var board_container: Control = $VBox/CenterArea/BoardColumn/BoardContainer
-@onready var nav_row: HBoxContainer = $VBox/NavRow
-@onready var dashboard: VBoxContainer = $VBox/Dashboard
+@onready var main_scroll: ScrollContainer = $MainScroll
+@onready var vbox: VBoxContainer = $MainScroll/VBox
+@onready var top_bar: HBoxContainer = $MainScroll/VBox/TopBar
+@onready var center_area: HBoxContainer = $MainScroll/VBox/CenterArea
+@onready var board_column: VBoxContainer = $MainScroll/VBox/CenterArea/BoardColumn
+@onready var board_container: Control = $MainScroll/VBox/CenterArea/BoardColumn/BoardContainer
+@onready var nav_row: HBoxContainer = $MainScroll/VBox/NavRow
+@onready var dashboard: VBoxContainer = $MainScroll/VBox/Dashboard
 
-@onready var eval_bar: EvalBar2D = $VBox/CenterArea/BoardColumn/BoardContainer/EvalBar
-@onready var chess_board: ChessBoard2D = $VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
-@onready var advantage_graph: AdvantageGraph2D = $VBox/Dashboard/GraphPanel/AdvantageGraph
-@onready var engine_lines_panel: EngineLinesPanel2D = $VBox/Dashboard/EngineLinesPanel
+@onready var eval_bar: EvalBar2D = $MainScroll/VBox/CenterArea/BoardColumn/BoardContainer/EvalBar
+@onready var chess_board: ChessBoard2D = $MainScroll/VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard
+@onready var advantage_graph: AdvantageGraph2D = $MainScroll/VBox/Dashboard/GraphPanel/AdvantageGraph
+@onready var engine_lines_panel: EngineLinesPanel2D = $MainScroll/VBox/Dashboard/EngineLinesPanel
 @onready var game_review_panel: Control = get_node_or_null("AnalyseOverlay/Layout/GameReviewPanel")
 @onready var move_list: MoveList2D = $AnalyseOverlay/Layout/MoveList
 @onready var coach_panel: CoachPanel2D = $CoachOverlay/Layout/CoachPanel
 @onready var analyse_overlay: Control = $AnalyseOverlay
 @onready var coach_overlay: Control = $CoachOverlay
 
-@onready var btn_analyze_game: Button = $VBox/NavRow/BtnAnalyzeGame
-@onready var btn_toggle_sandbox: Button = $VBox/NavRow/BtnToggleSandbox
-@onready var btn_toggle_live: Button = $VBox/NavRow/BtnToggleLive
-@onready var top_eval_label: Label = $VBox/TopBar/EvalBadge/EvalText
+@onready var btn_analyze_game: Button = $MainScroll/VBox/NavRow/BtnAnalyzeGame
+@onready var btn_toggle_sandbox: Button = $MainScroll/VBox/NavRow/BtnToggleSandbox
+@onready var btn_toggle_live: Button = $MainScroll/VBox/NavRow/BtnToggleLive
+@onready var btn_toggle_cliff: Button = $MainScroll/VBox/NavRow/BtnToggleCliff
+@onready var top_eval_label: Label = $MainScroll/VBox/TopBar/EvalBadge/EvalText
 
 var is_landscape_layout: bool = false
 
 ## Écart barre d'évaluation ↔ plateau (doit refléter ChessBoard2D.EVAL_BAR_GAP).
 const EVAL_BAR_GAP := 6.0
 
-@onready var player_top_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerTop
-@onready var player_bottom_row: MarginContainer = $VBox/CenterArea/BoardColumn/PlayerBottom
-@onready var player_dot_top: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerDotTop
-@onready var player_dot_bottom: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerDotBottom
-@onready var player_name_top: Label = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop
-@onready var player_name_bottom: Label = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom
-@onready var turn_badge_top: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop
-@onready var turn_badge_label_top: Label = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop/TurnBadgeLabelTop
-@onready var turn_badge_bottom: PanelContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom
-@onready var turn_badge_label_bottom: Label = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom/TurnBadgeLabelBottom
+@onready var player_top_row: MarginContainer = $MainScroll/VBox/CenterArea/BoardColumn/PlayerTop
+@onready var player_bottom_row: MarginContainer = $MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom
+@onready var player_dot_top: PanelContainer = $MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerDotTop
+@onready var player_dot_bottom: PanelContainer = $MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerDotBottom
+@onready var player_name_top: Label = $MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop
+@onready var player_name_bottom: Label = $MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom
+@onready var turn_badge_top: PanelContainer = $MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop
+@onready var turn_badge_label_top: Label = $MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop/TurnBadgeLabelTop
+@onready var turn_badge_bottom: PanelContainer = $MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom
+@onready var turn_badge_label_bottom: Label = $MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom/TurnBadgeLabelBottom
 
-@onready var player_shortcuts_top: HBoxContainer = $VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerShortcutsTop
-@onready var player_shortcuts_bottom: HBoxContainer = $VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerShortcutsBottom
+@onready var player_shortcuts_top: HBoxContainer = $MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerShortcutsTop
+@onready var player_shortcuts_bottom: HBoxContainer = $MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerShortcutsBottom
 
 const PLAYER_PROMPTS := [
 	{
@@ -195,10 +199,20 @@ func _ready() -> void:
 
 	if btn_toggle_live != null and not btn_toggle_live.pressed.is_connected(_on_btn_toggle_live_pressed):
 		btn_toggle_live.pressed.connect(_on_btn_toggle_live_pressed)
+	if btn_toggle_cliff != null and not btn_toggle_cliff.pressed.is_connected(_on_btn_toggle_cliff_pressed):
+		btn_toggle_cliff.pressed.connect(_on_btn_toggle_cliff_pressed)
 	if btn_toggle_sandbox != null and not btn_toggle_sandbox.pressed.is_connected(_on_btn_toggle_sandbox_pressed):
 		btn_toggle_sandbox.pressed.connect(_on_btn_toggle_sandbox_pressed)
 	if btn_analyze_game != null and not btn_analyze_game.pressed.is_connected(_on_btn_analyze_game_pressed):
 		btn_analyze_game.pressed.connect(_on_btn_analyze_game_pressed)
+	
+	if engine_lines_panel != null:
+		if engine_lines_panel.has_signal("cliff_study_requested") and not engine_lines_panel.cliff_study_requested.is_connected(_on_engine_cliff_study_requested):
+			engine_lines_panel.cliff_study_requested.connect(_on_engine_cliff_study_requested)
+		if engine_lines_panel.has_signal("cliff_step_preview_requested") and not engine_lines_panel.cliff_step_preview_requested.is_connected(_on_cliff_step_preview_requested):
+			engine_lines_panel.cliff_step_preview_requested.connect(_on_cliff_step_preview_requested)
+		if engine_lines_panel.has_signal("compare_all_lines_requested") and not engine_lines_panel.compare_all_lines_requested.is_connected(_on_engine_compare_all_lines_requested):
+			engine_lines_panel.compare_all_lines_requested.connect(_on_engine_compare_all_lines_requested)
 	
 	var slm = get_node_or_null("/root/LocalSLMManager")
 	if slm:
@@ -232,14 +246,18 @@ func _ready() -> void:
 
 	_update_player_labels()
 	_update_live_button_style()
+	_update_cliff_button_style()
 	_update_sandbox_button_style()
 	_move_graph_hud_to_engine_panel()
+	_setup_cliff_dock()
 	# Re-répartition dynamique dès qu'un bloc du bas change de hauteur (lignes
 	# moteur dépliées/repliées, bandeaux joueurs, densité des raccourcis…).
 	for layout_child in [top_bar, nav_row, dashboard, player_top_row, player_bottom_row]:
 		if is_instance_valid(layout_child) \
 				and not layout_child.resized.is_connected(_on_layout_child_resized):
 			layout_child.resized.connect(_on_layout_child_resized)
+	if is_instance_valid(main_scroll):
+		DesignTokens.touch_scroll(main_scroll, [chess_board])
 	_check_and_update_layout()
 	call_deferred("_start_initial_eval")
 
@@ -250,6 +268,18 @@ func _exit_tree() -> void:
 		analyzer.cancel_analysis()
 	if analysis_thread != null and analysis_thread.is_started():
 		analysis_thread.wait_to_finish()
+	if cliff_analyzer != null and cliff_analyzer.is_analyzing:
+		cliff_analyzer.cancel()
+	if cliff_thread != null and cliff_thread.is_started():
+		cliff_thread.wait_to_finish()
+	if _cliff_full_analyzer != null and _cliff_full_analyzer.is_analyzing:
+		_cliff_full_analyzer.cancel()
+	if _cliff_full_thread != null and _cliff_full_thread.is_started():
+		_cliff_full_thread.wait_to_finish()
+	if _cliff_meso_analyzer != null and _cliff_meso_analyzer.is_analyzing:
+		_cliff_meso_analyzer.cancel()
+	if _cliff_meso_thread != null and _cliff_meso_thread.is_started():
+		_cliff_meso_thread.wait_to_finish()
 
 func _notification(what: int) -> void:
 	# Les barres système (gestes) peuvent apparaître/disparaître en cours de
@@ -303,6 +333,8 @@ func _apply_adaptive_layout(target_landscape: bool) -> void:
 		dashboard.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		
 		center_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		board_container.custom_minimum_size = Vector2.ZERO
+		center_area.custom_minimum_size = Vector2.ZERO
 		dashboard.custom_minimum_size = Vector2.ZERO
 		if is_instance_valid(eval_bar):
 			# Assez large pour afficher le score (ex. « -9.1 ») sans être rogné.
@@ -341,19 +373,24 @@ func _apply_adaptive_layout(target_landscape: bool) -> void:
 		_dock_overlay(coach_overlay)
 
 ## Allocation « plateau d'abord » (portrait) : le plateau doit pouvoir atteindre la
-## pleine largeur de l'écran dès que la hauteur le permet. On fixe alors la hauteur
-## du tableau de bord pour absorber exactement le restant (il reste compact à son
-## minimum sur les écrans courts, et s'étend gracieusement sur les écrans longs —
-## 9/16 jusqu'aux 9/19,5 — sans jamais pousser le VBox en débordement).
+## pleine largeur de l'écran dès que la hauteur le permet. On impose cette hauteur au
+## conteneur du plateau pour ne jamais l'écraser, et MainScroll assure le défilement
+## vertical complet quand les panneaux moteur ou cliff sont déroulés.
 func _update_board_priority_allocation() -> void:
 	if not is_inside_tree():
 		return
 	if is_landscape_layout:
-		dashboard.custom_minimum_size = Vector2.ZERO
+		if is_instance_valid(board_container):
+			board_container.custom_minimum_size = Vector2.ZERO
+		if is_instance_valid(center_area):
+			center_area.custom_minimum_size = Vector2.ZERO
+		if is_instance_valid(dashboard):
+			dashboard.custom_minimum_size = Vector2.ZERO
 		return
 	if not (is_instance_valid(vbox) and is_instance_valid(top_bar) and is_instance_valid(nav_row) \
 			and is_instance_valid(dashboard) and is_instance_valid(player_top_row) \
-			and is_instance_valid(player_bottom_row)):
+			and is_instance_valid(player_bottom_row) and is_instance_valid(board_container) \
+			and is_instance_valid(center_area)):
 		return
 	var sep_v := float(vbox.get_theme_constant("separation"))
 	var col_sep := float(board_column.get_theme_constant("separation"))
@@ -363,12 +400,17 @@ func _update_board_priority_allocation() -> void:
 	var bar_w := 0.0
 	if is_instance_valid(eval_bar):
 		bar_w = maxf(0.0, eval_bar.custom_minimum_size.x)
-	var avail := vbox.size.y if vbox.size.y > 0.0 else size.y
+	var avail := size.y if size.y > 0.0 else (get_viewport_rect().size.y if get_viewport() else 800.0)
 	if avail <= 0.0:
 		return
 	# Côté visé pour le plateau : toute la largeur moins (écart + barre d'éval).
 	var side_target := maxf(ChessBoard2D.MIN_BOARD_SIDE, size.x - EVAL_BAR_GAP - bar_w)
+	# IMPORTANT : On impose la hauteur cible au BoardContainer pour que le plateau
+	# ne soit JAMAIS écrasé verticalement !
+	board_container.custom_minimum_size = Vector2(0, side_target)
 	var center_needed := bands + col_sep * 2.0 + side_target
+	center_area.custom_minimum_size = Vector2(0, center_needed)
+
 	var fixed := top_h + nav_h + sep_v * 3.0
 	# Hauteur de CONTENU du dashboard (sans le minimum posé au passage précédent,
 	# sinon il jouerait le rôle de plancher gonflé et bloquerait le plateau).
@@ -378,7 +420,8 @@ func _update_board_priority_allocation() -> void:
 		# Assez de hauteur : plateau pleine largeur, le dashboard absorbe le surplus.
 		dash_target = maxf(dash_min, avail - fixed - center_needed)
 	else:
-		# Écran trop court : plateau limité par la hauteur, dashboard compact.
+		# Écran court ou dashboard étendu : dashboard à sa taille naturelle/minimale.
+		# Le MainScroll s'occupe de scroller verticalement l'ensemble sans rien écraser.
 		dash_target = dash_min
 	dashboard.custom_minimum_size = Vector2(0, dash_target)
 
@@ -454,48 +497,52 @@ func _apply_modern_theme() -> void:
 	var font_color_hover := Color.WHITE if DesignTokens.current_theme_mode == "dark" else DesignTokens.TEXT_PRIMARY
 
 	# Boutons de la barre du haut
-	for child in $VBox/TopBar.get_children():
-		if child is Button:
-			child.add_theme_stylebox_override("normal", btn_normal)
-			child.add_theme_stylebox_override("hover", btn_hover)
-			child.add_theme_stylebox_override("pressed", btn_pressed)
-			child.add_theme_color_override("font_color", font_color_normal)
-			child.add_theme_color_override("font_hover_color", font_color_hover)
-			child.add_theme_color_override("font_pressed_color", font_color_normal)
-			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	if is_instance_valid(top_bar):
+		for child in top_bar.get_children():
+			if child is Button:
+				child.add_theme_stylebox_override("normal", btn_normal)
+				child.add_theme_stylebox_override("hover", btn_hover)
+				child.add_theme_stylebox_override("pressed", btn_pressed)
+				child.add_theme_color_override("font_color", font_color_normal)
+				child.add_theme_color_override("font_hover_color", font_color_hover)
+				child.add_theme_color_override("font_pressed_color", font_color_normal)
+				child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
-	# Boutons de navigation sous le plateau (sauf Analyser et Live)
-	var nav_row = $VBox/NavRow
-	for child in nav_row.get_children():
-		if child is Button and child != btn_analyze_game and child != btn_toggle_live:
-			child.add_theme_stylebox_override("normal", btn_normal)
-			child.add_theme_stylebox_override("hover", btn_hover)
-			child.add_theme_stylebox_override("pressed", btn_pressed)
-			child.add_theme_color_override("font_color", font_color_normal)
-			child.add_theme_color_override("font_hover_color", font_color_hover)
-			child.add_theme_color_override("font_pressed_color", font_color_normal)
-			child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+	# Boutons de navigation sous le plateau (sauf Analyser, Live et Cliff)
+	if is_instance_valid(nav_row):
+		for child in nav_row.get_children():
+			if child is Button and child != btn_analyze_game and child != btn_toggle_live and child != btn_toggle_cliff:
+				child.add_theme_stylebox_override("normal", btn_normal)
+				child.add_theme_stylebox_override("hover", btn_hover)
+				child.add_theme_stylebox_override("pressed", btn_pressed)
+				child.add_theme_color_override("font_color", font_color_normal)
+				child.add_theme_color_override("font_hover_color", font_color_hover)
+				child.add_theme_color_override("font_pressed_color", font_color_normal)
+				child.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
 	_apply_analyze_button_style(false)
 	_update_live_button_style()
+	_update_cliff_button_style()
 
 	# Titre & pastille de version
-	var title_lbl = get_node_or_null("VBox/TopBar/MarginContainer/TitleBox/AppTitle")
-	if title_lbl:
-		title_lbl.add_theme_font_size_override("font_size", 14)
-		title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	var ver_lbl = get_node_or_null("VBox/TopBar/MarginContainer/TitleBox/VersionLabel")
-	if ver_lbl:
-		var app_version: String = str(ProjectSettings.get_setting("application/config/version", "1.1.0"))
-		ver_lbl.text = "v" + app_version
-		ver_lbl.add_theme_font_size_override("font_size", 10)
-		ver_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-	var badge = $VBox/TopBar/EvalBadge
-	badge.custom_minimum_size = Vector2(50, 36)
-	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	badge.add_theme_stylebox_override("panel",
-			DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
-			Color.TRANSPARENT, 0, Vector2(8, 4)))
+	if is_instance_valid(top_bar):
+		var title_lbl = top_bar.get_node_or_null("MarginContainer/TitleBox/AppTitle")
+		if title_lbl:
+			title_lbl.add_theme_font_size_override("font_size", 14)
+			title_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+		var ver_lbl = top_bar.get_node_or_null("MarginContainer/TitleBox/VersionLabel")
+		if ver_lbl:
+			var app_version: String = str(ProjectSettings.get_setting("application/config/version", "1.1.0"))
+			ver_lbl.text = "v" + app_version
+			ver_lbl.add_theme_font_size_override("font_size", 10)
+			ver_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+		var badge = top_bar.get_node_or_null("EvalBadge")
+		if badge:
+			badge.custom_minimum_size = Vector2(50, 36)
+			badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			badge.add_theme_stylebox_override("panel",
+					DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
+					Color.TRANSPARENT, 0, Vector2(8, 4)))
 	if top_eval_label:
 		top_eval_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		top_eval_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -537,52 +584,46 @@ func _apply_modern_theme() -> void:
 ## de la largeur forcée des OptionButton (cf. cause identifiée sur SettingsModal).
 func _apply_overflow_guards() -> void:
 	clip_contents = true
-	for path in ["VBox", "VBox/TopBar", "VBox/CenterArea", "VBox/CenterArea/BoardColumn",
-			"VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerShortcutsTop",
-			"VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerShortcutsBottom",
-			"VBox/NavRow", "VBox/Dashboard", "AnalyseOverlay", "AnalyseOverlay/Layout",
-			"CoachOverlay", "CoachOverlay/Layout"]:
-		var node := get_node_or_null(path)
-		if node is Control:
-			(node as Control).clip_contents = true
+	if is_instance_valid(main_scroll):
+		main_scroll.clip_contents = true
+	for ctrl in [vbox, top_bar, center_area, board_column,
+			player_shortcuts_top, player_shortcuts_bottom,
+			nav_row, dashboard, analyse_overlay,
+			get_node_or_null("AnalyseOverlay/Layout"),
+			coach_overlay,
+			get_node_or_null("CoachOverlay/Layout")]:
+		if ctrl is Control:
+			ctrl.clip_contents = true
 	# Compacité de la barre du haut : 6 boutons + titre + badge doivent tenir à 360 px.
-	var topbar := get_node_or_null("VBox/TopBar")
-	if topbar is HBoxContainer:
-		(topbar as HBoxContainer).add_theme_constant_override("separation", 4)
-	var title_margin := get_node_or_null("VBox/TopBar/MarginContainer")
-	if title_margin is MarginContainer:
-		(title_margin as MarginContainer).add_theme_constant_override("margin_left", 0)
-		(title_margin as MarginContainer).add_theme_constant_override("margin_right", 0)
-	var eval_badge := get_node_or_null("VBox/TopBar/EvalBadge")
-	if eval_badge is Control:
-		(eval_badge as Control).custom_minimum_size = Vector2(44, 36)
-	# Libellés dynamiques tronquables. NB : on n'y met PAS le titre de l'application
-	# ni la version (« ♟️ RodChess » / « v1.2.0 ») : courts et statiques, ils
-	# n'ont pas besoin d'être tronqués et clip_text les rendrait invisibles (leur
-	# largeur minimale tomberait à ~0, absorbée par le Spacer de la barre).
-	for path in ["VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop",
-			"VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom",
-			"AnalyseOverlay/Layout/Header/Title", "CoachOverlay/Layout/Header/Title"]:
-		var label := get_node_or_null(path)
+	if is_instance_valid(top_bar):
+		top_bar.add_theme_constant_override("separation", 4)
+		var title_margin := top_bar.get_node_or_null("MarginContainer")
+		if title_margin is MarginContainer:
+			title_margin.add_theme_constant_override("margin_left", 0)
+			title_margin.add_theme_constant_override("margin_right", 0)
+		var eval_badge := top_bar.get_node_or_null("EvalBadge")
+		if eval_badge is Control:
+			eval_badge.custom_minimum_size = Vector2(44, 36)
+	# Libellés dynamiques tronquables
+	for label in [player_name_top, player_name_bottom,
+			get_node_or_null("AnalyseOverlay/Layout/Header/Title"),
+			get_node_or_null("CoachOverlay/Layout/Header/Title")]:
 		if label is Label:
-			(label as Label).clip_text = true
-			(label as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-			(label as Label).custom_minimum_size.x = 0
-	for bar_path in ["VBox/TopBar", "AnalyseOverlay/Layout/Header",
-			"CoachOverlay/Layout/Header"]:
-		var bar := get_node_or_null(bar_path)
+			label.clip_text = true
+			label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			label.custom_minimum_size.x = 0
+	for bar in [top_bar,
+			get_node_or_null("AnalyseOverlay/Layout/Header"),
+			get_node_or_null("CoachOverlay/Layout/Header")]:
 		if bar == null:
 			continue
 		for child in bar.get_children():
-			# Ne jamais activer clip_text/ellipsis sur les boutons-icônes (emoji) :
-			# cela retire la largeur minimale et fait disparaître le libellé. On ne
-			# tronque que les boutons à texte alphabétique (Analyser, Fermer, …).
 			if child is Button and _has_ascii_letter(child.text):
 				child.clip_text = true
 				child.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 				child.custom_minimum_size.x = minf(child.custom_minimum_size.x, float(DesignTokens.TOUCH_MIN))
-	# NavRow : « Analyser » est extensible (min 0), « Test » a une largeur garantie de 72 px
-	# et « Live » garde 76 px pour ne pas couper son libellé en plein mot.
+	# NavRow : « Analyser » est extensible (min 0), « Test » a une largeur garantie de 56 px,
+	# « Live » garde 58 px et « Cliff » 62 px.
 	if is_instance_valid(btn_analyze_game):
 		btn_analyze_game.clip_text = true
 		btn_analyze_game.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -590,20 +631,24 @@ func _apply_overflow_guards() -> void:
 	if is_instance_valid(btn_toggle_sandbox):
 		btn_toggle_sandbox.clip_text = true
 		btn_toggle_sandbox.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		btn_toggle_sandbox.custom_minimum_size.x = 72
+		btn_toggle_sandbox.custom_minimum_size.x = 56
 		_update_sandbox_button_style()
 	if is_instance_valid(btn_toggle_live):
 		btn_toggle_live.clip_text = false
 		btn_toggle_live.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
-		btn_toggle_live.custom_minimum_size.x = 76
+		btn_toggle_live.custom_minimum_size.x = 58
+	if is_instance_valid(btn_toggle_cliff):
+		btn_toggle_cliff.clip_text = false
+		btn_toggle_cliff.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+		btn_toggle_cliff.custom_minimum_size.x = 62
+		_update_cliff_button_style()
 	# Noms de joueurs : clip_text ramène leur largeur minimale à ~0 ; sans EXPAND
 	# dans leur rangée, ils seraient alloués 0 px et disparaîtraient. On leur rend
 	# l'espace disponible (le badge de résultat, extensible, reste calé à droite).
-	for name_path in ["VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop",
-			"VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom"]:
-		var name_lbl := get_node_or_null(name_path)
-		if name_lbl is Label:
-			(name_lbl as Label).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if is_instance_valid(player_name_top):
+		player_name_top.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if is_instance_valid(player_name_bottom):
+		player_name_bottom.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_harden_dropdowns(self)
 
 static func _has_ascii_letter(text: String) -> bool:
@@ -651,10 +696,23 @@ func _on_game_position_changed() -> void:
 					_update_graph_phase_boundaries(last_ea)
 				if move_list:
 					move_list.set_analysis_report(last_ea)
+					var cliff_rep: Dictionary = last_ea.get("cliff_data", g.get("cliff_data", {}))
+					if not cliff_rep.is_empty():
+						_apply_cliff_data_to_moves(cliff_rep)
+						move_list.set_cliff_report(cliff_rep)
+					else:
+						move_list.set_cliff_report({})
 					move_list.refresh()
 				if game_review_panel:
 					game_review_panel.set_report(last_ea)
 			else:
+				var cliff_rep: Dictionary = g.get("cliff_data", {})
+				if not cliff_rep.is_empty():
+					_apply_cliff_data_to_moves(cliff_rep)
+					if move_list:
+						move_list.set_cliff_report(cliff_rep)
+				elif move_list:
+					move_list.set_cliff_report({})
 				if move_list:
 					move_list.set_analysis_report({})
 					move_list.refresh()
@@ -1151,6 +1209,40 @@ func _update_live_button_style() -> void:
 		btn_toggle_live.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_MUTED)
 	btn_toggle_live.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
 
+func _update_cliff_button_style() -> void:
+	if btn_toggle_cliff == null:
+		return
+	if is_cliff_live_active or _cliff_full_running:
+		btn_toggle_cliff.text = "⏹ Stop"
+		var cliff_active_normal := DesignTokens.flat(Color(0.40, 0.20, 0.65, 0.40), DesignTokens.RADIUS_SMALL,
+				Color("#c084fc"), 1, Vector2(6, 2))
+		var cliff_active_hover := DesignTokens.flat(Color(0.45, 0.25, 0.70, 0.55), DesignTokens.RADIUS_SMALL,
+				Color("#e9d5ff"), 1, Vector2(6, 2))
+		var cliff_active_pressed := DesignTokens.flat(Color(0.35, 0.15, 0.60, 0.65), DesignTokens.RADIUS_SMALL,
+				Color("#a855f7"), 1, Vector2(6, 2))
+		btn_toggle_cliff.add_theme_stylebox_override("normal", cliff_active_normal)
+		btn_toggle_cliff.add_theme_stylebox_override("hover", cliff_active_hover)
+		btn_toggle_cliff.add_theme_stylebox_override("pressed", cliff_active_pressed)
+		btn_toggle_cliff.add_theme_color_override("font_color", Color("#e9d5ff"))
+		btn_toggle_cliff.add_theme_color_override("font_hover_color", Color.WHITE)
+		btn_toggle_cliff.add_theme_color_override("font_pressed_color", Color("#c084fc"))
+	else:
+		btn_toggle_cliff.text = "🏔️ Cliff"
+		var cliff_idle_normal := DesignTokens.flat(Color(0.18, 0.14, 0.28, 0.45), DesignTokens.RADIUS_SMALL,
+				Color(0.45, 0.35, 0.65, 0.5), 1, Vector2(6, 2))
+		var cliff_idle_hover := cliff_idle_normal.duplicate() as StyleBoxFlat
+		cliff_idle_hover.bg_color = Color(0.24, 0.18, 0.38, 0.65)
+		cliff_idle_hover.border_color = Color("#c084fc")
+		var cliff_idle_pressed := cliff_idle_normal.duplicate() as StyleBoxFlat
+		cliff_idle_pressed.bg_color = Color(0.14, 0.10, 0.22, 0.8)
+		btn_toggle_cliff.add_theme_stylebox_override("normal", cliff_idle_normal)
+		btn_toggle_cliff.add_theme_stylebox_override("hover", cliff_idle_hover)
+		btn_toggle_cliff.add_theme_stylebox_override("pressed", cliff_idle_pressed)
+		btn_toggle_cliff.add_theme_color_override("font_color", Color("#c084fc"))
+		btn_toggle_cliff.add_theme_color_override("font_hover_color", Color.WHITE)
+		btn_toggle_cliff.add_theme_color_override("font_pressed_color", Color("#a855f7"))
+	btn_toggle_cliff.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+
 func _update_sandbox_button_style() -> void:
 	if btn_toggle_sandbox == null:
 		return
@@ -1325,6 +1417,20 @@ func _sync_eval_to_ply(ply_idx: int) -> void:
 					eng_name = EngineManager.get_engine_display_name()
 				engine_lines_panel.set_lines([init_line], eng_name, 1)
 
+	# Synchronisation bidirectionnelle : navigation classique -> cockpit Super-Live
+	if cliff_dock != null and cliff_dock.visible:
+		var plies: Array = _cliff_last_report.get("plies", [])
+		if not plies.is_empty():
+			if ply_idx >= 0 and ply_idx < plies.size():
+				var step: Dictionary = plies[ply_idx]
+				cliff_dock.highlight_step(ply_idx)
+				_apply_cliff_overlay_for_step(step)
+			elif ply_idx == -1:
+				cliff_dock.highlight_step(-1)
+				if chess_board != null:
+					chess_board.clear_cliff_overlay()
+
+
 func _on_play_sound(sound_type: String) -> void:
 	if not SettingsManager.get_setting("sound_enabled", true):
 		return
@@ -1334,6 +1440,8 @@ func _on_play_sound(sound_type: String) -> void:
 		"check": sfx_check.play()
 
 func _on_engine_eval(score_cp: int, mate_in: int, depth: int, best_move: String, _pv: Array, multipv: Array) -> void:
+	if is_cliff_live_active or _cliff_full_running:
+		return
 	_update_engine_lines(multipv, depth)
 	if analyzer != null and analyzer.is_analyzing:
 		if top_eval_label:
@@ -1923,13 +2031,15 @@ func _popup_from_button(menu: PopupMenu, btn_node: Node) -> void:
 # --- SAFE AREAS (encoche, barre de gestes) ---
 
 func _apply_safe_insets() -> void:
-	var vbox := $VBox
+	var scroll_target: Control = main_scroll if is_instance_valid(main_scroll) else vbox
+	if scroll_target == null:
+		return
 	var win := get_window()
 	if win == null or not (OS.has_feature("android") or OS.has_feature("ios")):
-		vbox.offset_left = 0.0
-		vbox.offset_top = 0.0
-		vbox.offset_right = 0.0
-		vbox.offset_bottom = 0.0
+		scroll_target.offset_left = 0.0
+		scroll_target.offset_top = 0.0
+		scroll_target.offset_right = 0.0
+		scroll_target.offset_bottom = 0.0
 		return
 
 	var safe := DisplayServer.get_display_safe_area()
@@ -1958,13 +2068,13 @@ func _apply_safe_insets() -> void:
 	if win_size.x > 0 and vis.x > 0.0:
 		scale_f = float(win_size.x) / vis.x
 
-	vbox.offset_left = float(left_px) / scale_f
-	vbox.offset_top = float(top_px) / scale_f
-	vbox.offset_right = -float(right_px) / scale_f
-	vbox.offset_bottom = -float(bottom_px) / scale_f
+	scroll_target.offset_left = float(left_px) / scale_f
+	scroll_target.offset_top = float(top_px) / scale_f
+	scroll_target.offset_right = -float(right_px) / scale_f
+	scroll_target.offset_bottom = -float(bottom_px) / scale_f
 	print("M1SA win=", win_size, " safe=", safe, " cutouts=", DisplayServer.get_display_cutouts(),
-			" vis=", vis, " scale=", scale_f, " insets=", Vector4(vbox.offset_left, vbox.offset_top,
-			vbox.offset_right, vbox.offset_bottom))
+			" vis=", vis, " scale=", scale_f, " insets=", Vector4(scroll_target.offset_left, scroll_target.offset_top,
+			scroll_target.offset_right, scroll_target.offset_bottom))
 
 # --- MODALES D'IMPORT & GESTION ---
 
@@ -1995,7 +2105,9 @@ func _on_btn_chess_com_pressed() -> void:
 func _on_btn_library_pressed() -> void:
 	if import_menu == null:
 		_build_import_menu()
-	_popup_from_button(import_menu, $VBox/TopBar/BtnLibrary)
+	var btn_lib = top_bar.get_node_or_null("BtnLibrary") if is_instance_valid(top_bar) else null
+	if btn_lib:
+		_popup_from_button(import_menu, btn_lib)
 
 func _build_settings_menu() -> void:
 	settings_menu = PopupMenu.new()
@@ -2023,7 +2135,9 @@ func _on_settings_menu_id_pressed(id: int) -> void:
 func _on_btn_settings_pressed() -> void:
 	if settings_menu == null:
 		_build_settings_menu()
-	_popup_from_button(settings_menu, $VBox/TopBar/BtnSettings)
+	var btn_set = top_bar.get_node_or_null("BtnSettings") if is_instance_valid(top_bar) else null
+	if btn_set:
+		_popup_from_button(settings_menu, btn_set)
 
 # --- ANALYSE DE PARTIE ---
 
@@ -2280,3 +2394,621 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	# Reprise automatique du Live SF19 à la position courante
 	if live_eval_enabled:
 		_trigger_live_eval()
+
+	if report.has("cliff_data"):
+		_apply_cliff_data_to_moves(report["cliff_data"])
+		if move_list:
+			move_list.set_cliff_report(report["cliff_data"])
+
+## ── Intégration CHESS-CLIFF (Super Live V2.2 + analyse rétrospective) ────────
+var cliff_analyzer: CliffAnalyzer = null
+var cliff_thread: Thread = null
+var is_cliff_live_active: bool = false
+
+var cliff_dock: CliffLiveDock = null
+var _cliff_full_running: bool = false
+var _cliff_full_thread: Thread = null
+var _cliff_full_analyzer: CliffAnalyzer = null
+var _cliff_meso_thread: Thread = null
+var _cliff_meso_analyzer: CliffAnalyzer = null
+var _cliff_last_report: Dictionary = {}
+var _cliff_source_meta: Dictionary = {}
+var _cliff_replay_generation: int = 0
+var _cliff_suspended_live: bool = false
+var _cliff_prev_multipv: int = 1
+var _cliff_studied_rank: int = 0
+## Intervalle du rejeu Super Live (secondes par pas) — surchargeable en test.
+var _cliff_replay_interval: float = 1.0
+
+func _setup_cliff_dock() -> void:
+	if cliff_dock != null:
+		return
+	if engine_lines_panel == null:
+		return
+	cliff_dock = CliffLiveDock.new()
+	engine_lines_panel.add_child(cliff_dock)
+	cliff_dock.stop_requested.connect(_stop_cliff_super_live)
+	cliff_dock.close_requested.connect(_close_cliff_dock)
+	cliff_dock.replay_toggled.connect(_on_cliff_replay_toggled)
+	cliff_dock.full_game_requested.connect(study_full_game)
+	cliff_dock.step_selected.connect(_on_cliff_dock_step_selected)
+
+func _on_cliff_dock_step_selected(idx: int, fen: String, uci: String) -> void:
+	var plies: Array = _cliff_last_report.get("plies", [])
+	var is_game_study: bool = not bool(_cliff_last_report.get("is_pv_line", false))
+	var step: Dictionary = {}
+	if idx >= 0 and idx < plies.size():
+		step = plies[idx]
+
+	if is_game_study and GameController != null and GameController.game != null:
+		var hist_size: int = GameController.game.move_history.size()
+		if idx >= 0 and idx < hist_size:
+			GameController.navigate_to_ply(idx)
+			_sync_eval_to_ply(idx)
+			return
+
+	if chess_board != null:
+		if fen != "":
+			chess_board.set_preview_fen(fen)
+		if not step.is_empty():
+			_apply_cliff_overlay_for_step(step)
+		elif uci != "":
+			chess_board.set_best_move_arrow(uci)
+	if cliff_dock != null:
+		cliff_dock.highlight_step(idx)
+
+func _close_cliff_dock() -> void:
+	if cliff_dock != null:
+		cliff_dock.clear()
+	if chess_board != null:
+		chess_board.clear_preview_fen()
+		chess_board.clear_cliff_overlay()
+	_cliff_replay_generation += 1
+
+func _on_btn_toggle_cliff_pressed() -> void:
+	if _cliff_full_running or is_cliff_live_active:
+		_stop_all_cliff_analysis()
+		return
+	# Si un rapport pour la partie complète existe déjà et le dock est caché, on l'affiche
+	if not _cliff_last_report.is_empty() and cliff_dock != null and not cliff_dock.visible:
+		cliff_dock.visible = true
+		return
+	study_full_game()
+
+func _on_engine_compare_all_lines_requested(lines: Array, meta: Dictionary) -> void:
+	if is_cliff_live_active or _cliff_full_running:
+		_stop_all_cliff_analysis()
+		return
+	if GameController == null or GameController.game == null:
+		return
+	var start_fen := GameController.game.get_fen()
+	var tier := _cliff_finesse_tier()
+	var envelope := ComputeFinesse.cliff_envelope_opts(tier)
+	var intuition := ComputeFinesse.cliff_intuition_opts(tier)
+	var oracle := ComputeFinesse.cliff_oracle_opts(tier)
+
+	# Budget temps dur (Arnaud) : 250 ms par ligne max, profondeur limitée à 10 pour le meso rapide
+	var opts := {
+		"deep_depth": mini(10, int(oracle.get("deep_depth", 10))),
+		"timeout_ms": mini(1500, int(oracle.get("timeout_ms", 1500))),
+		"multipv": int(oracle.get("multipv", 2)),
+		"fast_mode": true,
+		"max_plies": mini(4, int(envelope.get("max_plies", 4))),
+		"line_plies": 4,
+		"shallow_depth": 1,
+		"top_k": 3,
+		"ucinewgame": false, # TT Warming : préserve le cache de transposition
+		"source_meta": meta
+	}
+
+	if _cliff_meso_analyzer != null and _cliff_meso_analyzer.is_analyzing:
+		_cliff_meso_analyzer.cancel()
+
+	_cliff_meso_analyzer = CliffAnalyzer.new(EngineManager)
+	_cliff_meso_analyzer.single_line_analyzed.connect(func(rank: int, piste_data: Dictionary):
+		call_deferred("_on_meso_single_line_ready", rank, piste_data)
+	)
+
+	_show_toast("🏔️ Comparaison cognitive des lignes en cours…", true)
+
+	if OS.has_feature("web"):
+		# Sur Web : exécution synchrone protégée
+		var results: Dictionary = _cliff_meso_analyzer.analyze_multiple_lines_sync(start_fen, lines, opts)
+		if is_instance_valid(engine_lines_panel):
+			engine_lines_panel.set_line_pistes(results)
+		_show_toast("🏔️ Comparaison cognitive des lignes terminée !", true)
+	else:
+		# Sur Desktop / Mobile natif : worker thread non-bloquant
+		if _cliff_meso_thread != null and _cliff_meso_thread.is_started():
+			_cliff_meso_thread.wait_to_finish()
+		_cliff_meso_thread = Thread.new()
+		_cliff_meso_thread.start(func():
+			var results: Dictionary = _cliff_meso_analyzer.analyze_multiple_lines_sync(start_fen, lines, opts)
+			call_deferred("_on_meso_all_lines_finished", results)
+		)
+
+func _on_meso_single_line_ready(rank: int, piste_data: Dictionary) -> void:
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_line_piste(rank, piste_data)
+
+func _on_meso_all_lines_finished(results: Dictionary) -> void:
+	if _cliff_meso_thread != null and _cliff_meso_thread.is_started():
+		_cliff_meso_thread.wait_to_finish()
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_line_pistes(results)
+	_show_toast("🏔️ Comparaison cognitive des lignes terminée !", true)
+
+func _on_engine_cliff_study_requested(rank: int, pv: Array, meta: Dictionary) -> void:
+	if is_cliff_live_active:
+		_stop_cliff_super_live()
+		return
+	_start_cliff_super_live(pv, meta)
+	_cliff_studied_rank = rank
+
+func _cliff_finesse_tier() -> int:
+	var sm = get_node_or_null("/root/SettingsManager")
+	var t := ComputeFinesse.default_tier()
+	if sm != null:
+		t = int(sm.get_setting("global_finesse_tier", t))
+	return ComputeFinesse.effective_tier(t)
+
+func _cliff_xray_enabled() -> bool:
+	var sm = get_node_or_null("/root/SettingsManager")
+	return bool(sm.get_setting("cliff_xray_enabled", false)) if sm != null else false
+
+func _cliff_begin(meta: Dictionary) -> void:
+	_cliff_suspended_live = live_eval_enabled
+	if EngineManager != null and EngineManager.has_method("stop_evaluation"):
+		EngineManager.stop_evaluation()
+	if EngineManager != null and EngineManager.has_method("set_multipv"):
+		var cur = EngineManager.get("_multipv_requested")
+		_cliff_prev_multipv = int(cur) if cur != null else 1
+		if _cliff_prev_multipv < 2:
+			EngineManager.set_multipv(2, false)
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_frozen(true)
+		engine_lines_panel.set_active_line(int(meta.get("rank", 0)))
+	if cliff_dock != null:
+		cliff_dock.clear()
+		cliff_dock.show_computing(0, 1)
+		var eng := str(meta.get("engine", "SF"))
+		cliff_dock.set_source_label("Source : Ligne #%d · d=%d · %s" % [
+			int(meta.get("rank", 1)), int(meta.get("depth", 0)), eng])
+
+func _cliff_end() -> void:
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_frozen(false)
+		engine_lines_panel.set_active_line(0)
+	if EngineManager != null and EngineManager.has_method("set_multipv") and _cliff_prev_multipv > 0:
+		EngineManager.set_multipv(_cliff_prev_multipv, false)
+	if chess_board != null:
+		chess_board.clear_preview_fen()
+		chess_board.clear_cliff_overlay()
+	if _cliff_suspended_live:
+		_trigger_live_eval()
+
+func _start_cliff_super_live(pv_override: Array = [], source_meta: Dictionary = {}) -> void:
+	if GameController == null or GameController.game == null:
+		return
+	if analyzer != null and analyzer.is_analyzing:
+		_show_error_banner("Une analyse globale de la partie est déjà en cours.")
+		return
+	if EngineManager == null or not EngineManager.is_engine_available():
+		_show_error_banner("Moteur Stockfish non disponible.")
+		return
+
+	var start_fen := GameController.game.get_fen()
+	var pv_moves: Array = pv_override.duplicate()
+	if pv_moves.is_empty() and is_instance_valid(engine_lines_panel) and not engine_lines_panel._lines.is_empty():
+		pv_moves = (engine_lines_panel._lines[0] as Dictionary).get("pv", []).duplicate()
+	if pv_moves.is_empty():
+		_show_error_banner("Aucune ligne moteur disponible : lancez une évaluation Live.")
+		if is_instance_valid(engine_lines_panel):
+			engine_lines_panel.set_loading_state(true)
+		return
+
+	var meta := source_meta.duplicate()
+	meta["fen"] = start_fen
+	if not meta.has("rank"):
+		meta["rank"] = 1
+	_cliff_source_meta = meta
+	_cliff_studied_rank = int(meta.get("rank", 1))
+	_cliff_last_report = {}
+
+	is_cliff_live_active = true
+	_update_cliff_button_style()
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_cliff_active(true)
+	_cliff_begin(meta)
+	_show_toast("🏔️ Super Live : calcul de difficulté cognitive…", true)
+
+	var tier := _cliff_finesse_tier()
+	var oracle := ComputeFinesse.cliff_oracle_opts(tier)
+	var envelope := ComputeFinesse.cliff_envelope_opts(tier)
+	var intuition := ComputeFinesse.cliff_intuition_opts(tier)
+	var opts := {
+		"deep_depth": int(oracle.get("deep_depth", 16)),
+		"timeout_ms": int(oracle.get("timeout_ms", 3000)),
+		"multipv": int(oracle.get("multipv", 2)),
+		"fast_mode": bool(envelope.get("fast_mode", true)),
+		"max_plies": int(envelope.get("max_plies", 8)),
+		"shallow_depth": int(intuition.get("shallow_depth", 1)),
+		"top_k": int(intuition.get("top_k", 5)),
+		"ucinewgame": bool(intuition.get("ucinewgame", true)),
+		"source_meta": meta
+	}
+
+	cliff_analyzer = CliffAnalyzer.new(EngineManager)
+	cliff_analyzer.progress.connect(func(cur: int, tot: int):
+		call_deferred("_on_cliff_super_live_progress", cur, tot)
+	)
+	cliff_analyzer.step_analyzed.connect(func(idx: int, uci: String, fen: String, data: Dictionary):
+		call_deferred("_on_cliff_super_live_step", idx, uci, fen, data)
+	)
+
+	if OS.has_feature("web"):
+		var rep = cliff_analyzer.analyze_pv_line(start_fen, pv_moves, opts)
+		_on_cliff_super_live_finished(rep)
+	else:
+		if cliff_thread and cliff_thread.is_started():
+			cliff_thread.wait_to_finish()
+		cliff_thread = Thread.new()
+		cliff_thread.start(func():
+			var rep = cliff_analyzer.analyze_pv_line(start_fen, pv_moves, opts)
+			call_deferred("_on_cliff_super_live_finished", rep)
+		)
+
+func _on_cliff_super_live_progress(cur: int, tot: int) -> void:
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_cliff_progress(cur, tot)
+	if cliff_dock != null:
+		cliff_dock.show_computing(cur, tot)
+
+func _on_cliff_super_live_step(_idx: int, uci: String, fen_after: String, data: Dictionary) -> void:
+	if not is_cliff_live_active:
+		return
+	# Aperçu non destructif : jamais d'altération de GameController.game.
+	if chess_board != null and fen_after != "":
+		chess_board.set_preview_fen(fen_after)
+		_apply_cliff_overlay_for_step(data)
+	if cliff_dock != null:
+		cliff_dock.set_step(data)
+
+func _apply_cliff_overlay_for_step(step: Dictionary) -> void:
+	if chess_board == null:
+		return
+	var piste := int(step.get("piste", 0))
+	var san := str(step.get("san", step.get("move_uci", "")))
+	var is_vital := bool(step.get("is_vital", false))
+	var nature := int(step.get("move_nature", CliffTypes.MoveNature.VITAL if is_vital else CliffTypes.MoveNature.SAFE))
+	var label := "Joué : %s · %s · D=%d" % [san, CliffTypes.get_piste_name(piste), int(step.get("indice_d", 0))]
+	if is_vital:
+		label = "🧗 Coup unique vital : %s (D=%d)" % [san, int(step.get("indice_d", 0))]
+	elif nature == CliffTypes.MoveNature.FORCED:
+		label = "🛡️ Suite forcée : %s (D=%d)" % [san, int(step.get("indice_d", 0))]
+	elif nature == CliffTypes.MoveNature.ATTACK:
+		label = "⚡ Attaque directe : %s (D=%d)" % [san, int(step.get("indice_d", 0))]
+
+	var best_u := str(step.get("best_move", step.get("move_uci", "")))
+	if not _cliff_xray_enabled() and not is_vital and step.get("poisoned_squares", []).is_empty():
+		if best_u != "":
+			chess_board.set_best_move_arrow(best_u)
+		return
+
+	chess_board.set_cliff_overlay({
+		"best_uci": best_u,
+		"bait_uci": str(step.get("bait_move_uci", "")),
+		"mines": step.get("mines", []),
+		"poisoned_squares": step.get("poisoned_squares", []),
+		"is_vital": is_vital,
+		"move_nature": nature,
+		"label": label
+	})
+
+func _on_cliff_super_live_finished(report: Dictionary) -> void:
+	if cliff_thread and cliff_thread.is_started():
+		cliff_thread.wait_to_finish()
+
+	is_cliff_live_active = false
+	_update_cliff_button_style()
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_cliff_active(false)
+	_cliff_end()
+	if chess_board != null:
+		chess_board.clear_preview_fen()
+		chess_board.clear_cliff_overlay()
+
+	if report.has("error"):
+		_show_error_banner(str(report["error"]))
+		return
+
+	_cliff_last_report = report
+	if cliff_dock != null:
+		cliff_dock.set_report(report)
+
+	# Badge de piste sur la ligne étudiée.
+	if is_instance_valid(engine_lines_panel):
+		var sw: Dictionary = report.get("summary_white", {})
+		var sb: Dictionary = report.get("summary_black", {})
+		var is_white_turn := true
+		if GameController and GameController.game:
+			is_white_turn = (GameController.game.active_color == ChessPiece.PieceColor.WHITE)
+		var summary: Dictionary = sw if is_white_turn else sb
+		engine_lines_panel.set_line_pistes({
+			_cliff_studied_rank: {
+				"piste": int(summary.get("global_piste", -1)),
+				"indice_d": int(summary.get("indice_d", -1)),
+				"delta": float(summary.get("max_delta_chute", 0.0)),
+				"bait": float(summary.get("max_bait", 0.0)),
+				"p_survie": float(summary.get("p_survie_ligne", 1.0))
+			}
+		})
+		var plies: Array = report.get("plies", [])
+		if not plies.is_empty() and chess_board != null:
+			chess_board.set_best_move_arrow(str((plies[0] as Dictionary).get("move_uci", "")))
+
+	_show_toast("🏔️ Étude Cliff de la ligne terminée !", true)
+
+func _stop_cliff_super_live() -> void:
+	_stop_all_cliff_analysis()
+
+func _stop_all_cliff_analysis() -> void:
+	if cliff_analyzer != null and cliff_analyzer.is_analyzing:
+		cliff_analyzer.cancel()
+	if _cliff_full_analyzer != null and _cliff_full_analyzer.is_analyzing:
+		_cliff_full_analyzer.cancel()
+	if _cliff_meso_analyzer != null and _cliff_meso_analyzer.is_analyzing:
+		_cliff_meso_analyzer.cancel()
+	_cliff_replay_generation += 1
+	is_cliff_live_active = false
+	_cliff_full_running = false
+	_update_cliff_button_style()
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_cliff_active(false)
+		engine_lines_panel.set_frozen(false)
+	_cliff_end()
+	if cliff_dock != null:
+		cliff_dock.clear()
+	if chess_board != null:
+		chess_board.clear_preview_fen()
+		chess_board.clear_cliff_overlay()
+	_show_toast("Analyse cognitive interrompue", true)
+
+func _on_cliff_step_preview_requested(fen: String, uci: String) -> void:
+	# Aperçu d'une position de la ligne Cliff sans altérer la partie réelle.
+	if chess_board == null:
+		return
+	if fen != "":
+		chess_board.set_preview_fen(fen)
+	var step := _find_cliff_step(uci, fen)
+	if not step.is_empty():
+		_apply_cliff_overlay_for_step(step)
+	elif uci != "":
+		chess_board.set_best_move_arrow(uci)
+
+func _find_cliff_step(uci: String, fen: String) -> Dictionary:
+	var plies: Array = _cliff_last_report.get("plies", [])
+	if fen != "":
+		for p in plies:
+			if str(p.get("fen_after", "")) == fen or str(p.get("fen_before", "")) == fen:
+				return p
+	if uci != "":
+		for p in plies:
+			if str(p.get("move_uci", "")) == uci:
+				return p
+	return {}
+
+## Rejeu pas-à-pas (1 s/pas) sur l'échiquier, non destructif.
+func _on_cliff_replay_toggled(playing: bool) -> void:
+	if not playing:
+		_cliff_replay_generation += 1
+		return
+	var plies: Array = _cliff_last_report.get("plies", [])
+	if plies.is_empty():
+		return
+	_cliff_replay_generation += 1
+	var gen := _cliff_replay_generation
+	for i in range(plies.size()):
+		if gen != _cliff_replay_generation or not is_instance_valid(self):
+			return
+		var step: Dictionary = plies[i]
+		if chess_board != null:
+			chess_board.set_preview_fen(str(step.get("fen_after", "")))
+			_apply_cliff_overlay_for_step(step)
+		if cliff_dock != null:
+			cliff_dock.highlight_step(i)
+		await get_tree().create_timer(_cliff_replay_interval).timeout
+	if gen == _cliff_replay_generation:
+		if cliff_dock != null:
+			cliff_dock.stop_replay()
+		if chess_board != null:
+			chess_board.clear_preview_fen()
+			chess_board.clear_cliff_overlay()
+
+## Analyse rétrospective de toute la partie (Phase D).
+func study_full_game() -> void:
+	if _cliff_full_running or is_cliff_live_active:
+		return
+	if analyzer != null and analyzer.is_analyzing:
+		return
+	if GameController == null or GameController.game == null:
+		return
+	if GameController.game.move_history.is_empty():
+		_show_error_banner("Aucun coup à analyser.")
+		return
+	if EngineManager == null or not EngineManager.is_engine_available():
+		_show_error_banner("Moteur Stockfish non disponible.")
+		return
+
+	_cliff_suspended_live = live_eval_enabled
+	var tier := _cliff_finesse_tier()
+	var gopts := ComputeFinesse.game_analysis_opts(tier)
+	var intuition := ComputeFinesse.cliff_intuition_opts(tier)
+	var oracle := ComputeFinesse.cliff_oracle_opts(tier)
+	var opts := {
+		"deep_depth": int(gopts.get("depth", 14)),
+		"theory_plies": int(gopts.get("theory_plies", 8)),
+		"fast_mode": str(gopts.get("mode", "budget")) != "depth",
+		"shallow_depth": int(intuition.get("shallow_depth", 1)),
+		"top_k": int(intuition.get("top_k", 5)),
+		"ucinewgame": bool(intuition.get("ucinewgame", true)),
+		"timeout_ms": int(oracle.get("timeout_ms", 4000)),
+		"multipv": int(oracle.get("multipv", 2))
+	}
+	_cliff_full_running = true
+	_update_cliff_button_style()
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_frozen(true)
+	if cliff_dock != null:
+		cliff_dock.clear()
+		cliff_dock.show_computing(0, GameController.game.move_history.size())
+		cliff_dock.set_source_label("Analyse de toute la partie · %d coups" % GameController.game.move_history.size())
+	if EngineManager != null and EngineManager.has_method("stop_evaluation"):
+		EngineManager.stop_evaluation()
+	_show_toast("🏔️ Analyse cognitive de la partie en cours…", true)
+
+	_cliff_full_analyzer = CliffAnalyzer.new(EngineManager)
+	_cliff_full_analyzer.progress.connect(func(cur: int, tot: int):
+		call_deferred("_on_cliff_full_progress", cur, tot)
+	)
+	var game_ref = GameController.game
+	if OS.has_feature("web"):
+		var rep = _cliff_full_analyzer.analyze_game(game_ref, opts)
+		_on_cliff_full_finished(rep)
+	else:
+		if _cliff_full_thread and _cliff_full_thread.is_started():
+			_cliff_full_thread.wait_to_finish()
+		_cliff_full_thread = Thread.new()
+		_cliff_full_thread.start(func():
+			var rep = _cliff_full_analyzer.analyze_game(game_ref, opts)
+			call_deferred("_on_cliff_full_finished", rep)
+		)
+
+func _on_cliff_full_progress(cur: int, tot: int) -> void:
+	if cliff_dock != null:
+		cliff_dock.show_computing(cur, tot)
+
+func _on_cliff_full_finished(report: Dictionary) -> void:
+	if _cliff_full_thread and _cliff_full_thread.is_started():
+		_cliff_full_thread.wait_to_finish()
+	_cliff_full_running = false
+	_update_cliff_button_style()
+	if is_instance_valid(engine_lines_panel):
+		engine_lines_panel.set_frozen(false)
+
+	if report.has("error"):
+		_show_error_banner(str(report["error"]))
+		if _cliff_suspended_live:
+			_trigger_live_eval()
+		return
+
+	_cliff_last_report = report
+	if cliff_dock != null:
+		cliff_dock.set_report(report)
+	_apply_cliff_data_to_moves(report)
+	if move_list:
+		move_list.set_cliff_report(report)
+
+	# Dérivation automatique de l'analyse normale complète à partir du Super-Live de partie
+	if analyzer != null and GameController != null and GameController.game != null:
+		var game_ref = GameController.game
+		var tier := _cliff_finesse_tier()
+		var gopts := ComputeFinesse.game_analysis_opts(tier)
+		var deep_d: int = int(gopts.get("depth", 14))
+		var classic_report: Dictionary = analyzer.build_report_from_cliff_plies(game_ref, report.get("plies", []), deep_d)
+		classic_report["cliff_data"] = report
+		
+		var evals = classic_report.get("evaluations", [])
+		if advantage_graph != null:
+			advantage_graph.set_evaluations(evals)
+			_update_graph_phase_boundaries(classic_report)
+		if move_list:
+			move_list.set_analysis_report(classic_report)
+			move_list.refresh()
+		if game_review_panel:
+			game_review_panel.set_report(classic_report)
+
+		# Sauvegarde dans DatabaseManager de l'analyse unifiée
+		var dm = get_node_or_null("/root/DatabaseManager")
+		if dm:
+			var gid = GameController.get_or_create_game_id()
+			if gid != "":
+				var sm = get_node_or_null("/root/SettingsManager")
+				var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+				var a_depth = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
+				var a_mode = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
+				var analysis_entry = {
+					"engine_name": EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
+					"depth": deep_d if deep_d > 0 else a_depth,
+					"mode": a_mode,
+					"white_accuracy": classic_report.get("white_accuracy", 0.0),
+					"black_accuracy": classic_report.get("black_accuracy", 0.0),
+					"white_estimated_elo": classic_report.get("white_estimated_elo", 1500),
+					"black_estimated_elo": classic_report.get("black_estimated_elo", 1500),
+					"white_elo_ci": classic_report.get("white_elo_ci", 0),
+					"black_elo_ci": classic_report.get("black_elo_ci", 0),
+					"white_ipr_elo": classic_report.get("white_ipr_elo", classic_report.get("white_estimated_elo", 1500)),
+					"black_ipr_elo": classic_report.get("black_ipr_elo", classic_report.get("black_estimated_elo", 1500)),
+					"white_complexity_avg": classic_report.get("white_complexity_avg", 1.0),
+					"black_complexity_avg": classic_report.get("black_complexity_avg", 1.0),
+					"has_clock_data": classic_report.get("has_clock_data", false),
+					"elo_comparison": classic_report.get("elo_comparison", {}),
+					"white_acpl": classic_report.get("white_acpl", 0.0),
+					"black_acpl": classic_report.get("black_acpl", 0.0),
+					"white_stats": classic_report.get("white_stats", {}),
+					"black_stats": classic_report.get("black_stats", {}),
+					"schema_version": classic_report.get("schema_version", 1),
+					"opening": classic_report.get("opening", {}),
+					"theory_plies": classic_report.get("theory_plies", 0),
+					"white_phase_stats": classic_report.get("white_phase_stats", {}),
+					"black_phase_stats": classic_report.get("black_phase_stats", {}),
+					"biggest_swings": classic_report.get("biggest_swings", []),
+					"evaluations": evals,
+					"cliff_data": report
+				}
+				dm.add_engine_analysis(gid, analysis_entry)
+				var game_rec = dm.get_game(gid)
+				if advantage_graph != null:
+					advantage_graph.update_stored_analyses(game_rec.get("engine_analyses", []))
+
+	var cur_ply = GameController.current_ply_index if GameController else -1
+	_sync_eval_to_ply(cur_ply)
+
+	_archive_cliff_report(report)
+	if _cliff_suspended_live:
+		_trigger_live_eval()
+	_show_toast("🏔️ Analyse complète (Normale & Cliff) terminée !", true)
+
+## Persiste le rapport au niveau de la partie (lu par _on_game_position_changed).
+func _archive_cliff_report(report: Dictionary) -> void:
+	var dm = get_node_or_null("/root/DatabaseManager")
+	if dm == null or GameController == null:
+		return
+	var gid = GameController.get_or_create_game_id()
+	if gid == "":
+		return
+	var g = dm.get_game(gid)
+	if g.is_empty():
+		return
+	g["cliff_data"] = report
+	dm.save_game(g)
+
+## Sémantique canonique CHESS-CLIFF V2.3 : chaque entrée plies[t] est évaluée dans fen_before
+## et correspond directement au coup joué history[t] (effort consenti pour trouver le coup).
+func _apply_cliff_data_to_moves(cliff_report: Dictionary) -> void:
+	if GameController == null or GameController.game == null:
+		return
+	var plies: Array = cliff_report.get("plies", [])
+	var history = GameController.game.move_history
+	for p_data in plies:
+		var move_idx: int = int(p_data.get("ply", p_data.get("step", -1)))
+		if move_idx < 0 or move_idx >= history.size():
+			continue
+		var m: ChessMove = history[move_idx]
+		m.cliff_piste = int(p_data.get("piste", -1))
+		m.cliff_delta_chute = float(p_data.get("delta_chute", 0.0))
+		m.cliff_bait = float(p_data.get("bait", 0.0))
+		m.cliff_p_survie = float(p_data.get("p_survie", 1.0))
+		m.cliff_indice_d = int(p_data.get("effort_d", p_data.get("indice_d", -1)))
+		m.cliff_surprise_nature = int(p_data.get("surprise_nature", CliffTypes.SurpriseNature.NORMAL))
+		m.cliff_surprise_delta = int(p_data.get("surprise_delta", 0))

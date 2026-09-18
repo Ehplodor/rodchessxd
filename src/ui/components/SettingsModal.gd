@@ -51,6 +51,65 @@ func _setup_ui() -> void:
 	# --- SECTION MOTEUR ---
 	_add_section_header(vbox, "⚡ Moteur d'Échecs Stockfish")
 
+	# Palier global de finesse de calcul (5 crans) — pilote tous les moteurs.
+	var finesse_lbl = Label.new()
+	finesse_lbl.text = "Finesse de calcul (tous moteurs) :"
+	finesse_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	finesse_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	finesse_lbl.add_theme_color_override("font_color", DesignTokens.ACCENT)
+	vbox.add_child(finesse_lbl)
+
+	var finesse_value_lbl = Label.new()
+	finesse_value_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	finesse_value_lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	finesse_value_lbl.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+	vbox.add_child(finesse_value_lbl)
+
+	var finesse_slider = HSlider.new()
+	finesse_slider.min_value = 0
+	finesse_slider.max_value = 4
+	finesse_slider.step = 1
+	finesse_slider.tick_count = 5
+	finesse_slider.ticks_on_borders = true
+	finesse_slider.allow_greater = false
+	finesse_slider.allow_lesser = false
+	finesse_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	finesse_slider.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	finesse_slider.value = int(SettingsManager.get_setting("global_finesse_tier", ComputeFinesse.default_tier()))
+
+	var _refresh_finesse = func():
+		var t = int(finesse_slider.value)
+		finesse_value_lbl.text = "%s — %s" % [ComputeFinesse.tier_label(t), ComputeFinesse.tier_hint(t)]
+	finesse_slider.value_changed.connect(func(val):
+		SettingsManager.set_setting("global_finesse_tier", int(val))
+		ComputeFinesse.apply_to_settings(SettingsManager, int(val))
+		if EngineManager != null and EngineManager.has_method("set_multipv"):
+			EngineManager.set_multipv(int(ComputeFinesse.live_opts(int(val)).get("multipv", 2)), false)
+		_refresh_finesse.call()
+	)
+	_refresh_finesse.call()
+	vbox.add_child(finesse_slider)
+
+	# Échiquier « Rayons X » CHESS-CLIFF
+	var xray_check = CheckButton.new()
+	xray_check.text = "Échiquier Rayons X CHESS-CLIFF (appât + mines)"
+	xray_check.clip_text = true
+	xray_check.button_pressed = SettingsManager.get_setting("cliff_xray_enabled", false)
+	xray_check.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	xray_check.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	xray_check.toggled.connect(func(val): SettingsManager.set_setting("cliff_xray_enabled", val))
+	vbox.add_child(xray_check)
+
+	# Badges de piste par coup dans la feuille des coups
+	var cliff_badges_check = CheckButton.new()
+	cliff_badges_check.text = "Badges de piste par coup (CHESS-CLIFF)"
+	cliff_badges_check.clip_text = true
+	cliff_badges_check.button_pressed = SettingsManager.get_setting("cliff_show_move_badges", false)
+	cliff_badges_check.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
+	cliff_badges_check.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+	cliff_badges_check.toggled.connect(func(val): SettingsManager.set_setting("cliff_show_move_badges", val))
+	vbox.add_child(cliff_badges_check)
+
 	# Threads
 	var threads_row = HBoxContainer.new()
 	threads_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL

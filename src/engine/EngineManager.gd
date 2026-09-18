@@ -50,10 +50,7 @@ func get_cached_eval(fen: String, min_depth: int, min_multipv: int = 1) -> Dicti
 		var c_depth: int = int(entry.get("depth", 0))
 		var c_mpv_lines: Array = entry.get("multipv_lines", [])
 		var c_mpv_count: int = maxi(1, c_mpv_lines.size())
-		if c_depth >= min_depth:
-			# Même si la position a été analysée avec moins de lignes MultiPV que demandé,
-			# on renvoie la meilleure ligne principale (rank 1) immédiatement pour un
-			# affichage 0 ms instantané du meilleur coup, du score et de la barre.
+		if c_depth >= min_depth and (min_multipv <= 1 or c_mpv_count >= min_multipv):
 			var copy := entry.duplicate(true)
 			state_mutex.unlock()
 			return copy
@@ -65,7 +62,18 @@ func store_cached_eval(fen: String, data: Dictionary) -> void:
 		return
 	var c_fen := get_canonical_fen(fen)
 	state_mutex.lock()
-	if not _eval_cache.has(c_fen):
+	if _eval_cache.has(c_fen):
+		var existing: Dictionary = _eval_cache[c_fen]
+		var existing_depth: int = int(existing.get("depth", 0))
+		var new_depth: int = int(data.get("depth", 0))
+		var existing_mpv: int = existing.get("multipv_lines", []).size()
+		var new_mpv: int = data.get("multipv_lines", []).size()
+		# Ne pas écraser une analyse plus profonde par une analyse moins profonde,
+		# sauf si la nouvelle apporte plus de lignes MultiPV à profondeur acceptable.
+		if new_depth < existing_depth and new_mpv <= existing_mpv:
+			state_mutex.unlock()
+			return
+	else:
 		if _eval_cache_keys.size() >= EVAL_CACHE_MAX_ENTRIES:
 			var oldest: String = _eval_cache_keys.pop_front()
 			_eval_cache.erase(oldest)
@@ -83,6 +91,7 @@ var engine_thread: Thread
 var should_stop_thread: bool = false
 var command_mutex: Mutex
 var state_mutex: Mutex
+var _in_shallow_sync: bool = false
 var command_queue: Array[String] = []
 
 var boot_thread: Thread
@@ -1427,6 +1436,167 @@ func evaluate_position_sync(fen: String, depth: int = 10, timeout_ms: int = 1500
 		store_cached_eval(fen, result)
 	return result
 
+## Attente bloquante synchrone de readyok (pour threads de calcul et isolation TT).
+func _wait_for_readyok_sync(previous_serial: int, timeout_ms: int = 1000) -> bool:
+	var started_at = Time.get_ticks_msec()
+	while true:
+		state_mutex.lock()
+		var has_readyok = _readyok_serial > previous_serial
+		state_mutex.unlock()
+		if has_readyok:
+			return true
+		if Time.get_ticks_msec() - started_at >= timeout_ms:
+			return false
+		OS.delay_msec(5)
+	return false
+
+## Évaluation superficielle synchrone (depth paramétrable) avec vidage optionnel de
+## la TT (ucinewgame) pour isoler le regard intuitif (CHESS-CLIFF).
+func evaluate_shallow_sync(fen: String, timeout_ms: int = 300, depth: int = 1, use_ucinewgame: bool = true) -> Dictionary:
+	if not is_engine_available() or not _engine_io_available():
+		return {"score_cp": 0, "mate_in": 0, "best_move": "", "depth": 0, "timed_out": false, "error": "engine_unavailable"}
+
+	if is_evaluating:
+		send_command("stop")
+		var stop_wait = 10
+		while is_evaluating and stop_wait > 0:
+			OS.delay_msec(10)
+			stop_wait -= 1
+
+	state_mutex.lock()
+	var ready_serial = _readyok_serial
+	state_mutex.unlock()
+
+	if use_ucinewgame:
+		send_command("ucinewgame")
+		send_command("isready")
+		_wait_for_readyok_sync(ready_serial, 500)
+
+	state_mutex.lock()
+	_in_shallow_sync = true
+	_evaluation_generation += 1
+	current_fen = fen
+	is_evaluating = true
+	best_move_uci = ""
+	eval_depth = 0
+	eval_score_cp = 0
+	eval_mate_in = 0
+	cancel_eval_requested = false
+	_reset_eval_accumulators()
+	state_mutex.unlock()
+
+	send_command("position fen " + fen)
+	send_command("go depth %d" % maxi(1, depth))
+
+	var elapsed = 0
+	var timed_out = false
+	while is_evaluating and elapsed < timeout_ms:
+		if cancel_eval_requested:
+			break
+		OS.delay_msec(10)
+		elapsed += 10
+
+	timed_out = is_evaluating
+	if timed_out:
+		send_command("stop")
+		var settle_wait = 15
+		while is_evaluating and settle_wait > 0:
+			OS.delay_msec(10)
+			settle_wait -= 1
+		if is_evaluating:
+			state_mutex.lock()
+			is_evaluating = false
+			state_mutex.unlock()
+
+	state_mutex.lock()
+	_in_shallow_sync = false
+	var result = {
+		"score_cp": eval_score_cp,
+		"mate_in": eval_mate_in,
+		"best_move": best_move_uci,
+		"depth": eval_depth,
+		"timed_out": timed_out
+	}
+	state_mutex.unlock()
+	return result
+
+## Évaluation profonde synchrone avec MultiPV (CHESS-CLIFF Oracle) pour extraire les N meilleures lignes.
+func evaluate_deep_multipv_sync(fen: String, depth: int, multipv: int = 2, timeout_ms: int = 5000) -> Dictionary:
+	var prev_mpv = _multipv_requested
+	if multipv != _multipv_requested:
+		set_multipv(multipv, true)
+
+	var res = evaluate_position_sync(fen, depth, timeout_ms)
+
+	if multipv != prev_mpv:
+		set_multipv(prev_mpv, true)
+
+	return res
+
+## Sonde ultra-rapide d'un coup suspect (Radar de Pièges CHESS-CLIFF V2.3).
+## Réutilise l'arbre existant dans la table de transposition (aucun ucinewgame)
+## et restreint la recherche racine via "searchmoves <uci>" pour un temps de réponse typique de 5 à 15 ms.
+func probe_suspect_move_fast(fen: String, uci: String, depth: int = 6, timeout_ms: int = 300) -> Dictionary:
+	if not is_engine_available() or not _engine_io_available() or uci.is_empty():
+		return {"score_cp": 0, "mate_in": 0, "best_move": "", "depth": 0, "timed_out": false}
+
+	if is_evaluating:
+		send_command("stop")
+		var stop_wait = 6
+		while is_evaluating and stop_wait > 0:
+			OS.delay_msec(10)
+			stop_wait -= 1
+
+	state_mutex.lock()
+	_in_shallow_sync = true
+	_evaluation_generation += 1
+	current_fen = fen
+	is_evaluating = true
+	best_move_uci = ""
+	eval_depth = 0
+	eval_score_cp = 0
+	eval_mate_in = 0
+	cancel_eval_requested = false
+	_reset_eval_accumulators()
+	state_mutex.unlock()
+
+	send_command("position fen " + fen)
+	send_command("go depth %d searchmoves %s" % [maxi(1, depth), uci])
+
+	var elapsed = 0
+	var timed_out = false
+	while is_evaluating and elapsed < timeout_ms:
+		if cancel_eval_requested:
+			break
+		OS.delay_msec(5)
+		elapsed += 5
+
+	timed_out = is_evaluating
+	if timed_out:
+		send_command("stop")
+		var settle_wait = 10
+		while is_evaluating and settle_wait > 0:
+			OS.delay_msec(10)
+			settle_wait -= 1
+		if is_evaluating:
+			state_mutex.lock()
+			is_evaluating = false
+			state_mutex.unlock()
+
+	state_mutex.lock()
+	_in_shallow_sync = false
+	var result = {
+		"score_cp": eval_score_cp,
+		"mate_in": eval_mate_in,
+		"best_move": best_move_uci,
+		"depth": eval_depth,
+		"timed_out": timed_out
+	}
+	state_mutex.unlock()
+	return result
+
+
+
 ## Connecte une fois les signaux du plugin Android vers ce script.
 func _connect_plugin_signals() -> void:
 	if _plugin_handle == null or _plugin_connected:
@@ -1638,8 +1808,10 @@ func _parse_engine_line(line: String) -> void:
 				_last_eval_emit_ms = now_ms
 				_last_emitted_depth = eval_depth
 				var emit_args = [eval_score_cp, eval_mate_in, eval_depth, best_move_uci, pv_line, multipv_lines.duplicate(true), generation]
+				var in_shallow = _in_shallow_sync
 				state_mutex.unlock()
-				_emit_evaluation_deferred.call_deferred(emit_args)
+				if not in_shallow:
+					_emit_evaluation_deferred.call_deferred(emit_args)
 			else:
 				state_mutex.unlock()
 
@@ -1670,30 +1842,32 @@ func _parse_engine_line(line: String) -> void:
 		var m_in = eval_mate_in
 		var pv_c = pv_line.duplicate()
 		var mpv_c = multipv_lines.duplicate(true)
+		var in_shallow = _in_shallow_sync
 		state_mutex.unlock()
-		if c_fen != "" and d > 0 and not pv_c.is_empty():
-			if mpv_c.is_empty() and b_move != "":
-				mpv_c = [{
-					"rank": 1,
-					"depth": d,
+		if not in_shallow:
+			if c_fen != "" and d > 0 and not pv_c.is_empty():
+				if mpv_c.is_empty() and b_move != "":
+					mpv_c = [{
+						"rank": 1,
+						"depth": d,
+						"score_cp": s_cp,
+						"mate_in": m_in,
+						"best_move": b_move,
+						"fen": c_fen,
+						"pv": pv_c
+					}]
+				store_cached_eval(c_fen, {
 					"score_cp": s_cp,
 					"mate_in": m_in,
 					"best_move": b_move,
-					"fen": c_fen,
-					"pv": pv_c
-				}]
-			store_cached_eval(c_fen, {
-				"score_cp": s_cp,
-				"mate_in": m_in,
-				"best_move": b_move,
-				"depth": d,
-				"pv_line": pv_c,
-				"multipv_lines": mpv_c,
-				"timed_out": false,
-				"cancelled": false
-			})
-		if b_move != "" and d > 0:
-			_emit_evaluation_finished_deferred.call_deferred(b_move, s_cp, d)
+					"depth": d,
+					"pv_line": pv_c,
+					"multipv_lines": mpv_c,
+					"timed_out": false,
+					"cancelled": false
+				})
+			if b_move != "" and d > 0:
+				_emit_evaluation_finished_deferred.call_deferred(b_move, s_cp, d)
 	elif line == "readyok":
 		state_mutex.lock()
 		_readyok_serial += 1

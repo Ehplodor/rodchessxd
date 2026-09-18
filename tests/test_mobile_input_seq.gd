@@ -10,27 +10,28 @@ func _init() -> void:
 	
 	await create_timer(0.2).timeout
 	
-	var board = main_instance.get_node("VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard") as ChessBoard2D
+	var board = main_instance.chess_board as ChessBoard2D
 	var gc = main_instance.get_node("/root/GameController")
 	gc.reset_to_initial()
 	
 	var e2 = 12
 	var e4 = 28
+	# Godot transforme la position des événements tactiles ET souris dans le
+	# repère LOCAL du contrôle avant _gui_input : on simule donc des positions
+	# locales, conformément au contrat réel du moteur.
 	var pos_e2_local = board._get_square_screen_pos(e2) + Vector2(board.square_size * 0.5, board.square_size * 0.5)
-	var pos_e2_global = board.global_position + pos_e2_local
 	var pos_e4_local = board._get_square_screen_pos(e4) + Vector2(board.square_size * 0.5, board.square_size * 0.5)
-	var pos_e4_global = board.global_position + pos_e4_local
 	
-	print("Pos E2 local: ", pos_e2_local, " global: ", pos_e2_global)
-	print("Pos E4 local: ", pos_e4_local, " global: ", pos_e4_global)
+	print("Pos E2 local: ", pos_e2_local)
+	print("Pos E4 local: ", pos_e4_local)
 	
 	# Simulate Godot's mobile input sequence on E2:
-	# 1. ScreenTouch pressed (with global pos)
+	# 1. ScreenTouch pressed
 	var touch_down = InputEventScreenTouch.new()
 	touch_down.pressed = true
-	touch_down.position = pos_e2_global
+	touch_down.position = pos_e2_local
 	
-	# 2. MouseButton pressed (emulated, with local pos)
+	# 2. MouseButton pressed (emulated)
 	var mouse_down = InputEventMouseButton.new()
 	mouse_down.button_index = MOUSE_BUTTON_LEFT
 	mouse_down.pressed = true
@@ -39,7 +40,7 @@ func _init() -> void:
 	# 3. ScreenTouch released
 	var touch_up = InputEventScreenTouch.new()
 	touch_up.pressed = false
-	touch_up.position = pos_e2_global
+	touch_up.position = pos_e2_local
 	
 	# 4. MouseButton released
 	var mouse_up = InputEventMouseButton.new()
@@ -58,7 +59,7 @@ func _init() -> void:
 	# Now simulate Tap on E4 (legal move)
 	var touch_down_e4 = InputEventScreenTouch.new()
 	touch_down_e4.pressed = true
-	touch_down_e4.position = pos_e4_global
+	touch_down_e4.position = pos_e4_local
 	
 	var mouse_down_e4 = InputEventMouseButton.new()
 	mouse_down_e4.button_index = MOUSE_BUTTON_LEFT
@@ -67,7 +68,7 @@ func _init() -> void:
 	
 	var touch_up_e4 = InputEventScreenTouch.new()
 	touch_up_e4.pressed = false
-	touch_up_e4.position = pos_e4_global
+	touch_up_e4.position = pos_e4_local
 	
 	var mouse_up_e4 = InputEventMouseButton.new()
 	mouse_up_e4.button_index = MOUSE_BUTTON_LEFT

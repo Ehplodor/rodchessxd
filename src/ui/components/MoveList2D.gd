@@ -8,12 +8,15 @@ extends ScrollContainer
 signal moment_selected(ply: int)
 
 const MoveQualityService = preload("res://src/ui/components/MoveQualityService.gd")
+const CliffTypes = preload("res://src/engine/CliffTypes.gd")
+const CliffSummaryPanel = preload("res://src/ui/components/CliffSummaryPanel.gd")
 
 var container: VBoxContainer
 var move_buttons: Array[Button] = []
 var _active_btn: Button = null
 var _last_moves_count: int = -1
 var _analysis_report: Dictionary = {}
+var _cliff_report: Dictionary = {}
 var _active_stylebox: StyleBoxFlat = null
 
 # Filtre actif : 0 = TOUS, sinon un filtre par qualité (?? ? ?! ✓ ✓+ ★ ! !!)
@@ -57,10 +60,15 @@ func _ensure_container() -> void:
 ## Permet à Main d'injecter le rapport d'analyse complet
 func set_analysis_report(report: Dictionary) -> void:
 	_analysis_report = report
+	_cliff_report = report.get("cliff_data", {})
 	var gc = _get_game_controller()
 	if gc and report.has("evaluations"):
 		gc.apply_evaluations(report.get("evaluations", []))
 	_refresh_moves()
+
+func set_cliff_report(report: Dictionary) -> void:
+	_cliff_report = report
+	refresh()
 
 ## Rafraîchissement public (appelé aussi à la fin de l'analyse, cf. Main).
 func refresh() -> void:
@@ -112,6 +120,9 @@ func _refresh_moves() -> void:
 
 	# 2. Scorecard Duel Face-à-Face (Précision CAPS2, Jauge Duel, ELO, ACPL)
 	_build_duel_scorecard()
+
+	# 2b. Panneau CHESS-CLIFF — Difficulté cognitive
+	_build_cliff_card()
 
 	# 3. Matrice de Qualité interactive (8 catégories, cliquables pour filtrer)
 	_build_quality_matrix()
@@ -451,6 +462,19 @@ func _build_duel_scorecard() -> void:
 	_add_stat_row(grid, w_acpl_str, "📉 Perte moy. (ACPL)", b_acpl_str, Color("#fde047"))
 
 # --- 3. MATRICE DE QUALITÉ DES COUPS (Interactive) ---
+func _build_cliff_card() -> void:
+	var tree = Engine.get_main_loop() as SceneTree
+	var sm_settings = tree.root.get_node_or_null("SettingsManager") if (tree and tree.root) else null
+	if sm_settings != null and not bool(sm_settings.get_setting("show_cliff_pistes", true)):
+		return
+	if _cliff_report.is_empty() and _analysis_report.has("cliff_data"):
+		_cliff_report = _analysis_report["cliff_data"]
+	if _cliff_report.is_empty():
+		return
+	var panel := CliffSummaryPanel.new()
+	panel.set_report_data(_cliff_report)
+	container.add_child(panel)
+
 func _build_quality_matrix() -> void:
 	var q_stats = _get_player_quality_stats()
 	var w_s = q_stats["white"]
@@ -970,7 +994,7 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 	btn.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
 	btn.set_meta("ply", ply)
 
-	# Ligne 1 : SAN + Badge qualité + perte
+	# Ligne 1 : SAN + Badge qualité + perte + Piste CLIFF
 	var line1 := m.san
 	if m.is_theory:
 		line1 += " 📖"
@@ -979,6 +1003,13 @@ func _make_move_button(m: ChessMove, ply: int) -> Button:
 		if badge != "":
 			line1 += " " + badge
 		line1 += _loss_suffix(m)
+	if m.cliff_piste >= 0:
+		var tree = Engine.get_main_loop() as SceneTree
+		var sm = tree.root.get_node_or_null("SettingsManager") if (tree and tree.root) else null
+		if sm == null or bool(sm.get_setting("cliff_show_move_badges", false)):
+			line1 += " " + CliffTypes.get_piste_icon(m.cliff_piste)
+			if m.cliff_surprise_nature != CliffTypes.SurpriseNature.NORMAL:
+				line1 += CliffTypes.get_surprise_icon(m.cliff_surprise_nature)
 
 	# Ligne 2 : Horloge + motif tactique compact (si présents)
 	var line2_parts: Array = []
@@ -1125,6 +1156,24 @@ func _move_tooltip(m: ChessMove) -> String:
 		for motif in m.motifs:
 			motif_strings.append(str(motif))
 		parts.append("Motifs : " + ", ".join(motif_strings))
+	if m.cliff_piste >= 0:
+		var p_name := CliffTypes.get_piste_name(m.cliff_piste)
+		var p_icon := CliffTypes.get_piste_icon(m.cliff_piste)
+		# Charge du camp au trait : difficulté de la position à résoudre AVANT ce coup.
+		var p_str := "🏔️ Difficulté de la position à jouer : %s %s" % [p_icon, p_name]
+		if m.cliff_indice_d >= 0:
+			p_str += " (D=%d)" % m.cliff_indice_d
+		p_str += " | Survie : %d%%" % int(round(m.cliff_p_survie * 100.0))
+		if m.cliff_delta_chute > 0.001:
+			p_str += " | Δ : %.2f" % m.cliff_delta_chute
+		if m.cliff_bait > 0.001:
+			p_str += " | Bait : %.2f" % m.cliff_bait
+		if m.cliff_surprise_nature != CliffTypes.SurpriseNature.NORMAL:
+			var s_icon := CliffTypes.get_surprise_icon(m.cliff_surprise_nature)
+			var s_name := CliffTypes.get_surprise_name(m.cliff_surprise_nature)
+			var sign_str := "+" if m.cliff_surprise_delta > 0 else ""
+			p_str += " | Effet : %s %s (%s%d)" % [s_icon, s_name, sign_str, m.cliff_surprise_delta]
+		parts.append(p_str)
 	return "\n".join(parts)
 
 func _passes_filter(q: int) -> bool:

@@ -123,6 +123,18 @@ var user_arrows: Array = []
 var user_circles: Array = []
 var _ann_from: int = -1
 
+# Aperçu temporaire (ex. CHESS-CLIFF « Super Live ») : affiche une position
+# arbitraire SANS jamais altérer la partie réelle (historique des coups, courbe,
+# liste des coups et analyses restent intacts).
+var preview_fen: String = ""
+var _preview_game: ChessGame = null
+var _preview_banner: Button = null
+
+# Calque « Rayons X » CHESS-CLIFF : meilleur coup + appât + cases-mines, dessiné
+# sans jamais toucher l'état de la partie.
+var cliff_overlay: Dictionary = {}
+var _cliff_label: Label = null
+
 ## Calcule une couleur vive et lumineuse sur un dégradé arc-en-ciel selon la profondeur (1 à 20+)
 ## Profondeur faible (~1-6) : Rouge / Orange / Jaune
 ## Profondeur moyenne (~7-13) : Vert lime / Émeraude / Cyan
@@ -313,6 +325,8 @@ func _update_dimensions() -> void:
 		side = MIN_BOARD_SIDE
 	board_size = side
 	square_size = board_size / 8.0
+	_reposition_cliff_label()
+	_reposition_preview_banner()
 	if arrow_overlay:
 		arrow_overlay.size = Vector2(board_size, board_size)
 		arrow_overlay.position = Vector2.ZERO
@@ -436,6 +450,123 @@ func _clear_ghost_sprites() -> void:
 			remove_child(child)
 			child.queue_free()
 
+## Vrai lorsqu'une position d'aperçu (Cliff) est affichée à la place de la partie.
+func is_previewing() -> bool:
+	return preview_fen != ""
+
+## Affiche une position d'aperçu sans toucher à GameController.game (donc sans
+## effacer l'historique des coups). Utilisé par CHESS-CLIFF « Super Live ».
+func set_preview_fen(fen: String) -> void:
+	if fen == "":
+		clear_preview_fen()
+		return
+	preview_fen = fen
+	if _preview_game == null:
+		_preview_game = ChessGame.new()
+	_preview_game.load_fen(fen)
+	last_move_from = -1
+	last_move_to = -1
+	_update_preview_banner()
+	reset_board_visuals()
+	queue_redraw()
+
+## Quitte l'aperçu et réaffiche la position réelle de la partie.
+func clear_preview_fen() -> void:
+	if preview_fen == "":
+		return
+	preview_fen = ""
+	_update_preview_banner()
+	reset_board_visuals()
+	queue_redraw()
+
+## Met à jour le bandeau flottant d'aperçu variante
+func _update_preview_banner() -> void:
+	if not is_instance_valid(_preview_banner):
+		if not is_previewing():
+			return
+		_preview_banner = Button.new()
+		_preview_banner.z_index = 45
+		_preview_banner.mouse_filter = Control.MOUSE_FILTER_STOP
+		_preview_banner.text = "👁️ Aperçu variante · Touchez pour quitter"
+		_preview_banner.add_theme_font_size_override("font_size", 11)
+		_preview_banner.add_theme_color_override("font_color", Color("#f5f3ff"))
+		_preview_banner.add_theme_color_override("font_hover_color", Color.WHITE)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.10, 0.07, 0.18, 0.94)
+		sb.border_color = Color("#c084fc")
+		sb.set_border_width_all(1)
+		sb.set_corner_radius_all(12)
+		sb.content_margin_left = 10
+		sb.content_margin_right = 10
+		sb.content_margin_top = 3
+		sb.content_margin_bottom = 3
+		_preview_banner.add_theme_stylebox_override("normal", sb)
+		_preview_banner.add_theme_stylebox_override("hover", sb)
+		_preview_banner.add_theme_stylebox_override("pressed", sb)
+		_preview_banner.pressed.connect(func():
+			clear_preview_fen()
+			clear_cliff_overlay()
+		)
+		add_child(_preview_banner)
+
+	if not is_previewing():
+		_preview_banner.visible = false
+		_reposition_cliff_label()
+		return
+
+	_preview_banner.visible = true
+	_reposition_preview_banner()
+	_reposition_cliff_label()
+
+func _reposition_preview_banner() -> void:
+	if is_instance_valid(_preview_banner) and _preview_banner.visible:
+		_preview_banner.reset_size()
+		_preview_banner.position = Vector2(maxf(4.0, (board_size - _preview_banner.size.x) * 0.5), 4.0)
+
+## Active/désactive le calque Rayons X CHESS-CLIFF.
+func set_cliff_overlay(data: Dictionary) -> void:
+	cliff_overlay = data.duplicate(true)
+	_update_cliff_label()
+	if arrow_overlay:
+		arrow_overlay.queue_redraw()
+	queue_redraw()
+
+func clear_cliff_overlay() -> void:
+	if cliff_overlay.is_empty():
+		return
+	cliff_overlay = {}
+	_update_cliff_label()
+	if arrow_overlay:
+		arrow_overlay.queue_redraw()
+	queue_redraw()
+
+func is_cliff_overlay_active() -> bool:
+	return not cliff_overlay.is_empty()
+
+func _update_cliff_label() -> void:
+	if not is_instance_valid(_cliff_label):
+		if cliff_overlay.is_empty():
+			return
+		_cliff_label = Label.new()
+		_cliff_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_cliff_label.z_index = 40
+		_cliff_label.add_theme_font_size_override("font_size", 12)
+		_cliff_label.add_theme_color_override("font_color", Color("#e9d5ff"))
+		add_child(_cliff_label)
+	if cliff_overlay.is_empty():
+		_cliff_label.visible = false
+		return
+	_cliff_label.text = str(cliff_overlay.get("label", ""))
+	_cliff_label.visible = _cliff_label.text != ""
+	_cliff_label.reset_size()
+	_reposition_cliff_label()
+
+## Réaligne le bandeau Rayons X après un changement de taille du plateau.
+func _reposition_cliff_label() -> void:
+	if is_instance_valid(_cliff_label) and _cliff_label.visible:
+		var top_y := 30.0 if (is_instance_valid(_preview_banner) and _preview_banner.visible) else 4.0
+		_cliff_label.position = Vector2(maxf(4.0, (board_size - _cliff_label.size.x) * 0.5), top_y)
+
 ## Réinitialisation graphique complète et propre du plateau
 func reset_board_visuals(preserve_best_move: bool = false) -> void:
 	_clear_active_tweens()
@@ -444,25 +575,31 @@ func reset_board_visuals(preserve_best_move: bool = false) -> void:
 	
 	if flying_piece:
 		flying_piece.visible = false
-	
+
+	var gc = _get_game_controller()
+	var src_game: ChessGame = null
+	if is_previewing():
+		src_game = _preview_game
+	elif gc and gc.game:
+		src_game = gc.game
+
 	if not preserve_best_move:
-		var gc_for_fen = _get_game_controller()
-		var current_fen: String = gc_for_fen.game.get_fen() if gc_for_fen and gc_for_fen.game else ""
+		var current_fen: String = src_game.get_fen() if src_game else ""
 		if best_move_arrow_fen != current_fen:
 			best_move_arrow_from = -1
 			best_move_arrow_to = -1
 			best_move_arrow_fen = ""
 			engine_lines_arrows.clear()
-	
-	var gc = _get_game_controller()
-	if gc and gc.current_ply_index >= 0 and gc.current_ply_index < gc.game.move_history.size():
-		var m = gc.game.move_history[gc.current_ply_index]
+
+	if not is_previewing() and gc and src_game \
+			and gc.current_ply_index >= 0 and gc.current_ply_index < src_game.move_history.size():
+		var m = src_game.move_history[gc.current_ply_index]
 		last_move_from = m.from_sq
 		last_move_to = m.to_sq
 	else:
 		last_move_from = -1
 		last_move_to = -1
-	
+
 	# Remise à zéro complète et absolue de toutes les cases
 	for sq in range(64):
 		var tr: TextureRect = piece_sprites.get(sq, null)
@@ -475,18 +612,18 @@ func reset_board_visuals(preserve_best_move: bool = false) -> void:
 			tr.z_index = 1
 			tr.texture = null
 			tr.visible = false
-	
-	# Ré-attribution stricte des pièces actuellement présentes sur l'échiquier
-	if gc and gc.game:
+
+	# Ré-attribution stricte des pièces de la source affichée (aperçu ou partie)
+	if src_game:
 		for sq in range(64):
-			var piece = gc.game.get_piece(sq)
+			var piece = src_game.get_piece(sq)
 			if piece.type != ChessPiece.Type.NONE:
 				var tr: TextureRect = piece_sprites.get(sq, null)
 				if tr:
 					var key = Vector2i(piece.type, piece.color)
 					tr.texture = piece_textures.get(key, null)
 					tr.visible = true
-	
+
 	_check_king_status()
 	queue_redraw()
 
@@ -867,13 +1004,13 @@ func _draw() -> void:
 				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, b_w)
 
 			# Case sélectionnée avec fond lumineux chaleureux (sous la pièce)
-			if gc and sq == gc.selected_square:
+			if gc and not is_previewing() and sq == gc.selected_square:
 				draw_rect(rect, theme["selected"])
 				var b_w = clampf(square_size * 0.035, 1.5, 3.8)
 				draw_rect(rect, theme.get("selected_border", Color("#eab308")), false, b_w)
 
 			# Surbrillance subtile au survol d'une case de destination autorisée
-			if show_move_hints and gc and gc.selected_square != -1 and sq == hovered_sq and sq in gc.legal_destinations:
+			if show_move_hints and not is_previewing() and gc and gc.selected_square != -1 and sq == hovered_sq and sq in gc.legal_destinations:
 				var hov_col = theme.get("legal_hover", Color(1.0, 1.0, 1.0, 0.22))
 				draw_rect(rect, hov_col)
 
@@ -900,7 +1037,7 @@ func _draw() -> void:
 				draw_string(font, text_pos, file_char, HORIZONTAL_ALIGNMENT_LEFT, -1, coord_font_size, text_col)
 
 			# Points de déplacement & anneaux de capture (rendus si pas d'arrow_overlay)
-			if show_move_hints and not arrow_overlay and gc and sq in gc.legal_destinations:
+			if show_move_hints and not is_previewing() and not arrow_overlay and gc and sq in gc.legal_destinations:
 				var center = rect.position + rect.size * 0.5
 				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
 				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
@@ -924,7 +1061,7 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 	var gc = _get_game_controller()
 
 	# 1. Mise en valeur de la sélection et cibles légales (z_index=5 au-dessus des pièces)
-	if gc:
+	if gc and not is_previewing():
 		if gc.selected_square != -1:
 			var sel_pos = _get_square_screen_pos(gc.selected_square)
 			var sel_rect = Rect2(sel_pos, Vector2(square_size, square_size))
@@ -949,8 +1086,8 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 	if last_move_from != -1 and last_move_to != -1 and not is_animating_move:
 		_draw_last_move_arrow(last_move_from, last_move_to, theme, ci)
 	
-	# 3. Flèches tactiques modernes pour l'analyse Stockfish (meilleur(s) coup(s))
-	if show_move_hints:
+	# 3. Flèches tactiques modernes pour l'analyse Stockfish (masquées si le calque Cliff est actif)
+	if show_move_hints and cliff_overlay.is_empty():
 		if not engine_lines_arrows.is_empty():
 			var total_lines = engine_lines_arrows.size()
 			# On dessine les flèches du rang le plus élevé vers le rang 1 pour que le #1 apparaisse au premier plan
@@ -970,6 +1107,79 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 	for sq in user_circles:
 		var center = _get_square_screen_pos(int(sq)) + Vector2(square_size * 0.5, square_size * 0.5)
 		ci.draw_arc(center, square_size * 0.42, 0, TAU, 24, Color("#f59e0be0"), 3.0)
+
+	# 5. Rayons X CHESS-CLIFF : cases-mines, coup le plus séduisant, meilleur coup.
+	if not cliff_overlay.is_empty():
+		_draw_cliff_overlay(ci)
+
+## Dessine le calque Rayons X (non destructif).
+func _draw_cliff_overlay(ci: CanvasItem) -> void:
+	# 1. Cases empoisonnées (Chute critique / Coup unique vital) :
+	# Croix rouge carmin stylisée sur chaque case fatale pour matérialiser le gouffre
+	for sq in cliff_overlay.get("poisoned_squares", []):
+		var sq_idx := int(sq)
+		if sq_idx < 0 or sq_idx >= 64:
+			continue
+		var p := _get_square_screen_pos(sq_idx)
+		var cross_col := Color(0.92, 0.25, 0.25, 0.85)
+		ci.draw_rect(Rect2(p + Vector2(2, 2), Vector2(square_size - 4.0, square_size - 4.0)), Color(0.92, 0.20, 0.20, 0.18))
+		var m_pad := square_size * 0.30
+		ci.draw_line(p + Vector2(m_pad, m_pad), p + Vector2(square_size - m_pad, square_size - m_pad), cross_col, 2.5, true)
+		ci.draw_line(p + Vector2(square_size - m_pad, m_pad), p + Vector2(m_pad, square_size - m_pad), cross_col, 2.5, true)
+
+	# 2. Cases-mines : cadre ambre sur la bordure de case (n'occulte pas la pièce)
+	# + point discret en coin, opacité proportionnelle au poids du piège.
+	for mine in cliff_overlay.get("mines", []):
+		var sq := int(mine.get("sq", -1))
+		if sq < 0 or sq >= 64:
+			continue
+		var w := clampf(float(mine.get("weight", 0.5)), 0.0, 1.0)
+		var pos = _get_square_screen_pos(sq)
+		var col = Color(0.96, 0.62, 0.04, 0.30 + 0.55 * w)
+		ci.draw_rect(Rect2(pos + Vector2(1, 1), Vector2(square_size - 2.0, square_size - 2.0)), col, false, 2.5)
+		ci.draw_circle(pos + Vector2(square_size * 0.16, square_size * 0.16), square_size * 0.06, col)
+
+	# 3. Flèches moteur (meilleur coup + appât) : respectent l'option « aides de coups ».
+	if show_move_hints:
+		var best_uci := str(cliff_overlay.get("best_uci", ""))
+		var bait_uci := str(cliff_overlay.get("bait_uci", ""))
+		var is_vital := bool(cliff_overlay.get("is_vital", false))
+		var nature := int(cliff_overlay.get("move_nature", -1))
+
+		if bait_uci.length() >= 4 and bait_uci != best_uci:
+			_draw_cliff_arrow(bait_uci, Color("#f472b6e0"), 0.85, true, ci)
+		if best_uci.length() >= 4:
+			var arrow_col := Color("#22d3ee")
+			if is_vital or nature == CliffTypes.MoveNature.VITAL:
+				arrow_col = Color("#f59e0b") # Ambre tension survie
+			elif nature == CliffTypes.MoveNature.ATTACK:
+				arrow_col = Color("#ec4899") # Magenta attaque
+			elif nature == CliffTypes.MoveNature.FORCED:
+				arrow_col = Color("#38bdf8") # Bleu ciel forcé
+			_draw_cliff_arrow(best_uci, arrow_col, 1.15 if is_vital else 1.1, false, ci)
+
+func _draw_cliff_arrow(uci: String, color: Color, width_scale: float, dashed: bool, ci: CanvasItem) -> void:
+	var from_sq := ChessMove.coord_to_square(uci.substr(0, 2))
+	var to_sq := ChessMove.coord_to_square(uci.substr(2, 2))
+	if from_sq < 0 or to_sq < 0:
+		return
+	var start = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
+	var end = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
+	var dir = (end - start).normalized()
+	if start.distance_to(end) < 1.0:
+		return
+	var shaft_w: float = clampf(square_size * 0.08, 4.0, 11.0) * width_scale
+	var head_len: float = clampf(square_size * 0.28, 12.0, 30.0)
+	var head_w: float = clampf(square_size * 0.32, 14.0, 34.0)
+	var shaft_end = end - dir * (head_len * 0.85)
+	var perp = Vector2(-dir.y, dir.x)
+	if dashed:
+		ci.draw_dashed_line(start, shaft_end, color, shaft_w, clampf(square_size * 0.1, 4.0, 10.0), true, true)
+	else:
+		ci.draw_line(start, shaft_end, color, shaft_w, true)
+	ci.draw_colored_polygon(PackedVector2Array([
+		end, shaft_end + perp * (head_w * 0.5), shaft_end - perp * (head_w * 0.5)
+	]), color)
 
 ## T2.1 — Ajoute/retire une annotation (flèche, ou cercle si départ == arrivée).
 func _annotate(from_sq: int, to_sq: int) -> void:
@@ -1151,6 +1361,11 @@ func _redraw_board_and_overlays() -> void:
 	queue_redraw()
 
 func _resolve_local_pos(event: InputEvent) -> Vector2:
+	# Le viewport transforme déjà la position des événements souris ET tactiles
+	# dans le repère local du contrôle avant d'appeler _gui_input (cf. Godot
+	# Viewport::_gui_input_event). event.position est donc toujours local ici :
+	# aucun besoin de deviner l'espace de coordonnées, ce qui évite de mal
+	# interpréter un contact lorsque le plateau est décalé (défilement, barre d'éval).
 	if event is InputEventMouse or event is InputEventScreenTouch or event is InputEventScreenDrag:
 		return event.position
 	return get_local_mouse_position()
@@ -1214,6 +1429,11 @@ func _gui_input(event: InputEvent) -> void:
 func _handle_pointer_press(sq: int, _pos: Vector2) -> void:
 	if is_animating_move:
 		return
+	# Toute interaction réelle sur l'échiquier sort de l'aperçu Cliff.
+	if is_previewing():
+		clear_preview_fen()
+	if is_cliff_overlay_active():
+		clear_cliff_overlay()
 	
 	var gc = _get_game_controller()
 	if not gc or not gc.game:
@@ -1309,6 +1529,9 @@ func _pos_to_square(pos: Vector2) -> int:
 # --- SIGNAUX & MISES À JOUR ---
 
 func _on_game_reset() -> void:
+	preview_fen = ""
+	cliff_overlay = {}
+	_update_cliff_label()
 	displayed_ply_index = -1
 	reset_board_visuals()
 
@@ -1319,6 +1542,9 @@ func _nav_log(msg: String) -> void:
 		t.root.get_node("AppLogger").log("NAV", msg)
 
 func _on_move_navigated(target_ply: int) -> void:
+	preview_fen = ""
+	cliff_overlay = {}
+	_update_cliff_label()
 	_nav_log("board ply=%d disp=%d anim=%s" % [
 		target_ply, displayed_ply_index, str(is_animating_move)])
 	var gc = _get_game_controller()
@@ -1356,6 +1582,10 @@ func _on_move_navigated(target_ply: int) -> void:
 	reset_board_visuals()
 
 func _on_position_changed() -> void:
+	preview_fen = ""
+	if not cliff_overlay.is_empty():
+		cliff_overlay = {}
+		_update_cliff_label()
 	var gc = _get_game_controller()
 	var flipped := bool(gc.board_flipped) if gc else false
 	if flipped != _last_flipped_state:
@@ -1377,6 +1607,10 @@ func _on_square_deselected() -> void:
 	_redraw_board_and_overlays()
 
 func _on_move_made(move: ChessMove) -> void:
+	preview_fen = ""
+	if not cliff_overlay.is_empty():
+		cliff_overlay = {}
+		_update_cliff_label()
 	var gc = _get_game_controller()
 	if gc:
 		displayed_ply_index = gc.current_ply_index
@@ -1392,11 +1626,16 @@ func _on_move_made(move: ChessMove) -> void:
 
 func _check_king_status() -> void:
 	in_check_sq = -1
-	var gc = _get_game_controller()
-	if gc and gc.game and gc.game.is_in_check(gc.game.active_color):
+	var game: ChessGame = null
+	if is_previewing():
+		game = _preview_game
+	else:
+		var gc = _get_game_controller()
+		game = gc.game if gc and gc.game else null
+	if game and game.is_in_check(game.active_color):
 		for i in range(64):
-			var p = gc.game.get_piece(i)
-			if p.type == ChessPiece.Type.KING and p.color == gc.game.active_color:
+			var p = game.get_piece(i)
+			if p.type == ChessPiece.Type.KING and p.color == game.active_color:
 				in_check_sq = i
 				break
 	set_process(in_check_sq != -1)
@@ -1412,7 +1651,7 @@ func _on_engine_eval(_score_cp: int, _mate_in: int, depth: int, best_move: Strin
 func set_best_move_arrow(uci: String, depth: int = 0) -> void:
 	best_move_arrow_depth = depth
 	var gc = _get_game_controller()
-	var fen: String = gc.game.get_fen() if gc and gc.game else ""
+	var fen: String = preview_fen if is_previewing() else (gc.game.get_fen() if gc and gc.game else "")
 	engine_lines_arrows.clear()
 	if uci.length() >= 4:
 		best_move_arrow_from = ChessMove.coord_to_square(uci.substr(0, 2))
@@ -1431,7 +1670,7 @@ func set_best_move_arrow(uci: String, depth: int = 0) -> void:
 func set_engine_lines_arrows(multipv_lines: Array, depth: int = 0) -> void:
 	best_move_arrow_depth = depth
 	var gc = _get_game_controller()
-	var fen: String = gc.game.get_fen() if gc and gc.game else ""
+	var fen: String = preview_fen if is_previewing() else (gc.game.get_fen() if gc and gc.game else "")
 	engine_lines_arrows.clear()
 	best_move_arrow_from = -1
 	best_move_arrow_to = -1

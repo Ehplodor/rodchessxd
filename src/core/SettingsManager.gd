@@ -45,7 +45,11 @@ var settings := {
 	"flip_board": false,
 	"show_move_hints": true,
 	"app_theme_mode": "dark", # "dark", "light"
-	"carnet_analysis_speed": "fast" # "fast", "balanced", "deep"
+	"carnet_analysis_speed": "fast", # "fast", "balanced", "deep"
+	"show_cliff_pistes": true, # Affichage des pistes cognitives CHESS-CLIFF
+	"global_finesse_tier": 2, # Palier de finesse de calcul CHESS-CLIFF (0-4)
+	"cliff_xray_enabled": false, # Échiquier « Rayons X » (meilleur coup + appât + mines)
+	"cliff_show_move_badges": false # Badges de piste par coup dans la liste des coups
 }
 
 static func get_default_engine_threads() -> int:
@@ -68,6 +72,7 @@ static func get_default_engine_hash() -> int:
 func _ready() -> void:
 	settings["engine_threads"] = get_default_engine_threads()
 	settings["engine_hash_mb"] = get_default_engine_hash()
+	settings["global_finesse_tier"] = ComputeFinesse.default_tier()
 	if OS.has_feature("android") or OS.has_feature("ios"):
 		settings["engine_depth"] = 12
 		settings["analysis_depth"] = 12

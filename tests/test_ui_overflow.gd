@@ -33,13 +33,13 @@ func _init() -> void:
 		printerr("  OVERSIZE %.0f px : %s" % [o["w"], o["path"]])
 
 	# Bouton Carnet intégré au style de la barre du haut.
-	var btn = main.get_node_or_null("VBox/TopBar/BtnCarnet")
+	var btn = main.top_bar.get_node_or_null("BtnCarnet") if main.top_bar != null else main.get_node_or_null("MainScroll/VBox/TopBar/BtnCarnet")
 	_check(btn != null, "bouton Carnet présent")
 	if btn != null:
 		_check(btn.has_theme_stylebox_override("normal"), "bouton Carnet stylé comme les autres")
 
 	# Les boutons-icônes (emoji) ne doivent jamais être tronqués, sinon leur libellé disparaît.
-	var flip = main.get_node_or_null("VBox/TopBar/BtnFlip")
+	var flip = main.top_bar.get_node_or_null("BtnFlip") if main.top_bar != null else main.get_node_or_null("MainScroll/VBox/TopBar/BtnFlip")
 	_check(flip != null and not flip.clip_text, "bouton-icône de la barre non tronqué (libellé préservé)")
 
 	# Ouverture du Carnet : z-order au-dessus de l'échiquier + pas de débordement.

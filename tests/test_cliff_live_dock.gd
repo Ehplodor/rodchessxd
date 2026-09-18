@@ -1,0 +1,113 @@
+extends SceneTree
+## tests/test_cliff_live_dock.gd — Cockpit Super Live : jauges, ruban, profil, récit.
+
+const CliffLiveDock = preload("res://src/ui/components/CliffLiveDock.gd")
+const CliffTypes = preload("res://src/engine/CliffTypes.gd")
+
+var _failures := 0
+
+func _check(cond: bool, label: String) -> void:
+	if cond:
+		print("  ok: ", label)
+	else:
+		_failures += 1
+		printerr("  FAIL: ", label)
+
+func _fake_step(i: int, piste: int) -> Dictionary:
+	return {
+		"step": i, "move_uci": "e2e4", "san": "e%d" % (i + 1),
+		"fen_after": "FEN_%d" % i, "is_white": i % 2 == 0,
+		"piste": piste, "indice_d": 10 + i * 20, "delta_chute": 0.05 * i,
+		"bait": 0.3 if i == 1 else 0.0, "p_survie": 0.8 - 0.1 * i,
+		"best_move": "e2e4", "bait_move_uci": "d2d4", "mines": [{"sq": 27, "weight": 0.5}]
+	}
+
+func _init() -> void:
+	print("--- CliffLiveDock tests ---")
+	await process_frame
+	var dock = CliffLiveDock.new()
+	root.add_child(dock)
+	await process_frame
+
+	_check(not dock.visible, "dock masqué à vide")
+
+	var report := {
+		"semantics": CliffTypes.SEMANTICS,
+		"summary_white": {"global_piste": CliffTypes.Piste.CHAMP_DE_MINES, "indice_d": 43,
+				"p_survie_ligne": 0.1, "max_delta_chute": 0.2, "max_bait": 0.3},
+		"summary_black": {"global_piste": CliffTypes.Piste.CHEMIN, "indice_d": 20,
+				"p_survie_ligne": 0.5, "max_delta_chute": 0.05, "max_bait": 0.1},
+		"plies": [_fake_step(0, CliffTypes.Piste.CHAMP_DE_MINES),
+				_fake_step(1, CliffTypes.Piste.CORNICHE),
+				_fake_step(2, CliffTypes.Piste.AUTOROUTE)]
+	}
+	dock.set_report(report)
+	await process_frame
+
+	_check(dock.visible, "dock visible après rapport")
+	_check(dock._chips.size() == 3, "ruban : 3 pastilles")
+	_check(dock._tunnel != null and dock._tunnel.plies_data.size() == 3, "tunnel de survie : 3 demi-coups")
+	_check(dock._phase_space != null and dock._phase_space.plies_data.size() == 3, "espace des phases 2D : 3 demi-coups")
+	_check(dock._gauge_white.indice_d == 43, "jauge Blancs D=43")
+	_check(dock._gauge_black.indice_d == 20, "jauge Noirs D=20")
+	_check(dock._narrative.text != "", "récit rempli")
+	_check(dock.get_combined_minimum_size().x <= 450.0,
+			"pas de largeur minimale > 450 px (obtenu %.0f)" % dock.get_combined_minimum_size().x)
+
+	# Test des modes de l'Espace des Phases 2D (5 modes)
+	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.COUP_COMPLET, "mode par défaut : Coup Complet")
+	var full_moves = dock._phase_space._build_full_moves()
+	_check(full_moves.size() == 2, "3 demi-coups regroupés en 2 tours de jeu")
+	_check(full_moves[0]["move_num"] == 1 and full_moves[0]["white_ply"] == 0 and full_moves[0]["black_ply"] == 1, "tour #1 : plies 0 et 1")
+
+	dock._btn_mode_latent.pressed.emit()
+	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.TENSION_LATENTE, "bascule mode Tension Latente")
+	dock._btn_mode_equateur.pressed.emit()
+	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.EQUATEUR, "bascule mode Équateur")
+	dock._btn_mode_ravin.pressed.emit()
+	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.RAVIN_VECTOR, "bascule mode Ravin Vectoriel")
+	dock._btn_mode_bras.pressed.emit()
+	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.BRAS_DE_FER, "bascule mode Bras de Fer Interpolé")
+	dock._btn_mode_coup.pressed.emit()
+	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.COUP_COMPLET, "bascule retour mode Coup Complet")
+
+	# Interaction : un tap sur une pastille émet step_selected(idx, fen, uci).
+	var captured := []
+	dock.step_selected.connect(func(i: int, fen: String, uci: String):
+		captured.append([i, fen, uci])
+	)
+	dock._chips[1].pressed.emit()
+	_check(captured.size() == 1 and int(captured[0][0]) == 1, "tap pastille émet l'index")
+	if captured.size() == 1:
+		_check(str(captured[0][1]) == "FEN_1", "tap pastille émet le FEN")
+		_check(str(captured[0][2]) == "e2e4", "tap pastille émet l'UCI")
+
+	# Interaction tunnel : un clic sur le tunnel sélectionne le pas
+	dock._tunnel.step_clicked.emit(2)
+	_check(captured.size() == 2 and int(captured[1][0]) == 2, "clic tunnel émet le pas #2")
+
+	# Interaction espace des phases : un clic sur un nœud sélectionne le pas
+	dock._phase_space.step_clicked.emit(0)
+	_check(captured.size() == 3 and int(captured[2][0]) == 0, "clic espace des phases émet le pas #0")
+
+	dock.highlight_step(1)
+	_check(dock._current_step == 1 and dock._tunnel.current == 1, "pas courant mis en évidence dans le tunnel")
+	_check(dock._phase_space.current == 1, "pas courant mis en évidence dans l'espace des phases")
+
+	dock.show_computing(2, 5)
+	_check(dock._progress.visible and int(dock._progress.value) == 2, "progression n/N")
+
+	dock.set_step(_fake_step(3, CliffTypes.Piste.FIL_DU_RASOIR))
+	_check(dock._chips.size() == 4, "pastille ajoutée en direct")
+	_check(dock._phase_space.plies_data.size() == 4, "nœud ajouté en direct dans l'espace des phases")
+
+	dock.clear()
+	_check(not dock.visible and dock._chips.is_empty() and dock._tunnel.plies_data.is_empty() and dock._phase_space.plies_data.is_empty(), "clear remet à zéro ruban, tunnel et espace des phases")
+
+	dock.queue_free()
+	print("--- CliffLiveDock : %d échec(s) ---" % _failures)
+	if _failures == 0:
+		print("ALL CLIFF LIVE DOCK TESTS PASSED SUCCESSFULLY!")
+	else:
+		printerr("CLIFF LIVE DOCK TESTS FAILED: %d" % _failures)
+	quit(0 if _failures == 0 else 1)

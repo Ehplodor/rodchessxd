@@ -99,8 +99,10 @@ func _init() -> void:
 							moments_found = true
 							for btn in item.get_children():
 								if btn is Button:
-									assert(btn.custom_minimum_size.x >= 100.0, "Le bouton de moment clé doit avoir min_width >= 100 (obtenu %f)" % btn.custom_minimum_size.x)
+									# Puces en HFlowContainer : largeur naturelle (pas de clip_text,
+									# pas de largeur fixe) — elles se replient sans être écrasées.
 									assert(btn.clip_text == false, "clip_text doit être false pour éviter le repli à 0")
+									assert(btn.custom_minimum_size.y >= DesignTokens.TOUCH_DENSE, "hauteur tactile des puces de moment clé")
 									moment_btn_valid = true
 	assert(moments_found, "La section des moments clés doit être générée")
 	assert(moment_btn_valid, "Les boutons de moments clés doivent être correctement dimensionnés")

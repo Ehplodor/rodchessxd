@@ -10,7 +10,7 @@ func _init() -> void:
 	await process_frame
 	await process_frame
 	
-	var board = main_instance.get_node("VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard") as ChessBoard2D
+	var board = main_instance.chess_board as ChessBoard2D
 	assert(board != null, "ChessBoard must exist")
 	print("Board found: size=", board.size, " square_size=", board.square_size)
 	print("Initial active tweens: ", board.active_tweens.size())

@@ -1842,3 +1842,84 @@ func _compute_biggest_swings() -> void:
 			"winpct_loss": float(ev.get("winpct_loss", 0.0)),
 			"score_cp": int(ev.get("score_cp", 0))
 		})
+
+## Construit un rapport d'analyse classique complet à partir des évaluations de plies calculées par CliffAnalyzer.
+## Évite tout re-calcul redondant par le moteur et alimente immédiatement l'avantage graph, CAPS, ACPL, ELO.
+func build_report_from_cliff_plies(game: ChessGame, cliff_plies: Array, depth: int = 14) -> Dictionary:
+	_reset_stats()
+	move_evaluations.clear()
+	var moves: Array = game.move_history
+	var total_plies := moves.size()
+	opening_info = OpeningBook.identify(_moves_to_uci(moves))
+	theory_plies = int(opening_info.get("out_of_book_ply", 0))
+
+	if total_plies == 0 or cliff_plies.is_empty():
+		return _build_final_report()
+
+	# Reconstruction de pos_evals (taille total_plies + 1)
+	# pos_evals[0] est la position de départ (fen_before du premier ply ou INITIAL_FEN).
+	var pos_evals: Array = []
+	var first_step: Dictionary = cliff_plies[0]
+	var initial_fen := str(first_step.get("fen_before", ChessGame.INITIAL_FEN))
+	var initial_score := int(first_step.get("score_cp", 20))
+	var initial_mate := int(first_step.get("mate_in", 0))
+	var initial_best := str(first_step.get("best_move", ""))
+	var initial_pv: Array = first_step.get("pv_line", [])
+	var initial_mpv: Array = first_step.get("multipv_lines", [])
+
+	pos_evals.append({
+		"score_cp": initial_score,
+		"mate_in": initial_mate,
+		"best_move": initial_best,
+		"fen": initial_fen,
+		"depth": depth,
+		"pv_line": initial_pv.duplicate(),
+		"multipv_lines": initial_mpv.duplicate()
+	})
+
+	# Pour chaque demi-coup i, pos_evals[i + 1] correspond à fen_after.
+	# Si i < total_plies - 1, pos_evals[i + 1] a pour évaluation celle calculée au demi-coup i + 1 (dans son fen_before).
+	for i in range(total_plies):
+		var after_score := 0
+		var after_mate := 0
+		var after_best := ""
+		var after_fen := ""
+		var after_pv: Array = []
+		var after_mpv: Array = []
+		var cur_step: Dictionary = cliff_plies[i] if i < cliff_plies.size() else {}
+
+		if i + 1 < cliff_plies.size():
+			var next_step: Dictionary = cliff_plies[i + 1]
+			after_score = int(next_step.get("score_cp", 0))
+			after_mate = int(next_step.get("mate_in", 0))
+			after_best = str(next_step.get("best_move", ""))
+			after_fen = str(next_step.get("fen_before", cur_step.get("fen_after", "")))
+			after_pv = next_step.get("pv_line", [])
+			after_mpv = next_step.get("multipv_lines", [])
+		else:
+			# Dernier coup de la partie : si échec et mat ou pat
+			var m: ChessMove = moves[i]
+			var is_white_mover := (i % 2 == 0)
+			after_fen = str(cur_step.get("fen_after", ""))
+			if m.is_checkmate or m.san.ends_with("#"):
+				after_score = 10000 if is_white_mover else -10000
+				after_mate = 1 if is_white_mover else -1
+			else:
+				# Si pas mat, on déduit l'évaluation finale
+				after_score = int(cur_step.get("score_cp", 0))
+				after_mate = int(cur_step.get("mate_in", 0))
+
+		pos_evals.append({
+			"score_cp": after_score,
+			"mate_in": after_mate,
+			"best_move": after_best,
+			"fen": after_fen,
+			"depth": depth,
+			"pv_line": after_pv.duplicate(),
+			"multipv_lines": after_mpv.duplicate()
+		})
+
+	# Finalisation complète avec les formules officielles (CAPS, ACPL, ELO, motifs, etc.)
+	_finalize_from_evals(moves, pos_evals, depth)
+	var final_report := _build_final_report()
+	return final_report

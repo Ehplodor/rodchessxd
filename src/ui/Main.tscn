@@ -46,128 +46,137 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_bg")
 
-[node name="VBox" type="VBoxContainer" parent="."]
+[node name="MainScroll" type="ScrollContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+horizontal_scroll_mode = 0
+vertical_scroll_mode = 1
+
+[node name="VBox" type="VBoxContainer" parent="MainScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
 grow_horizontal = 1
 grow_vertical = 2
 theme_override_constants/separation = 6
 
-[node name="TopBar" type="HBoxContainer" parent="VBox"]
+[node name="TopBar" type="HBoxContainer" parent="MainScroll/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="MarginContainer" type="MarginContainer" parent="VBox/TopBar"]
+[node name="MarginContainer" type="MarginContainer" parent="MainScroll/VBox/TopBar"]
 layout_mode = 2
 theme_override_constants/margin_left = 6
 theme_override_constants/margin_right = 2
 
-[node name="TitleBox" type="VBoxContainer" parent="VBox/TopBar/MarginContainer"]
+[node name="TitleBox" type="VBoxContainer" parent="MainScroll/VBox/TopBar/MarginContainer"]
 layout_mode = 2
 theme_override_constants/separation = 0
 alignment = 1
 
-[node name="AppTitle" type="Label" parent="VBox/TopBar/MarginContainer/TitleBox"]
+[node name="AppTitle" type="Label" parent="MainScroll/VBox/TopBar/MarginContainer/TitleBox"]
 layout_mode = 2
 text = "♟️ RodChess"
 
-[node name="VersionLabel" type="Label" parent="VBox/TopBar/MarginContainer/TitleBox"]
+[node name="VersionLabel" type="Label" parent="MainScroll/VBox/TopBar/MarginContainer/TitleBox"]
 layout_mode = 2
 text = "v1.1.0"
 
-[node name="EvalBadge" type="PanelContainer" parent="VBox/TopBar"]
+[node name="EvalBadge" type="PanelContainer" parent="MainScroll/VBox/TopBar"]
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_badge")
 
-[node name="EvalText" type="Label" parent="VBox/TopBar/EvalBadge"]
+[node name="EvalText" type="Label" parent="MainScroll/VBox/TopBar/EvalBadge"]
 layout_mode = 2
 text = "+0.0"
 
-[node name="Spacer" type="Control" parent="VBox/TopBar"]
+[node name="Spacer" type="Control" parent="MainScroll/VBox/TopBar"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="BtnFlip" type="Button" parent="VBox/TopBar"]
+[node name="BtnFlip" type="Button" parent="MainScroll/VBox/TopBar"]
 custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Retourner le plateau"
 text = "🔄"
 
-[node name="BtnLibrary" type="Button" parent="VBox/TopBar"]
+[node name="BtnLibrary" type="Button" parent="MainScroll/VBox/TopBar"]
 custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Parties & analyses (import, bibliothèque, export)"
 text = "📚"
 
-[node name="BtnSettings" type="Button" parent="VBox/TopBar"]
+[node name="BtnSettings" type="Button" parent="MainScroll/VBox/TopBar"]
 custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Réglages & moteurs d'échecs"
 text = "⚙️"
 
-[node name="BtnAnalyse" type="Button" parent="VBox/TopBar"]
+[node name="BtnAnalyse" type="Button" parent="MainScroll/VBox/TopBar"]
 custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Analyse de la partie"
 text = "📊"
 
-[node name="BtnCoach" type="Button" parent="VBox/TopBar"]
+[node name="BtnCoach" type="Button" parent="MainScroll/VBox/TopBar"]
 custom_minimum_size = Vector2(40, 56)
 layout_mode = 2
 tooltip_text = "Coach IA"
 text = "🤖"
 
-[node name="CenterArea" type="HBoxContainer" parent="VBox"]
+[node name="CenterArea" type="HBoxContainer" parent="MainScroll/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
 alignment = 1
 theme_override_constants/separation = 6
 
-[node name="BoardColumn" type="VBoxContainer" parent="VBox/CenterArea"]
+[node name="BoardColumn" type="VBoxContainer" parent="MainScroll/VBox/CenterArea"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 4
 
-[node name="PlayerTop" type="MarginContainer" parent="VBox/CenterArea/BoardColumn"]
+[node name="PlayerTop" type="MarginContainer" parent="MainScroll/VBox/CenterArea/BoardColumn"]
 layout_mode = 2
 theme_override_constants/margin_left = 8
 theme_override_constants/margin_top = 4
 theme_override_constants/margin_right = 8
 
-[node name="PlayerTopRow" type="HBoxContainer" parent="VBox/CenterArea/BoardColumn/PlayerTop"]
+[node name="PlayerTopRow" type="HBoxContainer" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerTop"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="PlayerDotTop" type="PanelContainer" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
+[node name="PlayerDotTop" type="PanelContainer" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
 custom_minimum_size = Vector2(16, 16)
 layout_mode = 2
 
-[node name="PlayerNameTop" type="Label" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
+[node name="PlayerNameTop" type="Label" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
 layout_mode = 2
 text = ""
 
-[node name="PlayerShortcutsTop" type="HBoxContainer" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
+[node name="PlayerShortcutsTop" type="HBoxContainer" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="TurnBadgeTop" type="PanelContainer" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
+[node name="TurnBadgeTop" type="PanelContainer" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow"]
 layout_mode = 2
 size_flags_horizontal = 10
 
-[node name="TurnBadgeLabelTop" type="Label" parent="VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop"]
+[node name="TurnBadgeLabelTop" type="Label" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop"]
 layout_mode = 2
 text = ""
 
-[node name="BoardContainer" type="Control" parent="VBox/CenterArea/BoardColumn"]
+[node name="BoardContainer" type="Control" parent="MainScroll/VBox/CenterArea/BoardColumn"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 clip_contents = true
 
-[node name="ChessBoard" type="Control" parent="VBox/CenterArea/BoardColumn/BoardContainer"]
+[node name="ChessBoard" type="Control" parent="MainScroll/VBox/CenterArea/BoardColumn/BoardContainer"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -176,7 +185,7 @@ grow_vertical = 2
 layout_mode = 1
 script = ExtResource("3_board")
 
-[node name="EvalBar" type="Control" parent="VBox/CenterArea/BoardColumn/BoardContainer"]
+[node name="EvalBar" type="Control" parent="MainScroll/VBox/CenterArea/BoardColumn/BoardContainer"]
 custom_minimum_size = Vector2(20, 0)
 layout_mode = 1
 anchors_preset = 15
@@ -186,99 +195,105 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("2_eval")
 
-[node name="PlayerBottom" type="MarginContainer" parent="VBox/CenterArea/BoardColumn"]
+[node name="PlayerBottom" type="MarginContainer" parent="MainScroll/VBox/CenterArea/BoardColumn"]
 layout_mode = 2
 theme_override_constants/margin_left = 8
 theme_override_constants/margin_bottom = 4
 theme_override_constants/margin_right = 8
 
-[node name="PlayerBottomRow" type="HBoxContainer" parent="VBox/CenterArea/BoardColumn/PlayerBottom"]
+[node name="PlayerBottomRow" type="HBoxContainer" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="PlayerDotBottom" type="PanelContainer" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
+[node name="PlayerDotBottom" type="PanelContainer" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
 custom_minimum_size = Vector2(16, 16)
 layout_mode = 2
 
-[node name="PlayerNameBottom" type="Label" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
+[node name="PlayerNameBottom" type="Label" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
 layout_mode = 2
 text = ""
 
-[node name="PlayerShortcutsBottom" type="HBoxContainer" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
+[node name="PlayerShortcutsBottom" type="HBoxContainer" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="TurnBadgeBottom" type="PanelContainer" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
+[node name="TurnBadgeBottom" type="PanelContainer" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow"]
 layout_mode = 2
 size_flags_horizontal = 10
 
-[node name="TurnBadgeLabelBottom" type="Label" parent="VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom"]
+[node name="TurnBadgeLabelBottom" type="Label" parent="MainScroll/VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom"]
 layout_mode = 2
 text = ""
 
-[node name="NavRow" type="HBoxContainer" parent="VBox"]
+[node name="NavRow" type="HBoxContainer" parent="MainScroll/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="BtnFirst" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(40, 52)
+[node name="BtnFirst" type="Button" parent="MainScroll/VBox/NavRow"]
+custom_minimum_size = Vector2(34, 46)
 layout_mode = 2
 tooltip_text = "Début de la partie"
 text = "⏮"
 
-[node name="BtnPrev" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(40, 52)
+[node name="BtnPrev" type="Button" parent="MainScroll/VBox/NavRow"]
+custom_minimum_size = Vector2(34, 46)
 layout_mode = 2
 tooltip_text = "Coup précédent"
 text = "◀"
 
-[node name="BtnNext" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(40, 52)
+[node name="BtnNext" type="Button" parent="MainScroll/VBox/NavRow"]
+custom_minimum_size = Vector2(34, 46)
 layout_mode = 2
 tooltip_text = "Coup suivant"
 text = "▶"
 
-[node name="BtnLast" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(40, 52)
+[node name="BtnLast" type="Button" parent="MainScroll/VBox/NavRow"]
+custom_minimum_size = Vector2(34, 46)
 layout_mode = 2
 tooltip_text = "Fin de la partie"
 text = "⏭"
 
-[node name="BtnToggleSandbox" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(72, 52)
+[node name="BtnToggleSandbox" type="Button" parent="MainScroll/VBox/NavRow"]
+custom_minimum_size = Vector2(56, 46)
 layout_mode = 2
 tooltip_text = "Mode Test (bac à sable) : tester des variantes sans altérer la partie originale"
 text = "⏸ Test"
 
-[node name="BtnAnalyzeGame" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(0, 52)
+[node name="BtnAnalyzeGame" type="Button" parent="MainScroll/VBox/NavRow"]
+custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
 size_flags_horizontal = 3
 tooltip_text = "Analyser toute la partie (moteur d'échecs)"
 text = "🔍 Analyser"
 
-[node name="BtnToggleLive" type="Button" parent="VBox/NavRow"]
-custom_minimum_size = Vector2(76, 52)
+[node name="BtnToggleLive" type="Button" parent="MainScroll/VBox/NavRow"]
+custom_minimum_size = Vector2(58, 46)
 layout_mode = 2
 tooltip_text = "Activer ou désactiver l'évaluation Stockfish continue en direct"
 text = "⚡ Live"
 
-[node name="Dashboard" type="VBoxContainer" parent="VBox"]
+[node name="BtnToggleCliff" type="Button" parent="MainScroll/VBox/NavRow"]
+custom_minimum_size = Vector2(62, 46)
+layout_mode = 2
+tooltip_text = "CHESS-CLIFF (Super Live) : Calculer la difficulté cognitive des lignes moteur pour la position courante"
+text = "🏔️ Cliff"
+
+[node name="Dashboard" type="VBoxContainer" parent="MainScroll/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="GraphPanel" type="PanelContainer" parent="VBox/Dashboard"]
+[node name="GraphPanel" type="PanelContainer" parent="MainScroll/VBox/Dashboard"]
 custom_minimum_size = Vector2(0, 104)
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="AdvantageGraph" type="Control" parent="VBox/Dashboard/GraphPanel"]
+[node name="AdvantageGraph" type="Control" parent="MainScroll/VBox/Dashboard/GraphPanel"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 script = ExtResource("4_graph")
 
-[node name="EngineLinesPanel" type="VBoxContainer" parent="VBox/Dashboard"]
+[node name="EngineLinesPanel" type="VBoxContainer" parent="MainScroll/VBox/Dashboard"]
 layout_mode = 2
 script = ExtResource("10_englines")
 
@@ -417,17 +432,17 @@ stream = ExtResource("8_sfx_capture")
 [node name="SfxCheck" type="AudioStreamPlayer" parent="Sounds"]
 stream = ExtResource("9_sfx_check")
 
-[connection signal="pressed" from="VBox/TopBar/BtnFlip" to="." method="_on_btn_flip_pressed"]
-[connection signal="pressed" from="VBox/TopBar/BtnLibrary" to="." method="_on_btn_library_pressed"]
-[connection signal="pressed" from="VBox/TopBar/BtnSettings" to="." method="_on_btn_settings_pressed"]
-[connection signal="pressed" from="VBox/TopBar/BtnAnalyse" to="." method="_open_analyse_overlay"]
-[connection signal="pressed" from="VBox/TopBar/BtnCoach" to="." method="_open_coach_overlay"]
-[connection signal="pressed" from="VBox/NavRow/BtnFirst" to="." method="_on_btn_first_pressed"]
-[connection signal="pressed" from="VBox/NavRow/BtnPrev" to="." method="_on_btn_prev_pressed"]
-[connection signal="pressed" from="VBox/NavRow/BtnNext" to="." method="_on_btn_next_pressed"]
-[connection signal="pressed" from="VBox/NavRow/BtnLast" to="." method="_on_btn_last_pressed"]
-[connection signal="pressed" from="VBox/NavRow/BtnToggleSandbox" to="." method="_on_btn_toggle_sandbox_pressed"]
-[connection signal="pressed" from="VBox/NavRow/BtnAnalyzeGame" to="." method="_on_btn_analyze_game_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/TopBar/BtnFlip" to="." method="_on_btn_flip_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/TopBar/BtnLibrary" to="." method="_on_btn_library_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/TopBar/BtnSettings" to="." method="_on_btn_settings_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/TopBar/BtnAnalyse" to="." method="_open_analyse_overlay"]
+[connection signal="pressed" from="MainScroll/VBox/TopBar/BtnCoach" to="." method="_open_coach_overlay"]
+[connection signal="pressed" from="MainScroll/VBox/NavRow/BtnFirst" to="." method="_on_btn_first_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/NavRow/BtnPrev" to="." method="_on_btn_prev_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/NavRow/BtnNext" to="." method="_on_btn_next_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/NavRow/BtnLast" to="." method="_on_btn_last_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/NavRow/BtnToggleSandbox" to="." method="_on_btn_toggle_sandbox_pressed"]
+[connection signal="pressed" from="MainScroll/VBox/NavRow/BtnAnalyzeGame" to="." method="_on_btn_analyze_game_pressed"]
 [connection signal="pressed" from="AnalyseOverlay/Layout/Header/BtnSwitchToCoach" to="." method="_open_coach_overlay"]
 [connection signal="pressed" from="AnalyseOverlay/Layout/Header/BtnReanalyze" to="." method="_on_btn_reanalyze_pressed"]
 [connection signal="pressed" from="AnalyseOverlay/Layout/Header/BtnCloseAnalyse" to="." method="_close_overlays"]

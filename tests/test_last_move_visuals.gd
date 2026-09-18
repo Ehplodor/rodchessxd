@@ -9,15 +9,21 @@ func _init() -> void:
 	root.add_child(main_node)
 	await create_timer(0.1).timeout
 
-	var board = main_node.get_node("VBox/CenterArea/BoardColumn/BoardContainer/ChessBoard")
-	var player_top_row = main_node.get_node("VBox/CenterArea/BoardColumn/PlayerTop")
-	var player_bottom_row = main_node.get_node("VBox/CenterArea/BoardColumn/PlayerBottom")
-	var player_name_top = main_node.get_node("VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/PlayerNameTop")
-	var player_name_bottom = main_node.get_node("VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/PlayerNameBottom")
-	var badge_top_label = main_node.get_node("VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop/TurnBadgeLabelTop")
-	var badge_bottom_label = main_node.get_node("VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom/TurnBadgeLabelBottom")
-	var badge_top = main_node.get_node("VBox/CenterArea/BoardColumn/PlayerTop/PlayerTopRow/TurnBadgeTop")
-	var badge_bottom = main_node.get_node("VBox/CenterArea/BoardColumn/PlayerBottom/PlayerBottomRow/TurnBadgeBottom")
+	var board = main_node.chess_board
+	var player_top_row = main_node.player_top_row
+	var player_bottom_row = main_node.player_bottom_row
+	var player_name_top = main_node.player_name_top
+	var player_name_bottom = main_node.player_name_bottom
+	var badge_top_label = main_node.turn_badge_label_top
+	var badge_bottom_label = main_node.turn_badge_label_bottom
+	var badge_top = main_node.turn_badge_top
+	var badge_bottom = main_node.turn_badge_bottom
+
+	var gc = root.get_node_or_null("GameController")
+	if gc:
+		gc.board_flipped = false
+		gc.reset_to_initial()
+	main_node._update_player_labels()
 
 	# 1. Vérification de la visibilité des bandeaux au départ
 	assert(player_top_row.visible, "PlayerTopRow must be visible by default")
@@ -39,7 +45,6 @@ func _init() -> void:
 	print("Step 3: ArrowOverlay initialized cleanly on ChessBoard2D (z_index=5).")
 
 	# 4. Jouer le coup 1. e4 (e2 -> e4, 12 -> 28)
-	var gc = root.get_node("GameController")
 	var move_e4_success = gc.try_play_move(12, 28)
 	assert(move_e4_success, "1. e4 move should succeed")
 	await create_timer(0.05).timeout

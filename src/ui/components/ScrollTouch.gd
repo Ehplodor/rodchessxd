@@ -7,8 +7,16 @@ extends Node
 const DEADZONE := 14.0
 
 var target: Control
+var excluded_controls: Array[Control] = []
 
 var _active := {}   # pointeur -> { "dragging": bool, "acc": Vector2 }
+var _excluded_touches := {}   # pointeur -> bool (l'appui a commencé sur un contrôle exclu)
+
+func _is_point_excluded(pos: Vector2) -> bool:
+	for c in excluded_controls:
+		if is_instance_valid(c) and c.is_visible_in_tree() and c.get_global_rect().has_point(pos):
+			return true
+	return false
 
 func _ready() -> void:
 	name = "_ScrollTouch"
@@ -20,25 +28,35 @@ func _input(event: InputEvent) -> void:
 
 	if event is InputEventScreenTouch:
 		if event.pressed:
-			if target.get_global_rect().has_point(event.position):
+			if _is_point_excluded(event.position):
+				_excluded_touches[event.index] = true
+			elif target.get_global_rect().has_point(event.position):
 				_active[event.index] = {"dragging": false, "acc": Vector2.ZERO}
 		else:
+			_excluded_touches.erase(event.index)
 			_release(event.index)
 	elif event is InputEventScreenDrag:
+		if _excluded_touches.has(event.index):
+			return
 		if event.index in _active:
 			_on_drag(event.index, event.relative)
-		elif target.get_global_rect().has_point(event.position):
+		elif not _is_point_excluded(event.position) and target.get_global_rect().has_point(event.position):
 			# Démarrage souple si aucun appui enregistré ici.
 			_active[event.index] = {"dragging": true, "acc": Vector2.ZERO}
 			get_viewport().set_input_as_handled()
 			_scroll_by(event.relative)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
-			if target.get_global_rect().has_point(event.position):
+			if _is_point_excluded(event.position):
+				_excluded_touches["mouse"] = true
+			elif target.get_global_rect().has_point(event.position):
 				_active["mouse"] = {"dragging": false, "acc": Vector2.ZERO}
 		else:
+			_excluded_touches.erase("mouse")
 			_release("mouse")
 	elif event is InputEventMouseMotion:
+		if _excluded_touches.has("mouse"):
+			return
 		if "mouse" in _active and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
 			_on_drag("mouse", event.relative)
 
