@@ -97,35 +97,36 @@ func _do_import(pgn_text: String) -> void:
 		await get_tree().create_timer(1.5).timeout
 		queue_free()
 	else:
-		var names = ", ".join(new_keys.slice(0, 3))
-		if new_keys.size() > 3:
+		var names = ", ".join(new_keys.slice(0, 5))
+		if new_keys.size() > 5:
 			names += "…"
 		_status_lbl.text = "Joueur(s) détecté(s) non dans le carnet : %s" % names
 		_status_lbl.add_theme_color_override("font_color", DesignTokens.WARNING)
 
-		var first_key = str(new_keys[0]) if not new_keys.is_empty() else ""
 		var dialog = ConfirmationDialog.new()
 		dialog.title = "Ajouter aux clés du carnet ?"
-		dialog.dialog_text = "Joueur «%s» détecté. Ajouter aux clés du carnet ?" % first_key
+		dialog.dialog_text = "Joueur(s) détecté(s) : «%s». Ajouter %d clé(s) au carnet ?" % [names, new_keys.size()]
 		dialog.ok_button_text = "Ajouter"
 		dialog.cancel_button_text = "Ignorer"
 		dialog.add_theme_color_override("font_color", DesignTokens.ACCENT)
 		dialog.confirmed.connect(func():
-			_presenter.add_player_key(first_key)
+			# Ajoute TOUTES les clés détectées (pas seulement la première) au profil importé.
+			for key in new_keys:
+				_presenter.add_player_key(str(key), _profile_id)
 			_presenter.refresh_sync()
-			_after_key_action(game_id)
+			_after_key_action(game_id, new_keys)
 		)
 		dialog.canceled.connect(func():
-			_after_key_action(game_id)
+			_after_key_action(game_id, [])
 		)
 		add_child(dialog)
 		DesignTokens.adapt_dialog(dialog)
 		dialog.popup_centered()
 
-func _after_key_action(game_id: String) -> void:
+func _after_key_action(game_id: String, added_keys: Array = []) -> void:
 	_status_lbl.text = "✅ Partie importée."
 	_status_lbl.add_theme_color_override("font_color", DesignTokens.SUCCESS)
-	import_completed.emit(game_id, [])
+	import_completed.emit(game_id, added_keys)
 	await get_tree().create_timer(1.0).timeout
 	queue_free()
 
