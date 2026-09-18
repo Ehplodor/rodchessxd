@@ -1155,99 +1155,54 @@ func _apply_analyze_button_style(is_running: bool) -> void:
 	if btn_analyze_game == null:
 		return
 	if is_running:
-		var stop_normal := DesignTokens.flat(Color("#7f1d1d"), DesignTokens.RADIUS_SMALL,
-				Color("#ef4444"), 1, Vector2(10, 2))
-		var stop_hover := DesignTokens.flat(Color("#991b1b"), DesignTokens.RADIUS_SMALL,
-				Color("#f87171"), 1, Vector2(10, 2))
-		var stop_pressed := DesignTokens.flat(Color("#450a0a"), DesignTokens.RADIUS_SMALL,
-				Color("#ef4444"), 1, Vector2(10, 2))
-		btn_analyze_game.add_theme_stylebox_override("normal", stop_normal)
-		btn_analyze_game.add_theme_stylebox_override("hover", stop_hover)
-		btn_analyze_game.add_theme_stylebox_override("pressed", stop_pressed)
-		btn_analyze_game.add_theme_color_override("font_color", Color.WHITE)
-		btn_analyze_game.add_theme_color_override("font_hover_color", Color.WHITE)
-		btn_analyze_game.add_theme_color_override("font_pressed_color", Color.WHITE)
+		var styles := DesignTokens.state_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(10, 2),
+				Color("#7f1d1d"), Color("#ef4444"),
+				Color("#991b1b"), Color("#f87171"),
+				Color("#450a0a"), Color("#ef4444"))
+		DesignTokens.apply_state(btn_analyze_game, styles, Color.WHITE, Color.WHITE, Color.WHITE)
 	else:
-		var analyze_normal := DesignTokens.flat(DesignTokens.PRIMARY_BG, DesignTokens.RADIUS_SMALL,
-				DesignTokens.PRIMARY_BORDER, 1, Vector2(10, 2))
-		var analyze_hover := analyze_normal.duplicate() as StyleBoxFlat
-		analyze_hover.border_color = DesignTokens.TEXT_PRIMARY
-		var analyze_pressed := analyze_normal.duplicate() as StyleBoxFlat
-		analyze_pressed.bg_color = DesignTokens.PRIMARY_BG_PRESSED
-		btn_analyze_game.add_theme_stylebox_override("normal", analyze_normal)
-		btn_analyze_game.add_theme_stylebox_override("hover", analyze_hover)
-		btn_analyze_game.add_theme_stylebox_override("pressed", analyze_pressed)
-		btn_analyze_game.add_theme_color_override("font_color", DesignTokens.ON_PRIMARY)
-		btn_analyze_game.add_theme_color_override("font_hover_color", DesignTokens.ON_PRIMARY)
-		btn_analyze_game.add_theme_color_override("font_pressed_color", DesignTokens.ON_PRIMARY)
-	btn_analyze_game.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+		var styles := DesignTokens.idle_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(10, 2),
+				DesignTokens.PRIMARY_BG, DesignTokens.PRIMARY_BORDER,
+				DesignTokens.PRIMARY_BG, DesignTokens.PRIMARY_BG_PRESSED,
+				DesignTokens.TEXT_PRIMARY)
+		DesignTokens.apply_state(btn_analyze_game, styles,
+				DesignTokens.ON_PRIMARY, DesignTokens.ON_PRIMARY, DesignTokens.ON_PRIMARY)
 
 func _update_live_button_style() -> void:
 	if btn_toggle_live == null:
 		return
 	if live_eval_enabled:
 		btn_toggle_live.text = "⚡ Live"
-		var live_normal := DesignTokens.flat(Color(0.06, 0.72, 0.51, 0.22), DesignTokens.RADIUS_SMALL,
-				Color("#10b981"), 1, Vector2(8, 2))
-		var live_hover := DesignTokens.flat(Color(0.06, 0.72, 0.51, 0.35), DesignTokens.RADIUS_SMALL,
-				Color("#34d399"), 1, Vector2(8, 2))
-		var live_pressed := DesignTokens.flat(Color(0.06, 0.72, 0.51, 0.45), DesignTokens.RADIUS_SMALL,
-				Color("#059669"), 1, Vector2(8, 2))
-		btn_toggle_live.add_theme_stylebox_override("normal", live_normal)
-		btn_toggle_live.add_theme_stylebox_override("hover", live_hover)
-		btn_toggle_live.add_theme_stylebox_override("pressed", live_pressed)
-		btn_toggle_live.add_theme_color_override("font_color", Color("#34d399"))
-		btn_toggle_live.add_theme_color_override("font_hover_color", Color.WHITE)
-		btn_toggle_live.add_theme_color_override("font_pressed_color", Color("#10b981"))
+		var styles := DesignTokens.state_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(8, 2),
+				Color(0.06, 0.72, 0.51, 0.22), Color("#10b981"),
+				Color(0.06, 0.72, 0.51, 0.35), Color("#34d399"),
+				Color(0.06, 0.72, 0.51, 0.45), Color("#059669"))
+		DesignTokens.apply_state(btn_toggle_live, styles, Color("#34d399"), Color.WHITE, Color("#10b981"))
 	else:
 		btn_toggle_live.text = "⚡ Off"
-		var off_normal := DesignTokens.flat(DesignTokens.BTN_BG, DesignTokens.RADIUS_SMALL,
-				DesignTokens.BTN_BORDER, 1, Vector2(8, 2))
-		var off_hover := off_normal.duplicate() as StyleBoxFlat
-		off_hover.bg_color = DesignTokens.BTN_BG_HOVER
-		var off_pressed := off_normal.duplicate() as StyleBoxFlat
-		off_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
-		btn_toggle_live.add_theme_stylebox_override("normal", off_normal)
-		btn_toggle_live.add_theme_stylebox_override("hover", off_hover)
-		btn_toggle_live.add_theme_stylebox_override("pressed", off_pressed)
-		btn_toggle_live.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-		btn_toggle_live.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
-		btn_toggle_live.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_MUTED)
-	btn_toggle_live.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+		var styles := DesignTokens.idle_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(8, 2),
+				DesignTokens.BTN_BG, DesignTokens.BTN_BORDER,
+				DesignTokens.BTN_BG_HOVER, DesignTokens.BTN_BG_PRESSED)
+		DesignTokens.apply_state(btn_toggle_live, styles,
+				DesignTokens.TEXT_MUTED, DesignTokens.TEXT_PRIMARY, DesignTokens.TEXT_MUTED)
 
 func _update_cliff_button_style() -> void:
 	if btn_toggle_cliff == null:
 		return
 	if is_cliff_live_active or _cliff_full_running:
 		btn_toggle_cliff.text = "⏹ Stop"
-		var cliff_active_normal := DesignTokens.flat(Color(0.40, 0.20, 0.65, 0.40), DesignTokens.RADIUS_SMALL,
-				Color("#c084fc"), 1, Vector2(6, 2))
-		var cliff_active_hover := DesignTokens.flat(Color(0.45, 0.25, 0.70, 0.55), DesignTokens.RADIUS_SMALL,
-				Color("#e9d5ff"), 1, Vector2(6, 2))
-		var cliff_active_pressed := DesignTokens.flat(Color(0.35, 0.15, 0.60, 0.65), DesignTokens.RADIUS_SMALL,
-				Color("#a855f7"), 1, Vector2(6, 2))
-		btn_toggle_cliff.add_theme_stylebox_override("normal", cliff_active_normal)
-		btn_toggle_cliff.add_theme_stylebox_override("hover", cliff_active_hover)
-		btn_toggle_cliff.add_theme_stylebox_override("pressed", cliff_active_pressed)
-		btn_toggle_cliff.add_theme_color_override("font_color", Color("#e9d5ff"))
-		btn_toggle_cliff.add_theme_color_override("font_hover_color", Color.WHITE)
-		btn_toggle_cliff.add_theme_color_override("font_pressed_color", Color("#c084fc"))
+		var styles := DesignTokens.state_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(6, 2),
+				Color(0.40, 0.20, 0.65, 0.40), Color("#c084fc"),
+				Color(0.45, 0.25, 0.70, 0.55), Color("#e9d5ff"),
+				Color(0.35, 0.15, 0.60, 0.65), Color("#a855f7"))
+		DesignTokens.apply_state(btn_toggle_cliff, styles, Color("#e9d5ff"), Color.WHITE, Color("#c084fc"))
 	else:
 		btn_toggle_cliff.text = "🏔️ Cliff"
-		var cliff_idle_normal := DesignTokens.flat(Color(0.18, 0.14, 0.28, 0.45), DesignTokens.RADIUS_SMALL,
-				Color(0.45, 0.35, 0.65, 0.5), 1, Vector2(6, 2))
-		var cliff_idle_hover := cliff_idle_normal.duplicate() as StyleBoxFlat
-		cliff_idle_hover.bg_color = Color(0.24, 0.18, 0.38, 0.65)
-		cliff_idle_hover.border_color = Color("#c084fc")
-		var cliff_idle_pressed := cliff_idle_normal.duplicate() as StyleBoxFlat
-		cliff_idle_pressed.bg_color = Color(0.14, 0.10, 0.22, 0.8)
-		btn_toggle_cliff.add_theme_stylebox_override("normal", cliff_idle_normal)
-		btn_toggle_cliff.add_theme_stylebox_override("hover", cliff_idle_hover)
-		btn_toggle_cliff.add_theme_stylebox_override("pressed", cliff_idle_pressed)
-		btn_toggle_cliff.add_theme_color_override("font_color", Color("#c084fc"))
-		btn_toggle_cliff.add_theme_color_override("font_hover_color", Color.WHITE)
-		btn_toggle_cliff.add_theme_color_override("font_pressed_color", Color("#a855f7"))
-	btn_toggle_cliff.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+		var styles := DesignTokens.idle_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(6, 2),
+				Color(0.18, 0.14, 0.28, 0.45), Color(0.45, 0.35, 0.65, 0.5),
+				Color(0.24, 0.18, 0.38, 0.65), Color(0.14, 0.10, 0.22, 0.8),
+				Color("#c084fc"))
+		DesignTokens.apply_state(btn_toggle_cliff, styles, Color("#c084fc"), Color.WHITE, Color("#a855f7"))
 
 func _update_sandbox_button_style() -> void:
 	if btn_toggle_sandbox == null:
@@ -1255,34 +1210,19 @@ func _update_sandbox_button_style() -> void:
 	if is_sandbox_mode:
 		btn_toggle_sandbox.text = "⏯ Reprendre"
 		btn_toggle_sandbox.tooltip_text = "Quitter le mode Test et revenir à la partie originale"
-		var test_active_normal := DesignTokens.flat(Color(0.85, 0.55, 0.12, 0.30), DesignTokens.RADIUS_SMALL,
-				Color("#f59e0b"), 1, Vector2(6, 2))
-		var test_active_hover := DesignTokens.flat(Color(0.85, 0.55, 0.12, 0.45), DesignTokens.RADIUS_SMALL,
-				Color("#fbbf24"), 1, Vector2(6, 2))
-		var test_active_pressed := DesignTokens.flat(Color(0.85, 0.55, 0.12, 0.60), DesignTokens.RADIUS_SMALL,
-				Color("#d97706"), 1, Vector2(6, 2))
-		btn_toggle_sandbox.add_theme_stylebox_override("normal", test_active_normal)
-		btn_toggle_sandbox.add_theme_stylebox_override("hover", test_active_hover)
-		btn_toggle_sandbox.add_theme_stylebox_override("pressed", test_active_pressed)
-		btn_toggle_sandbox.add_theme_color_override("font_color", Color("#fbbf24"))
-		btn_toggle_sandbox.add_theme_color_override("font_hover_color", Color.WHITE)
-		btn_toggle_sandbox.add_theme_color_override("font_pressed_color", Color("#f59e0b"))
+		var styles := DesignTokens.state_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(6, 2),
+				Color(0.85, 0.55, 0.12, 0.30), Color("#f59e0b"),
+				Color(0.85, 0.55, 0.12, 0.45), Color("#fbbf24"),
+				Color(0.85, 0.55, 0.12, 0.60), Color("#d97706"))
+		DesignTokens.apply_state(btn_toggle_sandbox, styles, Color("#fbbf24"), Color.WHITE, Color("#f59e0b"))
 	else:
 		btn_toggle_sandbox.text = "⏸ Test"
 		btn_toggle_sandbox.tooltip_text = "Mode Test (bac à sable) : tester des tactiques sans altérer la partie"
-		var test_idle_normal := DesignTokens.flat(DesignTokens.BTN_BG, DesignTokens.RADIUS_SMALL,
-				DesignTokens.BTN_BORDER, 1, Vector2(6, 2))
-		var test_idle_hover := test_idle_normal.duplicate() as StyleBoxFlat
-		test_idle_hover.bg_color = DesignTokens.BTN_BG_HOVER
-		var test_idle_pressed := test_idle_normal.duplicate() as StyleBoxFlat
-		test_idle_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
-		btn_toggle_sandbox.add_theme_stylebox_override("normal", test_idle_normal)
-		btn_toggle_sandbox.add_theme_stylebox_override("hover", test_idle_hover)
-		btn_toggle_sandbox.add_theme_stylebox_override("pressed", test_idle_pressed)
-		btn_toggle_sandbox.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
-		btn_toggle_sandbox.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
-		btn_toggle_sandbox.add_theme_color_override("font_pressed_color", DesignTokens.TEXT_MUTED)
-	btn_toggle_sandbox.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
+		var styles := DesignTokens.idle_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(6, 2),
+				DesignTokens.BTN_BG, DesignTokens.BTN_BORDER,
+				DesignTokens.BTN_BG_HOVER, DesignTokens.BTN_BG_PRESSED)
+		DesignTokens.apply_state(btn_toggle_sandbox, styles,
+				DesignTokens.TEXT_MUTED, DesignTokens.TEXT_PRIMARY, DesignTokens.TEXT_MUTED)
 
 func _enter_sandbox_mode() -> void:
 	if is_sandbox_mode:
@@ -1644,30 +1584,38 @@ func _play_engine_move_on_board(move_uci: String) -> void:
 
 # --- BANDEAU D'ERREURS À L'ÉCRAN ---
 
+## Fabrique commune des libellés superposés (bandeau d'erreur, toast) : mêmes tokens,
+## ancrage haut large, autowrap, non interactifs. Évite la duplication des deux builders.
+func _make_top_overlay_label(offset_l: float, offset_r: float, top: float,
+		bg: Color, border: Color, font_color: Color) -> Label:
+	var style := StyleBoxFlat.new()
+	style.bg_color = bg
+	style.border_color = border
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(DesignTokens.RADIUS_MEDIUM)
+	style.set_content_margin_all(10)
+	var lbl := Label.new()
+	lbl.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	lbl.offset_left = offset_l
+	lbl.offset_right = offset_r
+	lbl.offset_top = top
+	lbl.offset_bottom = top
+	lbl.add_theme_stylebox_override("normal", style)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.add_theme_color_override("font_color", font_color)
+	lbl.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(lbl)
+	lbl.hide()
+	return lbl
+
 func _build_error_banner() -> void:
 	if error_label != null:
 		return
-	var style := StyleBoxFlat.new()
-	style.bg_color = DesignTokens.ERROR_BG
-	style.border_color = DesignTokens.DANGER
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(8)
-	style.set_content_margin_all(10)
-	error_label = Label.new()
-	error_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	error_label.offset_left = 16
-	error_label.offset_right = -16
-	error_label.offset_top = 10
-	error_label.offset_bottom = 10
-	error_label.add_theme_stylebox_override("normal", style)
-	error_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	error_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	error_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	error_label.add_theme_color_override("font_color", DesignTokens.ERROR_TEXT)
-	error_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	error_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(error_label)
-	error_label.hide()
+	error_label = _make_top_overlay_label(16, -16, 10,
+			DesignTokens.ERROR_BG, DesignTokens.DANGER, DesignTokens.ERROR_TEXT)
 
 func _measure_error_height(msg: String) -> float:
 	var font: Font = error_label.get_theme_font("font")
@@ -1712,27 +1660,9 @@ func _show_toast(msg: String, is_success: bool = true) -> void:
 	if msg.is_empty():
 		return
 	if toast_label == null:
-		var style := StyleBoxFlat.new()
-		style.bg_color = Color(0.06, 0.72, 0.51, 0.92) if is_success else DesignTokens.SURFACE_ELEVATED
-		style.border_color = Color("#34d399") if is_success else DesignTokens.BORDER
-		style.set_border_width_all(1)
-		style.set_corner_radius_all(DesignTokens.RADIUS_MEDIUM)
-		style.set_content_margin_all(10)
-		toast_label = Label.new()
-		toast_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-		toast_label.offset_left = 24
-		toast_label.offset_right = -24
-		toast_label.offset_top = 54
-		toast_label.offset_bottom = 94
-		toast_label.add_theme_stylebox_override("normal", style)
-		toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		toast_label.add_theme_color_override("font_color", Color.WHITE)
-		toast_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-		toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(toast_label)
-		toast_label.hide()
+		var bg := Color(0.06, 0.72, 0.51, 0.92) if is_success else DesignTokens.SURFACE_ELEVATED
+		var border := Color("#34d399") if is_success else DesignTokens.BORDER
+		toast_label = _make_top_overlay_label(24, -24, 54, bg, border, Color.WHITE)
 	else:
 		var style: StyleBoxFlat = toast_label.get_theme_stylebox("normal")
 		if style:
@@ -2267,7 +2197,7 @@ func _on_btn_analyze_game_pressed() -> void:
 	btn_toggle_live.disabled = true
 
 	var sm = get_node_or_null("/root/SettingsManager")
-	var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+	var def_anal := EngineAnalysisEntry.default_depth()
 	var mode: String = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
 	var time_per_move: float = sm.get_setting("analysis_time_per_move", 0.2) if sm else 0.2
 	var dynamic_base: float = sm.get_setting("analysis_dynamic_base", 0.08) if sm else 0.08
@@ -2363,37 +2293,12 @@ func _on_analysis_finished(report: Dictionary) -> void:
 		var gid = GameController.get_or_create_game_id()
 		if gid != "":
 			var sm = get_node_or_null("/root/SettingsManager")
-			var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+			var def_anal := EngineAnalysisEntry.default_depth()
 			var a_depth = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
 			var a_mode = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
-			var analysis_entry = {
-				"engine_name": EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
-				"depth": a_depth,
-				"mode": a_mode,
-				"white_accuracy": report.get("white_accuracy", 0.0),
-				"black_accuracy": report.get("black_accuracy", 0.0),
-				"white_estimated_elo": report.get("white_estimated_elo", 1500),
-				"black_estimated_elo": report.get("black_estimated_elo", 1500),
-				"white_elo_ci": report.get("white_elo_ci", 0),
-				"black_elo_ci": report.get("black_elo_ci", 0),
-				"white_ipr_elo": report.get("white_ipr_elo", report.get("white_estimated_elo", 1500)),
-				"black_ipr_elo": report.get("black_ipr_elo", report.get("black_estimated_elo", 1500)),
-				"white_complexity_avg": report.get("white_complexity_avg", 1.0),
-				"black_complexity_avg": report.get("black_complexity_avg", 1.0),
-				"has_clock_data": report.get("has_clock_data", false),
-				"elo_comparison": report.get("elo_comparison", {}),
-				"white_acpl": report.get("white_acpl", 0.0),
-				"black_acpl": report.get("black_acpl", 0.0),
-				"white_stats": report.get("white_stats", {}),
-				"black_stats": report.get("black_stats", {}),
-				"schema_version": report.get("schema_version", 1),
-				"opening": report.get("opening", {}),
-				"theory_plies": report.get("theory_plies", 0),
-				"white_phase_stats": report.get("white_phase_stats", {}),
-				"black_phase_stats": report.get("black_phase_stats", {}),
-				"biggest_swings": report.get("biggest_swings", []),
-				"evaluations": evals
-			}
+			var analysis_entry := EngineAnalysisEntry.build(
+					report, evals, a_depth, a_mode,
+					EngineManager.get_engine_display_name() if EngineManager else "Stockfish")
 			dm.add_engine_analysis(gid, analysis_entry)
 			var game_rec = dm.get_game(gid)
 			advantage_graph.update_stored_analyses(game_rec.get("engine_analyses", []))
@@ -2999,38 +2904,13 @@ func _on_cliff_full_finished(report: Dictionary) -> void:
 			var gid = GameController.get_or_create_game_id()
 			if gid != "":
 				var sm = get_node_or_null("/root/SettingsManager")
-				var def_anal = 14 if (OS.has_feature("android") or OS.has_feature("ios")) else 18
+				var def_anal := EngineAnalysisEntry.default_depth()
 				var a_depth = sm.get_setting("analysis_depth", def_anal) if sm else def_anal
 				var a_mode = sm.get_setting("analysis_mode", "dynamic") if sm else "dynamic"
-				var analysis_entry = {
-					"engine_name": EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
-					"depth": deep_d if deep_d > 0 else a_depth,
-					"mode": a_mode,
-					"white_accuracy": classic_report.get("white_accuracy", 0.0),
-					"black_accuracy": classic_report.get("black_accuracy", 0.0),
-					"white_estimated_elo": classic_report.get("white_estimated_elo", 1500),
-					"black_estimated_elo": classic_report.get("black_estimated_elo", 1500),
-					"white_elo_ci": classic_report.get("white_elo_ci", 0),
-					"black_elo_ci": classic_report.get("black_elo_ci", 0),
-					"white_ipr_elo": classic_report.get("white_ipr_elo", classic_report.get("white_estimated_elo", 1500)),
-					"black_ipr_elo": classic_report.get("black_ipr_elo", classic_report.get("black_estimated_elo", 1500)),
-					"white_complexity_avg": classic_report.get("white_complexity_avg", 1.0),
-					"black_complexity_avg": classic_report.get("black_complexity_avg", 1.0),
-					"has_clock_data": classic_report.get("has_clock_data", false),
-					"elo_comparison": classic_report.get("elo_comparison", {}),
-					"white_acpl": classic_report.get("white_acpl", 0.0),
-					"black_acpl": classic_report.get("black_acpl", 0.0),
-					"white_stats": classic_report.get("white_stats", {}),
-					"black_stats": classic_report.get("black_stats", {}),
-					"schema_version": classic_report.get("schema_version", 1),
-					"opening": classic_report.get("opening", {}),
-					"theory_plies": classic_report.get("theory_plies", 0),
-					"white_phase_stats": classic_report.get("white_phase_stats", {}),
-					"black_phase_stats": classic_report.get("black_phase_stats", {}),
-					"biggest_swings": classic_report.get("biggest_swings", []),
-					"evaluations": evals,
-					"cliff_data": report
-				}
+				var analysis_entry := EngineAnalysisEntry.build(
+						classic_report, evals, deep_d if deep_d > 0 else a_depth, a_mode,
+						EngineManager.get_engine_display_name() if EngineManager else "Stockfish",
+						report)
 				dm.add_engine_analysis(gid, analysis_entry)
 				var game_rec = dm.get_game(gid)
 				if advantage_graph != null:

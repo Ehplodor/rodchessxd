@@ -169,6 +169,44 @@ static func style_button(btn: Button, font_size: int = FONT_BUTTON, min_height: 
 	btn.custom_minimum_size.y = maxf(btn.custom_minimum_size.y, float(min_height))
 	btn.add_theme_font_size_override("font_size", font_size)
 
+# --- États de boutons (factorisation des styles normal/hover/pressed) ---
+## Construit le trio normal/hover/pressed avec un fond/bordure explicite par état
+## (utilisé pour les états « actifs » très colorés : STOP, Live, Cliff, Test).
+static func state_styles(radius: int, border_w: int, margins: Vector2,
+		normal_bg: Color, normal_border: Color,
+		hover_bg: Color, hover_border: Color,
+		pressed_bg: Color, pressed_border: Color) -> Dictionary:
+	return {
+		"normal": flat(normal_bg, radius, normal_border, border_w, margins),
+		"hover": flat(hover_bg, radius, hover_border, border_w, margins),
+		"pressed": flat(pressed_bg, radius, pressed_border, border_w, margins),
+	}
+
+## Construit le trio « au repos » : hover/pressed dérivent du normal et ne changent
+## que le fond (et éventuellement la bordure au survol).
+static func idle_styles(radius: int, border_w: int, margins: Vector2,
+		bg: Color, border: Color, hover_bg: Color, pressed_bg: Color,
+		hover_border: Color = Color.TRANSPARENT) -> Dictionary:
+	var normal := flat(bg, radius, border, border_w, margins)
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = hover_bg
+	if hover_border != Color.TRANSPARENT:
+		hover.border_color = hover_border
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = pressed_bg
+	return {"normal": normal, "hover": hover, "pressed": pressed}
+
+## Applique un trio de StyleBox + les trois couleurs de police + la taille au bouton.
+static func apply_state(btn: Button, styles: Dictionary, font_normal: Color,
+		font_hover: Color, font_pressed: Color, font_size: int = FONT_BUTTON) -> void:
+	btn.add_theme_stylebox_override("normal", styles["normal"])
+	btn.add_theme_stylebox_override("hover", styles["hover"])
+	btn.add_theme_stylebox_override("pressed", styles["pressed"])
+	btn.add_theme_color_override("font_color", font_normal)
+	btn.add_theme_color_override("font_hover_color", font_hover)
+	btn.add_theme_color_override("font_pressed_color", font_pressed)
+	btn.add_theme_font_size_override("font_size", font_size)
+
 # --- Défilement tactile (M1, retours de test mobile) ---
 ## Épaisseur des barres de défilement (px) : repère visuel mobile.
 const SCROLLBAR_W := 18
