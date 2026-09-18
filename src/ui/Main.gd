@@ -261,26 +261,34 @@ func _ready() -> void:
 	_check_and_update_layout()
 	call_deferred("_start_initial_eval")
 
+## Joint un worker thread s'il est actif (toujours appelé depuis le thread principal).
+func _join_thread(t: Thread) -> void:
+	if t != null and t.is_started():
+		t.wait_to_finish()
+
+## Démarre une tâche lourde dans un thread dédié (Desktop/Android). Sur le Web, les
+## chemins appellent les variantes async/await et n'utilisent pas ce helper.
+func _start_worker(work: Callable) -> Thread:
+	var t := Thread.new()
+	t.start(work)
+	return t
+
 func _exit_tree() -> void:
 	_flush_pending_annotations()
 	if AICoach != null and AICoach.has_method("stop_speech"):
 		AICoach.stop_speech()
 	if analyzer != null and analyzer.is_analyzing:
 		analyzer.cancel_analysis()
-	if analysis_thread != null and analysis_thread.is_started():
-		analysis_thread.wait_to_finish()
+	_join_thread(analysis_thread)
 	if cliff_analyzer != null and cliff_analyzer.is_analyzing:
 		cliff_analyzer.cancel()
-	if cliff_thread != null and cliff_thread.is_started():
-		cliff_thread.wait_to_finish()
+	_join_thread(cliff_thread)
 	if _cliff_full_analyzer != null and _cliff_full_analyzer.is_analyzing:
 		_cliff_full_analyzer.cancel()
-	if _cliff_full_thread != null and _cliff_full_thread.is_started():
-		_cliff_full_thread.wait_to_finish()
+	_join_thread(_cliff_full_thread)
 	if _cliff_meso_analyzer != null and _cliff_meso_analyzer.is_analyzing:
 		_cliff_meso_analyzer.cancel()
-	if _cliff_meso_thread != null and _cliff_meso_thread.is_started():
-		_cliff_meso_thread.wait_to_finish()
+	_join_thread(_cliff_meso_thread)
 
 func _notification(what: int) -> void:
 	# Les barres système (gestes) peuvent apparaître/disparaître en cours de
@@ -1730,14 +1738,24 @@ func _dock_overlay(overlay: Control) -> void:
 		overlay.offset_right = 0
 		overlay.offset_bottom = 0
 
+## Masque toutes les vues superposées (Analyse / Coach / Carnet) : point unique évitant
+## de répéter les trois affectations à chaque bascule d'overlay.
+func _hide_all_overlays() -> void:
+	if analyse_overlay != null:
+		analyse_overlay.visible = false
+	if coach_overlay != null:
+		coach_overlay.visible = false
+	if carnet_overlay != null:
+		carnet_overlay.visible = false
+
 func _open_analyse_overlay() -> void:
-	coach_overlay.visible = false
+	_hide_all_overlays()
 	if move_list:
 		move_list.refresh()
 	_show_overlay(analyse_overlay)
 
 func _open_coach_overlay() -> void:
-	analyse_overlay.visible = false
+	_hide_all_overlays()
 	if coach_panel:
 		coach_panel.refresh_for_current_ply()
 	_show_overlay(coach_overlay)
@@ -1771,10 +1789,7 @@ func _setup_carnet_overlay() -> void:
 func _open_carnet_overlay() -> void:
 	if carnet_overlay == null or carnet_presenter == null:
 		return
-	if analyse_overlay:
-		analyse_overlay.visible = false
-	if coach_overlay:
-		coach_overlay.visible = false
+	_hide_all_overlays()
 	carnet_overlay.open(carnet_presenter)
 	# Plein écran + au-dessus de toutes les pièces (cf. fix overlays Analyse/Coach).
 	carnet_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1791,10 +1806,7 @@ func _show_overlay(overlay: Control) -> void:
 	move_child(overlay, get_child_count() - 1)
 
 func _close_overlays() -> void:
-	analyse_overlay.visible = false
-	coach_overlay.visible = false
-	if carnet_overlay != null:
-		carnet_overlay.visible = false
+	_hide_all_overlays()
 
 func close_overlays() -> void:
 	_close_overlays()
@@ -1809,19 +1821,26 @@ func show_board_tab() -> void:
 var import_menu: PopupMenu = null
 var settings_menu: PopupMenu = null
 
-func _build_import_menu() -> void:
-	import_menu = PopupMenu.new()
-	import_menu.name = "ImportMenu"
-	import_menu.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
+## Fabrique commune des menus déroulants (Import / Réglages) : police, fond, bordure
+## et survol identiques. Évite de dupliquer la mise en thème dans les deux builders.
+func _make_popup_menu(menu_name: String) -> PopupMenu:
+	var menu := PopupMenu.new()
+	menu.name = menu_name
+	menu.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
 	var item_style := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
 			Color.TRANSPARENT, 0, Vector2(14, 16))
-	import_menu.add_theme_stylebox_override("hover", item_style)
-	import_menu.add_theme_stylebox_override("selected", item_style)
+	menu.add_theme_stylebox_override("hover", item_style)
+	menu.add_theme_stylebox_override("selected", item_style)
 	var panel_style := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM,
 			DesignTokens.BORDER, 1, Vector2(4, 4))
-	import_menu.add_theme_stylebox_override("panel", panel_style)
-	import_menu.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	import_menu.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
+	menu.add_theme_stylebox_override("panel", panel_style)
+	menu.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
+	menu.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
+	add_child(menu)
+	return menu
+
+func _build_import_menu() -> void:
+	import_menu = _make_popup_menu("ImportMenu")
 	import_menu.add_item("📚  Bibliothèque & analyses archivées", 6)
 	import_menu.add_separator("Importer")
 	import_menu.add_item("🖼️  Photo du plateau (PNG)", 0)
@@ -1836,7 +1855,6 @@ func _build_import_menu() -> void:
 	import_menu.add_item("🎯  Aides de coups (ON/OFF)", 5)
 	import_menu.add_item("🧽  Effacer les annotations", 9)
 	import_menu.id_pressed.connect(_on_import_menu_id_pressed)
-	add_child(import_menu)
 
 func _on_import_menu_id_pressed(id: int) -> void:
 	match id:
@@ -2053,22 +2071,10 @@ func _on_btn_library_pressed() -> void:
 		_popup_from_button(import_menu, btn_lib)
 
 func _build_settings_menu() -> void:
-	settings_menu = PopupMenu.new()
-	settings_menu.name = "SettingsMenu"
-	settings_menu.add_theme_font_size_override("font_size", DesignTokens.FONT_BODY)
-	var item_style := DesignTokens.flat(DesignTokens.SURFACE_ELEVATED, DesignTokens.RADIUS_SMALL,
-			Color.TRANSPARENT, 0, Vector2(14, 16))
-	settings_menu.add_theme_stylebox_override("hover", item_style)
-	settings_menu.add_theme_stylebox_override("selected", item_style)
-	var panel_style := DesignTokens.flat(DesignTokens.SURFACE, DesignTokens.RADIUS_MEDIUM,
-			DesignTokens.BORDER, 1, Vector2(4, 4))
-	settings_menu.add_theme_stylebox_override("panel", panel_style)
-	settings_menu.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
-	settings_menu.add_theme_color_override("font_hover_color", DesignTokens.TEXT_PRIMARY)
+	settings_menu = _make_popup_menu("SettingsMenu")
 	settings_menu.add_item("⚙️  Réglages de l'application", 0)
 	settings_menu.add_item("⚡  Moteurs d'échecs", 1)
 	settings_menu.id_pressed.connect(_on_settings_menu_id_pressed)
-	add_child(settings_menu)
 
 func _on_settings_menu_id_pressed(id: int) -> void:
 	match id:
@@ -2230,8 +2236,7 @@ func _on_btn_analyze_game_pressed() -> void:
 		chess_board.best_move_arrow_to = -1
 		chess_board.reset_board_visuals()
 
-	if analysis_thread and analysis_thread.is_started():
-		analysis_thread.wait_to_finish()
+	_join_thread(analysis_thread)
 
 	var options = {
 		"mode": mode,
@@ -2251,8 +2256,7 @@ func _on_btn_analyze_game_pressed() -> void:
 		analyzer.start_game_analysis_async(GameController.game, a_depth, options)
 	else:
 		# Sur Desktop et Android, thread dédié pour préserver le framerate à 60 FPS
-		analysis_thread = Thread.new()
-		analysis_thread.start(func():
+		analysis_thread = _start_worker(func():
 			analyzer.start_game_analysis(GameController.game, a_depth, options)
 		)
 
@@ -2261,8 +2265,7 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	_engine_lines_last_fen = ""
 	_engine_lines_last_depth = -1
 	_engine_lines_last_count = -1
-	if analysis_thread and analysis_thread.is_started():
-		analysis_thread.wait_to_finish()
+	_join_thread(analysis_thread)
 
 	if analyzer:
 		analyzer.is_analyzing = false
@@ -2437,10 +2440,8 @@ func _on_engine_compare_all_lines_requested(lines: Array, meta: Dictionary) -> v
 		_show_toast("🏔️ Comparaison cognitive des lignes terminée !", true)
 	else:
 		# Sur Desktop / Mobile natif : worker thread non-bloquant
-		if _cliff_meso_thread != null and _cliff_meso_thread.is_started():
-			_cliff_meso_thread.wait_to_finish()
-		_cliff_meso_thread = Thread.new()
-		_cliff_meso_thread.start(func():
+		_join_thread(_cliff_meso_thread)
+		_cliff_meso_thread = _start_worker(func():
 			var results: Dictionary = _cliff_meso_analyzer.analyze_multiple_lines_sync(start_fen, lines, opts)
 			call_deferred("_on_meso_all_lines_finished", results)
 		)
@@ -2450,8 +2451,7 @@ func _on_meso_single_line_ready(rank: int, piste_data: Dictionary) -> void:
 		engine_lines_panel.set_line_piste(rank, piste_data)
 
 func _on_meso_all_lines_finished(results: Dictionary) -> void:
-	if _cliff_meso_thread != null and _cliff_meso_thread.is_started():
-		_cliff_meso_thread.wait_to_finish()
+	_join_thread(_cliff_meso_thread)
 	if is_instance_valid(engine_lines_panel):
 		engine_lines_panel.set_line_pistes(results)
 	_show_toast("🏔️ Comparaison cognitive des lignes terminée !", true)
@@ -2568,10 +2568,8 @@ func _start_cliff_super_live(pv_override: Array = [], source_meta: Dictionary = 
 		var rep = cliff_analyzer.analyze_pv_line(start_fen, pv_moves, opts)
 		_on_cliff_super_live_finished(rep)
 	else:
-		if cliff_thread and cliff_thread.is_started():
-			cliff_thread.wait_to_finish()
-		cliff_thread = Thread.new()
-		cliff_thread.start(func():
+		_join_thread(cliff_thread)
+		cliff_thread = _start_worker(func():
 			var rep = cliff_analyzer.analyze_pv_line(start_fen, pv_moves, opts)
 			call_deferred("_on_cliff_super_live_finished", rep)
 		)
@@ -2624,8 +2622,7 @@ func _apply_cliff_overlay_for_step(step: Dictionary) -> void:
 	})
 
 func _on_cliff_super_live_finished(report: Dictionary) -> void:
-	if cliff_thread and cliff_thread.is_started():
-		cliff_thread.wait_to_finish()
+	_join_thread(cliff_thread)
 
 	is_cliff_live_active = false
 	_update_cliff_button_style()
@@ -2810,10 +2807,8 @@ func study_full_game() -> void:
 		var rep = _cliff_full_analyzer.analyze_game(game_ref, opts)
 		_on_cliff_full_finished(rep)
 	else:
-		if _cliff_full_thread and _cliff_full_thread.is_started():
-			_cliff_full_thread.wait_to_finish()
-		_cliff_full_thread = Thread.new()
-		_cliff_full_thread.start(func():
+		_join_thread(_cliff_full_thread)
+		_cliff_full_thread = _start_worker(func():
 			var rep = _cliff_full_analyzer.analyze_game(game_ref, opts)
 			call_deferred("_on_cliff_full_finished", rep)
 		)
@@ -2859,8 +2854,7 @@ func _on_cliff_full_progress(cur: int, tot: int) -> void:
 		cliff_dock.show_computing(cur, tot)
 
 func _on_cliff_full_finished(report: Dictionary) -> void:
-	if _cliff_full_thread and _cliff_full_thread.is_started():
-		_cliff_full_thread.wait_to_finish()
+	_join_thread(_cliff_full_thread)
 	_cliff_full_running = false
 	_update_cliff_button_style()
 	if is_instance_valid(engine_lines_panel):
