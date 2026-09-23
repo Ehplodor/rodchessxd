@@ -852,8 +852,25 @@ func _build_analyse_tab() -> void:
 	added = _add_motif_section("Forces", presenter.ledger.get("forces", [])) or added
 	added = _add_motif_section("Curiosités", presenter.ledger.get("curiosites", [])) or added
 	added = _add_motif_section("Pistes à confirmer", presenter.ledger.get("emergeants", [])) or added
+	added = _add_ecart_section(presenter.get_ecart_theorie_pratique()) or added
 	if not added:
 		_content.add_child(_hint("Pas encore assez de parties analysées pour dessiner ce carnet."))
+
+## Section « À transférer en pratique » : compétences où la théorie est acquise mais
+## l'application en drills échoue (§4.11 B, régime sait_mais_n_applique_pas).
+func _add_ecart_section(ecarts: Array) -> bool:
+	var transfert: Array = []
+	for e in ecarts:
+		if e is Dictionary and str(e.get("regime", "")) == "sait_mais_n_applique_pas":
+			transfert.append(e)
+	if transfert.is_empty():
+		return false
+	_content.add_child(_section_title("À transférer en pratique"))
+	for e in transfert:
+		var lbl := _clean_dimension_label(str(e.get("dimension", "")), str(e.get("cle", "")))
+		_content.add_child(_hint("%s — théorie %d → pratique %d" % [
+				lbl, int(e.get("skill_theorie", 0)), int(e.get("skill_pratique", 0))]))
+	return true
 
 func _add_motif_section(title: String, motifs: Array) -> bool:
 	if motifs.is_empty():

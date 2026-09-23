@@ -606,6 +606,10 @@ static func refresh_plan(today_iso: String = "", options: Dictionary = {}, profi
 	trainer["drills"] = merged
 	trainer["dernier_plan_date"] = today
 	trainer["competences"] = ledger.get("competences", [])
+	# Écart théorie ↔ pratique (§4.11 B) : compare les compétences évolutives selon le
+	# contexte des drills (curiosité = théorie, correction = pratique).
+	trainer["ecart_theorie_pratique"] = CarnetTrainer.ecart_theorie_pratique(
+			_ecart_input_from_skills(trainer.get("competences_skill", {})))
 	trainer["nb_parties"] = maxi(game_count(pid), int(trainer.get("nb_parties", 0)))
 	trainer["schema_version"] = CarnetConfig.CARNET_SCHEMA_VERSION
 	_save_trainer(pid, trainer)
@@ -637,8 +641,61 @@ static func record_review(drill_id: String, note: int, today_iso: String = "", p
 		trainer["derniere_date"] = streak["derniere_date"]
 		trainer["joker_disponible"] = streak["joker_disponible"]
 		trainer["derniere_joker_date"] = streak.get("derniere_joker_date", "")
+		_update_competence_skill(trainer, updated, note)
 	_save_trainer(pid, trainer)
 	return updated
+
+## Compétence évolutive (§4.11 A) : maintient deux mesures par `dimension|cle` —
+## « theorie » (drills de curiosité) et « pratique » (drills de correction) — mises à
+## jour par un modèle Élo-skill (`CarnetTrainer.update_skill`).
+static func _update_competence_skill(trainer: Dictionary, drill: Dictionary, note: int) -> void:
+	var key := _competence_key_for(drill)
+	if key == "":
+		return
+	var comp: Dictionary = trainer.get("competences_skill", {}) \
+			if trainer.get("competences_skill", {}) is Dictionary else {}
+	var entry: Dictionary = comp.get(key, {}) if comp.get(key, {}) is Dictionary else {}
+	var ctx := "theorie" if str(drill.get("contexte", "pratique")) == "theorie" else "pratique"
+	var state: Dictionary = entry.get(ctx, {}) if entry.get(ctx, {}) is Dictionary else {}
+	if state.is_empty():
+		state = {"skill": 50.0, "n": 0}
+	CarnetTrainer.update_skill(state, float(drill.get("difficulte", 50.0)), note >= 3)
+	entry[ctx] = state
+	comp[key] = entry
+	trainer["competences_skill"] = comp
+
+## Clé de compétence d'un drill : `dimension|cle` (dimension déjà normalisée par le
+## Trainer, cle = partie droite du motif). "" si l'un des deux manque.
+static func _competence_key_for(drill: Dictionary) -> String:
+	var dimension := str(drill.get("dimension", ""))
+	var parts := str(drill.get("motif", "")).split("|")
+	var cle := parts[1] if parts.size() > 1 else ""
+	if dimension == "" or cle == "":
+		return ""
+	return "%s|%s" % [dimension, cle]
+
+## Prépare l'entrée de `CarnetTrainer.ecart_theorie_pratique` depuis les compétences
+## évolutives : une mesure n'est retenue que si son contexte a été pratiqué (n > 0).
+static func _ecart_input_from_skills(comp) -> Array:
+	var out: Array = []
+	if not (comp is Dictionary):
+		return out
+	for key in comp.keys():
+		var entry = comp[key]
+		if not (entry is Dictionary):
+			continue
+		var parts := str(key).split("|")
+		var theo = entry.get("theorie", {})
+		var prat = entry.get("pratique", {})
+		out.append({
+			"dimension": parts[0] if parts.size() > 0 else "",
+			"cle": parts[1] if parts.size() > 1 else "",
+			"skill_theorie": float(theo.get("skill", -1.0)) \
+					if theo is Dictionary and int(theo.get("n", 0)) > 0 else -1.0,
+			"skill_pratique": float(prat.get("skill", -1.0)) \
+					if prat is Dictionary and int(prat.get("n", 0)) > 0 else -1.0,
+		})
+	return out
 
 # ── Persistance interne ──────────────────────────────────────────────────────────
 

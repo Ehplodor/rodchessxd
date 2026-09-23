@@ -40,6 +40,7 @@ func _process(_delta: float) -> bool:
 	_test_profile_delete_purges_data()
 	_test_malformed_sync_resilience()
 	_test_mastery_wiring()
+	_test_skill_and_ecart_wiring()
 
 	CarnetProfiles.reset()
 	if _failures == 0:
@@ -423,5 +424,61 @@ func _test_mastery_wiring() -> void:
 		if drill is Dictionary and str(drill.get("motif", "")) == "type_finale|tours":
 			reactivated = not bool(drill.get("maitrise", false))
 	_check(reactivated, "motif réapparu récemment → maîtrise levée (retravaillable)")
+	CarnetProfiles.reset()
+
+func _skill_atom(id: String, gid: String, date_iso: String, polarite: String, merite: float) -> Dictionary:
+	var a := _mastery_atom(id, gid, 0, date_iso, "tours")
+	a["polarite"] = polarite
+	a["merite"] = merite
+	return a
+
+## Câblage des compétences évolutives théoriques/pratiques et de l'écart (§4.11 A/B).
+func _test_skill_and_ecart_wiring() -> void:
+	CarnetProfiles.reset()
+	var pid := CarnetProfiles.create("Compétence", "local", ["competence"])
+	# 3 atomes négatifs (motif de correction → drills « pratique »).
+	for i in range(3):
+		var gid := "gP%d" % i
+		CarnetStore.ingest_game(gid,
+				[_skill_atom("p%d" % i, gid, "2026-01-0%d" % (i + 1), "négatif", 0.0)],
+				{"date_iso": "2026-01-0%d" % (i + 1)}, pid)
+	# 3 atomes positifs (motif de curiosité → drills « théorie »), même dimension|cle.
+	for i in range(3):
+		var gid := "gT%d" % i
+		CarnetStore.ingest_game(gid,
+				[_skill_atom("t%d" % i, gid, "2026-01-0%d" % (i + 1), "positif", 0.8)],
+				{"date_iso": "2026-01-0%d" % (i + 1)}, pid)
+
+	CarnetStore.refresh_plan("2026-09-01", {}, pid)
+	var practice_id := ""
+	var theory_id := ""
+	for drill in CarnetStore.get_trainer_state(pid).get("drills", []):
+		if drill is Dictionary and str(drill.get("motif", "")) == "type_finale|tours":
+			if str(drill.get("contexte", "")) == "theorie":
+				theory_id = str(drill.get("drill_id", ""))
+			else:
+				practice_id = str(drill.get("drill_id", ""))
+	_check(practice_id != "" and theory_id != "", "drills pratique et théorie générés")
+
+	# Théorie réussie, pratique échouée.
+	for k in range(4):
+		CarnetStore.record_review(practice_id, 1, "2026-09-0%d" % (2 + k), pid)
+		CarnetStore.record_review(theory_id, 5, "2026-09-0%d" % (2 + k), pid)
+
+	CarnetStore.refresh_plan("2026-09-06", {}, pid)
+	var tr := CarnetStore.get_trainer_state(pid)
+	var entry: Dictionary = (tr.get("competences_skill", {}) as Dictionary).get("type_finale|tours", {})
+	var prat: Dictionary = entry.get("pratique", {}) if entry.get("pratique", {}) is Dictionary else {}
+	var theo: Dictionary = entry.get("theorie", {}) if entry.get("theorie", {}) is Dictionary else {}
+	_check(float(prat.get("skill", 50.0)) < 50.0, "compétence pratique baisse après échecs")
+	_check(float(theo.get("skill", 50.0)) > 50.0, "compétence théorie monte après réussites")
+
+	var found := {}
+	for e in (tr.get("ecart_theorie_pratique", []) as Array):
+		if e is Dictionary and str(e.get("dimension", "")) == "type_finale" and str(e.get("cle", "")) == "tours":
+			found = e
+	_check(not found.is_empty(), "écart théorie/pratique calculé pour type_finale|tours")
+	_check(str(found.get("regime", "")) == "sait_mais_n_applique_pas",
+			"régime « sait mais n'applique pas » détecté")
 	CarnetProfiles.reset()
 

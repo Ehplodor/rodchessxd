@@ -799,6 +799,14 @@ func get_streak_info() -> Dictionary:
 		"maitrise": mastered,
 	}
 
+## Écarts théorie ↔ pratique calculés (§4.11 B) : liste {dimension, cle, skill_theorie,
+## skill_pratique, ecart, regime}, pour l'affichage pédagogique.
+func get_ecart_theorie_pratique() -> Array:
+	_ensure_profile()
+	var tr := CarnetStore.get_trainer_state(profile_id)
+	var ecarts = tr.get("ecart_theorie_pratique", [])
+	return ecarts if ecarts is Array else []
+
 ## Répartition des motifs programmés dans la séance active pour affichage sous forme de badges.
 func plan_motifs_summary() -> Array[Dictionary]:
 	var drills: Array = plan.get("drills", []) if plan.get("drills", []) is Array else []
