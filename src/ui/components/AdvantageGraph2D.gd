@@ -89,7 +89,9 @@ func _setup_hud() -> void:
 	badge_vbox.add_child(depth_label)
 
 	depth_progress_bar = ProgressBar.new()
-	depth_progress_bar.custom_minimum_size = Vector2(130, 3)
+	# Pas de largeur fixe : la jauge suit la largeur du libellé de la puce (une largeur
+	# minimale de 130 px faisait déborder la rangée « Comparer » hors de l'écran).
+	depth_progress_bar.custom_minimum_size = Vector2(0, 3)
 	depth_progress_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	depth_progress_bar.show_percentage = false
 	depth_progress_bar.min_value = 0
@@ -110,7 +112,7 @@ func _setup_hud() -> void:
 	btn_switch_analysis = Button.new()
 	btn_switch_analysis.visible = false
 	btn_switch_analysis.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION - 1)
-	btn_switch_analysis.custom_minimum_size = Vector2(140, 32)
+	btn_switch_analysis.custom_minimum_size = Vector2(110, 32)
 	btn_switch_analysis.clip_text = true
 	btn_switch_analysis.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	btn_switch_analysis.tooltip_text = "Cliquer pour basculer entre les différentes analyses de moteurs enregistrées"
@@ -420,11 +422,18 @@ func _draw() -> void:
 
 	# 2. Repères ±2 et ±5 pions + axe d'égalité.
 	var grid := DesignTokens.col("GRAPH_GRID")
+	# Libellés espacés d'au moins une ligne de texte : sur un graphe bas, les repères
+	# ±2 se taisent plutôt que de chevaucher ±5 ou l'axe 0. Traits de 1 px centrés
+	# sur le pixel pour rester nets.
+	var min_gap := float(fs) + 2.0
 	for g_cp in [500.0, 200.0, -200.0, -500.0]:
-		var gy := _eval_to_y(g_cp)
+		var gy := floorf(_eval_to_y(g_cp)) + 0.5
 		var c := grid if absf(g_cp) == 500.0 else Color(grid, grid.a * 0.6)
 		draw_line(Vector2(r.position.x, gy), Vector2(right, gy), c, DesignTokens.STROKE_HAIR)
-		draw_string(font, Vector2(3, gy + 4), "%+.1f" % (g_cp / 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DesignTokens.TEXT_MUTED)
+		var outer_y := _eval_to_y(signf(g_cp) * 500.0)
+		var crowded := absf(g_cp) == 200.0 and (absf(gy - outer_y) < min_gap or absf(gy - mid_y) < min_gap)
+		if not crowded:
+			draw_string(font, Vector2(3, gy + 4), "%+.1f" % (g_cp / 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DesignTokens.TEXT_MUTED)
 	draw_line(Vector2(r.position.x, mid_y), Vector2(right, mid_y), Color(DesignTokens.ACCENT, 0.55), DesignTokens.STROKE_THIN)
 	draw_string(font, Vector2(6, mid_y + 4), " 0.0", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DesignTokens.ACCENT)
 

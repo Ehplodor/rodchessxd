@@ -283,6 +283,10 @@ func _start_progressive_reveal(raw_text: String) -> void:
 	if is_error_mode or raw_text.length() < 60:
 		text_lbl.text = format_markdown_to_bbcode(raw_text)
 		return
+	# Balisage analysé une seule fois : la révélation ne fait qu'avancer visible_characters,
+	# sans re-parser le BBCode ni faire sauter la mise en page à chaque image.
+	text_lbl.text = format_markdown_to_bbcode(raw_text)
+	text_lbl.visible_characters = 0
 	_is_animating = true
 	_chars_shown = 0
 	if btn_skip:
@@ -294,16 +298,15 @@ func _process(_delta: float) -> void:
 		set_process(false)
 		return
 	_chars_shown += 16
-	if _chars_shown >= _full_raw_text.length():
+	if _chars_shown >= text_lbl.get_total_character_count():
 		_finish_progressive_reveal()
 	else:
-		var partial = _full_raw_text.substr(0, _chars_shown)
-		text_lbl.text = format_markdown_to_bbcode(partial) + " [color=#38bdf8]▋[/color]"
+		text_lbl.visible_characters = _chars_shown
 
 func _finish_progressive_reveal() -> void:
 	_is_animating = false
 	set_process(false)
-	text_lbl.text = format_markdown_to_bbcode(_full_raw_text)
+	text_lbl.visible_characters = -1
 	if btn_skip:
 		btn_skip.visible = false
 

@@ -144,6 +144,8 @@ var carnet_presenter: CarnetPresenter = null
 
 func _ready() -> void:
 	DesignTokens.setup_global_fonts()
+	DesignTokens.install_overflow_guard(get_tree())
+	DesignTokens.guard_existing.call_deferred(self)
 	analyzer = GameAnalyzer.new()
 	analyzer.analysis_finished.connect(_on_analysis_finished)
 	analyzer.analysis_position_ready.connect(_on_analysis_position_ready)
@@ -488,14 +490,28 @@ func _move_graph_hud_to_engine_panel() -> void:
 			hud.reparent(host)
 		hud.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if is_instance_valid(advantage_graph.depth_badge):
+		# La puce d'état n'a pas de largeur minimale (libellé rognable) : extensible, elle
+		# prend l'espace restant de la rangée au lieu de s'effondrer ou de la faire déborder.
+		advantage_graph.depth_badge.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		advantage_graph.depth_badge.queue_redraw()
 
 func _apply_modern_theme() -> void:
 	# Fond principal de l'application
 	var bg_panel = get_node_or_null("Background")
 	if bg_panel:
-		var bg_style := StyleBoxFlat.new()
-		bg_style.bg_color = DesignTokens.BG_BASE
+		# Dégradé vertical : halo accent discret en haut, fond profond en bas.
+		var grad := Gradient.new()
+		grad.set_color(0, DesignTokens.BG_BASE.lerp(DesignTokens.ACCENT, 0.22))
+		grad.set_color(1, DesignTokens.BG_DEEP)
+		grad.add_point(0.35, DesignTokens.BG_BASE)
+		var tex := GradientTexture2D.new()
+		tex.gradient = grad
+		tex.fill_from = Vector2(0.5, 0.0)
+		tex.fill_to = Vector2(0.5, 1.0)
+		tex.width = 4
+		tex.height = 256
+		var bg_style := StyleBoxTexture.new()
+		bg_style.texture = tex
 		bg_panel.add_theme_stylebox_override("panel", bg_style)
 
 	var btn_normal := DesignTokens.flat(DesignTokens.BTN_BG, DesignTokens.RADIUS_SMALL,
@@ -507,6 +523,21 @@ func _apply_modern_theme() -> void:
 	btn_pressed.bg_color = DesignTokens.BTN_BG_PRESSED
 	btn_pressed.border_color = DesignTokens.BTN_BORDER_ACTIVE
 
+	# Barre du haut : boutons « fantômes » sans cadre, halo arrondi au survol.
+	var ghost_normal := DesignTokens.flat(Color.TRANSPARENT, DesignTokens.RADIUS_MEDIUM,
+			Color.TRANSPARENT, 0, Vector2(8, 2))
+	var ghost_hover := ghost_normal.duplicate() as StyleBoxFlat
+	ghost_hover.bg_color = Color(DesignTokens.TEXT_PRIMARY, 0.08)
+	var ghost_pressed := ghost_normal.duplicate() as StyleBoxFlat
+	ghost_pressed.bg_color = Color(DesignTokens.ACCENT, 0.18)
+	# Rangée de navigation : pastilles pleines douces, sans liseré.
+	btn_normal.border_color = Color.TRANSPARENT
+	btn_normal.bg_color = Color(DesignTokens.TEXT_PRIMARY, 0.06)
+	btn_hover.bg_color = Color(DesignTokens.TEXT_PRIMARY, 0.12)
+	btn_hover.border_color = Color.TRANSPARENT
+	btn_pressed.bg_color = Color(DesignTokens.ACCENT, 0.22)
+	btn_pressed.border_color = Color.TRANSPARENT
+
 	var font_color_normal := DesignTokens.TEXT_PRIMARY
 	var font_color_hover := Color.WHITE if DesignTokens.current_theme_mode == "dark" else DesignTokens.TEXT_PRIMARY
 
@@ -514,9 +545,9 @@ func _apply_modern_theme() -> void:
 	if is_instance_valid(top_bar):
 		for child in top_bar.get_children():
 			if child is Button:
-				child.add_theme_stylebox_override("normal", btn_normal)
-				child.add_theme_stylebox_override("hover", btn_hover)
-				child.add_theme_stylebox_override("pressed", btn_pressed)
+				child.add_theme_stylebox_override("normal", ghost_normal)
+				child.add_theme_stylebox_override("hover", ghost_hover)
+				child.add_theme_stylebox_override("pressed", ghost_pressed)
 				child.add_theme_color_override("font_color", font_color_normal)
 				child.add_theme_color_override("font_hover_color", font_color_hover)
 				child.add_theme_color_override("font_pressed_color", font_color_normal)
@@ -922,10 +953,12 @@ func _adjust_player_row_density() -> void:
 		return
 
 	# Largeur disponible estimée pour la ligne du joueur
+	# Plafonnée à l'écran : board_column.size.x est gonflée quand la rangée déborde
+	# déjà, ce qui faisait afficher plus de raccourcis et entretenait le débordement.
+	var vp_w: float = get_viewport_rect().size.x if get_viewport() else 450.0
 	var available_w: float = board_column.size.x if board_column else 0.0
-	if available_w <= 0.0:
-		var vp_rect = get_viewport_rect() if get_viewport() else Rect2(0, 0, 450, 800)
-		available_w = vp_rect.size.x - 32.0
+	if available_w <= 0.0 or available_w > vp_w:
+		available_w = vp_w
 
 	# Mesure de l'espace requis par les badges de droite
 	var top_badge_w: float = turn_badge_top.get_combined_minimum_size().x if (turn_badge_top and turn_badge_top.visible) else 0.0
@@ -966,6 +999,22 @@ func _adjust_player_row_density() -> void:
 		var top_is_white: bool = flipped
 		player_name_top.text = _clip_player_name(white_name if top_is_white else black_name, name_max_len)
 		player_name_bottom.text = _clip_player_name(white_name if not top_is_white else black_name, name_max_len)
+
+	# Filet de sécurité mesuré : on retire d'abord des raccourcis secondaires (jusqu'à 3
+	# visibles) tant que la rangée déborde avec le badge entier, puis le badge d'état
+	# absorbe le dépassement restant.
+	var row_avail := available_w - 16.0  # marges gauche/droite de PlayerTop/PlayerBottom
+	for pair in [[player_top_row.get_node("PlayerTopRow"), turn_badge_label_top, top_shortcut_buttons],
+			[player_bottom_row.get_node("PlayerBottomRow"), turn_badge_label_bottom, bottom_shortcut_buttons]]:
+		var label: Label = pair[1]
+		label.clip_text = false
+		label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+		label.custom_minimum_size.x = 0.0
+		var shown: Array = (pair[2] as Array).filter(func(b): return b.visible)
+		while shown.size() > 3 and DesignTokens.row_min_width(pair[0]) > row_avail:
+			shown.pop_back().visible = false
+	DesignTokens.fit_row(player_top_row.get_node("PlayerTopRow"), turn_badge_label_top, row_avail)
+	DesignTokens.fit_row(player_bottom_row.get_node("PlayerBottomRow"), turn_badge_label_bottom, row_avail)
 
 # --- RACCOURCIS PROMPTS COACH IA & RESTITUTION ORALE (TTS) ---
 
@@ -1167,14 +1216,14 @@ func _apply_analyze_button_style(is_running: bool) -> void:
 				Color("#7f1d1d"), Color("#ef4444"),
 				Color("#991b1b"), Color("#f87171"),
 				Color("#450a0a"), Color("#ef4444"))
-		DesignTokens.apply_state(btn_analyze_game, styles, Color.WHITE, Color.WHITE, Color.WHITE)
+		DesignTokens.apply_state(btn_analyze_game, styles, Color.WHITE, Color.WHITE, Color.WHITE, DesignTokens.FONT_BODY)
 	else:
 		var styles := DesignTokens.idle_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(10, 2),
 				DesignTokens.PRIMARY_BG, DesignTokens.PRIMARY_BORDER,
 				DesignTokens.PRIMARY_BG, DesignTokens.PRIMARY_BG_PRESSED,
 				DesignTokens.TEXT_PRIMARY)
 		DesignTokens.apply_state(btn_analyze_game, styles,
-				DesignTokens.ON_PRIMARY, DesignTokens.ON_PRIMARY, DesignTokens.ON_PRIMARY)
+				DesignTokens.ON_PRIMARY, DesignTokens.ON_PRIMARY, DesignTokens.ON_PRIMARY, DesignTokens.FONT_BODY)
 
 func _update_live_button_style() -> void:
 	if btn_toggle_live == null:
@@ -1185,14 +1234,14 @@ func _update_live_button_style() -> void:
 				Color(0.06, 0.72, 0.51, 0.22), Color("#10b981"),
 				Color(0.06, 0.72, 0.51, 0.35), Color("#34d399"),
 				Color(0.06, 0.72, 0.51, 0.45), Color("#059669"))
-		DesignTokens.apply_state(btn_toggle_live, styles, Color("#34d399"), Color.WHITE, Color("#10b981"))
+		DesignTokens.apply_state(btn_toggle_live, styles, Color("#34d399"), Color.WHITE, Color("#10b981"), DesignTokens.FONT_BODY)
 	else:
 		btn_toggle_live.text = "⚡ Off"
 		var styles := DesignTokens.idle_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(8, 2),
 				DesignTokens.BTN_BG, DesignTokens.BTN_BORDER,
 				DesignTokens.BTN_BG_HOVER, DesignTokens.BTN_BG_PRESSED)
 		DesignTokens.apply_state(btn_toggle_live, styles,
-				DesignTokens.TEXT_MUTED, DesignTokens.TEXT_PRIMARY, DesignTokens.TEXT_MUTED)
+				DesignTokens.TEXT_MUTED, DesignTokens.TEXT_PRIMARY, DesignTokens.TEXT_MUTED, DesignTokens.FONT_BODY)
 
 func _update_cliff_button_style() -> void:
 	if btn_toggle_cliff == null:
@@ -1203,14 +1252,14 @@ func _update_cliff_button_style() -> void:
 				Color(0.40, 0.20, 0.65, 0.40), Color("#c084fc"),
 				Color(0.45, 0.25, 0.70, 0.55), Color("#e9d5ff"),
 				Color(0.35, 0.15, 0.60, 0.65), Color("#a855f7"))
-		DesignTokens.apply_state(btn_toggle_cliff, styles, Color("#e9d5ff"), Color.WHITE, Color("#c084fc"))
+		DesignTokens.apply_state(btn_toggle_cliff, styles, Color("#e9d5ff"), Color.WHITE, Color("#c084fc"), DesignTokens.FONT_BODY)
 	else:
 		btn_toggle_cliff.text = "🏔️ Cliff"
 		var styles := DesignTokens.idle_styles(DesignTokens.RADIUS_SMALL, 1, Vector2(6, 2),
 				Color(0.18, 0.14, 0.28, 0.45), Color(0.45, 0.35, 0.65, 0.5),
 				Color(0.24, 0.18, 0.38, 0.65), Color(0.14, 0.10, 0.22, 0.8),
 				Color("#c084fc"))
-		DesignTokens.apply_state(btn_toggle_cliff, styles, Color("#c084fc"), Color.WHITE, Color("#a855f7"))
+		DesignTokens.apply_state(btn_toggle_cliff, styles, Color("#c084fc"), Color.WHITE, Color("#a855f7"), DesignTokens.FONT_BODY)
 
 func _update_sandbox_button_style() -> void:
 	if btn_toggle_sandbox == null:
@@ -1222,7 +1271,7 @@ func _update_sandbox_button_style() -> void:
 				Color(0.85, 0.55, 0.12, 0.30), Color("#f59e0b"),
 				Color(0.85, 0.55, 0.12, 0.45), Color("#fbbf24"),
 				Color(0.85, 0.55, 0.12, 0.60), Color("#d97706"))
-		DesignTokens.apply_state(btn_toggle_sandbox, styles, Color("#fbbf24"), Color.WHITE, Color("#f59e0b"))
+		DesignTokens.apply_state(btn_toggle_sandbox, styles, Color("#fbbf24"), Color.WHITE, Color("#f59e0b"), DesignTokens.FONT_BODY)
 	else:
 		btn_toggle_sandbox.text = "⏸ Test"
 		btn_toggle_sandbox.tooltip_text = "Mode Test (bac à sable) : tester des tactiques sans altérer la partie"
@@ -1230,7 +1279,7 @@ func _update_sandbox_button_style() -> void:
 				DesignTokens.BTN_BG, DesignTokens.BTN_BORDER,
 				DesignTokens.BTN_BG_HOVER, DesignTokens.BTN_BG_PRESSED)
 		DesignTokens.apply_state(btn_toggle_sandbox, styles,
-				DesignTokens.TEXT_MUTED, DesignTokens.TEXT_PRIMARY, DesignTokens.TEXT_MUTED)
+				DesignTokens.TEXT_MUTED, DesignTokens.TEXT_PRIMARY, DesignTokens.TEXT_MUTED, DesignTokens.FONT_BODY)
 
 func _enter_sandbox_mode() -> void:
 	if is_sandbox_mode:

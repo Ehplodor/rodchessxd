@@ -42,8 +42,8 @@ const THEMES := {
 	},
 	"slate_modern": {
 		"name": "Ardoise Studio",
-		"light": Color("#f1f5f9"), # Blanc pur glacé
-		"dark": Color("#64748b"),  # Ardoise douce et fine
+		"light": Color("#dee3e6"), # Gris perle
+		"dark": Color("#8ca2ad"),  # Ardoise bleutée : contraste net avec les pièces noires
 		"selected": Color(0.22, 0.74, 0.97, 0.35),
 		"selected_border": Color("#0ea5e9"),
 		"legal_dot": Color(0.08, 0.12, 0.18, 0.35),
@@ -337,8 +337,9 @@ func _update_dimensions() -> void:
 	var side = minf(avail.y, avail.x - group_extra)
 	if side < MIN_BOARD_SIDE:
 		side = MIN_BOARD_SIDE
-	board_size = side
-	square_size = board_size / 8.0
+	# Cases en pixels entiers : aucune couture ni bord flou entre cases, pièces nettes.
+	square_size = floorf(side / 8.0)
+	board_size = square_size * 8.0
 	_reposition_cliff_label()
 	_reposition_preview_banner()
 	if arrow_overlay:
@@ -350,26 +351,26 @@ func _update_dimensions() -> void:
 	# Centre le groupe « barre + plateau » dans sa zone (contrôle ancré plein rect).
 	if p != null and p.size.x > 0.0 and p.size.y > 0.0:
 		var group_w := board_size + group_extra
-		var left_pad := (avail.x - group_w) * 0.5 + group_extra
-		var half_y := (avail.y - board_size) * 0.5
+		var left_pad := floorf((avail.x - group_w) * 0.5) + group_extra
+		var half_y := floorf((avail.y - board_size) * 0.5)
 		offset_left = left_pad
 		offset_top = half_y
 		offset_right = -(avail.x - left_pad - board_size)
-		offset_bottom = -half_y
-		_position_eval_bar(p.size.x, left_pad, group_extra > 0.0, half_y)
+		offset_bottom = -(avail.y - half_y - board_size)
+		_position_eval_bar(p.size, left_pad, group_extra > 0.0, half_y)
 
 ## Accole la barre d'évaluation au bord gauche du plateau, à sa hauteur exacte.
-## NB : parent_width est requis car offset_right/offset_bottom sont relatifs aux
+## NB : la taille du parent est requise car offset_right/offset_bottom sont relatifs aux
 ## anchors droit/bas (plein rect), pas au bord gauche du conteneur.
-func _position_eval_bar(parent_w: float, board_left: float, has_bar: bool, half_y: float) -> void:
+func _position_eval_bar(parent_sz: Vector2, board_left: float, has_bar: bool, half_y: float) -> void:
 	if eval_bar_ref == null or not is_instance_valid(eval_bar_ref):
 		return
 	if not has_bar:
 		return
 	eval_bar_ref.offset_left = board_left - EVAL_BAR_GAP - eval_bar_ref.custom_minimum_size.x
-	eval_bar_ref.offset_right = board_left - EVAL_BAR_GAP - parent_w
+	eval_bar_ref.offset_right = board_left - EVAL_BAR_GAP - parent_sz.x
 	eval_bar_ref.offset_top = half_y
-	eval_bar_ref.offset_bottom = -half_y
+	eval_bar_ref.offset_bottom = -(parent_sz.y - half_y - board_size)
 
 ## Recalcule la taille du plateau quand son conteneur (BoardContainer) change de
 ## dimensions : c'est là qu'est fixée la vraie place entre les bandeaux joueurs.
@@ -998,6 +999,14 @@ func _draw() -> void:
 	var font = ThemeDB.fallback_font
 	var coord_font_size = int(clampf(square_size * 0.20, 10.0, 20.0))
 	var coord_pad = clampf(square_size * 0.05, 3.0, 7.0)
+
+	# 0. Ombre portée douce : le plateau « flotte » au-dessus du fond.
+	var shadow := StyleBoxFlat.new()
+	shadow.bg_color = Color(0, 0, 0, 0.0)
+	shadow.shadow_color = Color(0, 0, 0, 0.45)
+	shadow.shadow_size = 14
+	shadow.shadow_offset = Vector2(0, 4)
+	draw_style_box(shadow, Rect2(Vector2.ZERO, Vector2.ONE * board_size))
 
 	# 1. Tracé des 64 cases
 	for r in range(8):

@@ -25,8 +25,8 @@ const CARD_PAD_H := 10
 const CARD_PAD_V := 8
 
 # --- Rayons de StyleBox ---
-const RADIUS_SMALL := 6
-const RADIUS_MEDIUM := 8
+const RADIUS_SMALL := 10
+const RADIUS_MEDIUM := 14
 
 # --- Dessin vectoriel (_draw) : épaisseurs et tailles en px viewport ---
 # Le projet utilise le stretch « canvas_items » : ces px suivent déjà l'échelle
@@ -78,7 +78,7 @@ const THEME_DARK := {
 	"ERROR_BG": Color("#801c21"),
 	"ERROR_TEXT": Color("#ffe3e3"),
 	# Dessin : camps, graphes, curseurs, pistes CHESS-CLIFF (rampe de sévérité)
-	"SIDE_WHITE": Color("#f8fafc"),
+	"SIDE_WHITE": Color("#e2e8f0"),  # Blanc adouci : moins éblouissant sur fond sombre
 	"SIDE_BLACK": Color("#090d16"),
 	"GRAPH_GRID": Color(0.28, 0.33, 0.41, 0.40),
 	"GRAPH_WHITE_AREA": Color(0.95, 0.96, 0.98, 0.30),
@@ -203,6 +203,111 @@ static func apply_theme_mode(mode: String) -> void:
 	DANGER = p["DANGER"]
 	ERROR_BG = p["ERROR_BG"]
 	ERROR_TEXT = p["ERROR_TEXT"]
+	skin_default_theme()
+
+## Habille le thème par défaut de Godot depuis la palette active. C'est la couche de
+## plus basse priorité : les surcharges locales l'emportent toujours, mais tout contrôle
+## non stylé (champs, listes déroulantes, curseurs, jauges, dialogues, infobulles…)
+## hérite désormais de la charte au lieu du gris d'origine.
+static func skin_default_theme() -> void:
+	var t := ThemeDB.get_default_theme()
+	if t == null:
+		return
+	var m := Vector2(12, 8)
+	var focus := flat(Color.TRANSPARENT, RADIUS_SMALL, ACCENT, 2)
+	focus.draw_center = false
+	var disabled := flat(BTN_BG, RADIUS_SMALL, BORDER, 1, m)
+	disabled.bg_color.a = 0.45
+	for type in ["Button", "OptionButton", "MenuButton", "CheckButton", "CheckBox"]:
+		var borderless: bool = type == "CheckButton" or type == "CheckBox"
+		var st := idle_styles(RADIUS_SMALL, 0 if borderless else 1, m,
+				Color.TRANSPARENT if borderless else BTN_BG, BTN_BORDER,
+				BTN_BG_HOVER, BTN_BG_PRESSED, BTN_BORDER_ACTIVE)
+		for k in st:
+			t.set_stylebox(k, type, st[k])
+		t.set_stylebox("hover_pressed", type, st["pressed"])
+		t.set_stylebox("disabled", type, flat(Color.TRANSPARENT) if borderless else disabled)
+		t.set_stylebox("focus", type, focus)
+		t.set_color("font_color", type, TEXT_PRIMARY)
+		t.set_color("font_hover_color", type, TEXT_PRIMARY)
+		t.set_color("font_pressed_color", type, ACCENT)
+		t.set_color("font_hover_pressed_color", type, ACCENT)
+		t.set_color("font_focus_color", type, TEXT_PRIMARY)
+		t.set_color("font_disabled_color", type, TEXT_MUTED)
+	# Champs de saisie : fond creusé, liseré accent au focus, curseur et sélection accent.
+	var field := flat(BG_BASE, RADIUS_SMALL, BORDER, 1, m)
+	var field_ro := field.duplicate() as StyleBoxFlat
+	field_ro.bg_color = SURFACE
+	for type in ["LineEdit", "TextEdit", "CodeEdit"]:
+		t.set_stylebox("normal", type, field)
+		t.set_stylebox("read_only", type, field_ro)
+		t.set_stylebox("focus", type, focus)
+		t.set_color("font_color", type, TEXT_PRIMARY)
+		t.set_color("font_placeholder_color", type, TEXT_MUTED)
+		t.set_color("font_readonly_color", type, TEXT_SECONDARY)
+		t.set_color("caret_color", type, ACCENT)
+		t.set_color("selection_color", type, Color(ACCENT, 0.35))
+		t.set_color("font_selected_color", type, TEXT_PRIMARY)
+	# Libellés : texte principal sur fond de palette.
+	t.set_color("font_color", "Label", TEXT_PRIMARY)
+	t.set_color("default_color", "RichTextLabel", TEXT_PRIMARY)
+	# Surfaces : panneaux, menus déroulants, infobulles, fenêtres et dialogues.
+	var panel := flat(SURFACE, RADIUS_MEDIUM, BORDER, 1)
+	t.set_stylebox("panel", "Panel", panel)
+	t.set_stylebox("panel", "PanelContainer", flat(SURFACE, RADIUS_MEDIUM))
+	var popup := flat(SURFACE_ELEVATED, RADIUS_MEDIUM, BORDER, 1, Vector2(SPACE_XS, SPACE_XS))
+	popup.shadow_color = Color(0, 0, 0, 0.35)
+	popup.shadow_size = 8
+	t.set_stylebox("panel", "PopupMenu", popup)
+	t.set_stylebox("hover", "PopupMenu", flat(Color(ACCENT, 0.18), RADIUS_SMALL))
+	t.set_stylebox("separator", "PopupMenu", flat(BORDER, 0, Color.TRANSPARENT, 0, Vector2(0, 1)))
+	t.set_color("font_color", "PopupMenu", TEXT_PRIMARY)
+	t.set_color("font_hover_color", "PopupMenu", TEXT_PRIMARY)
+	t.set_color("font_disabled_color", "PopupMenu", TEXT_MUTED)
+	t.set_constant("v_separation", "PopupMenu", SPACE_S)
+	t.set_font_size("font_size", "PopupMenu", FONT_BODY)
+	t.set_stylebox("panel", "TooltipPanel", flat(SURFACE_ELEVATED, RADIUS_SMALL, BORDER, 1, Vector2(SPACE_S, SPACE_XS)))
+	t.set_color("font_color", "TooltipLabel", TEXT_PRIMARY)
+	var win := flat(SURFACE, RADIUS_MEDIUM, BORDER, 1)
+	win.expand_margin_top = 36
+	win.shadow_color = Color(0, 0, 0, 0.45)
+	win.shadow_size = 16
+	t.set_stylebox("embedded_border", "Window", win)
+	t.set_stylebox("embedded_unfocused_border", "Window", win)
+	t.set_color("title_color", "Window", TEXT_PRIMARY)
+	t.set_font_size("title_font_size", "Window", FONT_BODY)
+	t.set_stylebox("panel", "AcceptDialog", flat(SURFACE, 0, Color.TRANSPARENT, 0, Vector2(WINDOW_INSET, WINDOW_INSET)))
+	# Jauges et curseurs : piste discrète, remplissage accent arrondi.
+	t.set_stylebox("background", "ProgressBar", flat(BG_BASE, RADIUS_SMALL, BORDER, 1))
+	t.set_stylebox("fill", "ProgressBar", flat(ACCENT, RADIUS_SMALL))
+	t.set_color("font_color", "ProgressBar", TEXT_PRIMARY)
+	var track := flat(BORDER, 3, Color.TRANSPARENT, 0, Vector2(0, 3))
+	var filled := flat(ACCENT, 3, Color.TRANSPARENT, 0, Vector2(0, 3))
+	for type in ["HSlider", "VSlider"]:
+		t.set_stylebox("slider", type, track)
+		t.set_stylebox("grabber_area", type, filled)
+		t.set_stylebox("grabber_area_highlight", type, filled)
+	# Barres de défilement : fines, arrondies, sans rail visible.
+	for type in ["VScrollBar", "HScrollBar"]:
+		t.set_stylebox("scroll", type, flat(Color.TRANSPARENT))
+		t.set_stylebox("grabber", type, flat(Color(TEXT_MUTED, 0.45), RADIUS_SMALL))
+		t.set_stylebox("grabber_highlight", type, flat(Color(TEXT_MUTED, 0.7), RADIUS_SMALL))
+		t.set_stylebox("grabber_pressed", type, flat(ACCENT, RADIUS_SMALL))
+	# Onglets et séparateurs.
+	t.set_stylebox("tab_selected", "TabBar", flat(SURFACE_ELEVATED, RADIUS_SMALL, ACCENT, 0, m))
+	t.set_stylebox("tab_unselected", "TabBar", flat(Color.TRANSPARENT, RADIUS_SMALL, Color.TRANSPARENT, 0, m))
+	t.set_stylebox("tab_hovered", "TabBar", flat(BTN_BG_HOVER, RADIUS_SMALL, Color.TRANSPARENT, 0, m))
+	t.set_color("font_selected_color", "TabBar", TEXT_PRIMARY)
+	t.set_color("font_unselected_color", "TabBar", TEXT_MUTED)
+	t.set_color("font_hovered_color", "TabBar", TEXT_PRIMARY)
+	var sep := StyleBoxLine.new()
+	sep.color = BORDER
+	t.set_stylebox("separator", "HSeparator", sep)
+	var vsep := StyleBoxLine.new()
+	vsep.color = BORDER
+	vsep.vertical = true
+	t.set_stylebox("separator", "VSeparator", vsep)
+	t.default_font_size = FONT_BODY
 
 ## StyleBox plat unique, depuis les tokens (bordures/rayons/marges explicites).
 static func flat(bg: Color, radius: int = RADIUS_SMALL, border: Color = Color.TRANSPARENT,
@@ -266,6 +371,81 @@ static func apply_state(btn: Button, styles: Dictionary, font_normal: Color,
 	btn.add_theme_color_override("font_hover_color", font_hover)
 	btn.add_theme_color_override("font_pressed_color", font_pressed)
 	btn.add_theme_font_size_override("font_size", font_size)
+
+# --- Garde anti-débordement horizontal ---
+## Largeur minimale réelle d'une rangée, recalculée sans le cache différé des conteneurs.
+static func row_min_width(row: BoxContainer) -> float:
+	var total := 0.0
+	var n := 0
+	for c in row.get_children():
+		if c is Control and c.visible and not c.top_level:
+			# Sous-rangée imbriquée : mesurée récursivement (son cache serait périmé).
+			total += row_min_width(c) if c is HBoxContainer else c.get_combined_minimum_size().x
+			n += 1
+	return total + float(maxi(n - 1, 0) * row.get_theme_constant("separation"))
+
+## Garantit qu'une rangée tient dans `avail` px : le libellé `label` (texte de longueur
+## variable) est rogné avec « … » d'exactement le dépassement, sinon il garde sa largeur
+## naturelle. Cause type des débordements : un Label/Button non rogné dans une HBox,
+## dont la largeur minimale = tout son texte, pousse la rangée hors de l'écran.
+static func fit_row(row: BoxContainer, label: Control, avail: float) -> void:
+	# NB : un Label avec text_overrun_behavior ≠ NO_TRIMMING a une largeur minimale
+	# quasi nulle même sans clip_text ; on revient donc à l'état « largeur naturelle ».
+	label.set("clip_text", false)
+	label.set("text_overrun_behavior", TextServer.OVERRUN_NO_TRIMMING)
+	label.custom_minimum_size.x = 0.0
+	var over := row_min_width(row) - avail
+	if over <= 0.0:
+		return
+	var natural := label.get_combined_minimum_size().x
+	label.set("clip_text", true)
+	label.set("text_overrun_behavior", TextServer.OVERRUN_TRIM_ELLIPSIS)
+	label.custom_minimum_size.x = maxf(24.0, natural - over)
+
+## Garde globale : tout Button/Label extensible (SIZE_EXPAND) placé dans une HBox (ou bouton en FILL dans une VBox) et
+## non rogné se voit rogné avec « … ». Sans cela, sa largeur minimale = tout son texte
+## et la rangée entière déborde de l'écran (cas vus : rangées d'actions de modales,
+## puces moteur). Un contrôle extensible reçoit toujours sa part d'espace, donc le
+## rognage ne le fait jamais disparaître. Installée une fois, couvre aussi l'UI dynamique.
+static func install_overflow_guard(tree: SceneTree) -> void:
+	if not tree.node_added.is_connected(_on_node_added_guard):
+		tree.node_added.connect(_on_node_added_guard)
+
+static func _has_letter(t: String) -> bool:
+	for i in t.length():
+		var u := t.unicode_at(i)
+		if (u >= 65 and u <= 90) or (u >= 97 and u <= 122) or (u >= 0xC0 and u <= 0x24F):
+			return true
+	return false
+
+## Applique la garde aux nœuds déjà présents (scène principale chargée avant l'installation).
+static func guard_existing(root: Node) -> void:
+	for n in root.find_children("*", "Control", true, false):
+		if n is Button or n is Label:
+			_guard_text_control(n)
+
+static func _on_node_added_guard(n: Node) -> void:
+	if n is Button or n is Label:
+		_guard_text_control.call_deferred(n)
+
+static func _guard_text_control(c: Control) -> void:
+	if not is_instance_valid(c):
+		return
+	var p := c.get_parent()
+	# Rangée : seul un enfant extensible est garanti de garder sa part d'espace.
+	# Colonne : un bouton en FILL (action pleine largeur) prend la largeur de la colonne ;
+	# les Label de colonne sont exclus, leur colonne pouvant dimensionner sa rangée
+	# (ex. titre de la barre du haut, qui disparaîtrait). Grilles exclues : leurs
+	# colonnes s'effondrent quand les cellules perdent leur largeur minimale.
+	var safe: bool = (p is HBoxContainer and (c.size_flags_horizontal & Control.SIZE_EXPAND)) 			or (p is VBoxContainer and c is Button and (c.size_flags_horizontal & Control.SIZE_FILL))
+	# Libellés d'icône seule (emoji) : toujours courts, et les rogner les effacerait.
+	if not safe or not _has_letter(str(c.get("text"))):
+		return
+	if c is Label and (c as Label).autowrap_mode != TextServer.AUTOWRAP_OFF:
+		return
+	c.set("clip_text", true)
+	if c.get("text_overrun_behavior") == TextServer.OVERRUN_NO_TRIMMING:
+		c.set("text_overrun_behavior", TextServer.OVERRUN_TRIM_ELLIPSIS)
 
 # --- Défilement tactile (M1, retours de test mobile) ---
 ## Épaisseur des barres de défilement (px) : repère visuel mobile.

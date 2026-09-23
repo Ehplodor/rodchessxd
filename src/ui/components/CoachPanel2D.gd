@@ -109,7 +109,12 @@ func _process(_delta: float) -> void:
 			step_short = "Synthèse Coach"
 			step_long = "4/4 Synthèse pédagogique du Coach"
 
-		status_label.text = "⏳ %s... (%.1fs)" % [step_short, elapsed]
+		# Le texte n'évolue qu'au dixième de seconde : on évite de re-façonner
+		# et de ré-agencer les libellés à chaque image quand rien n'a changé.
+		var status_text := "⏳ %s... (%.1fs)" % [step_short, elapsed]
+		if status_text == status_label.text:
+			return
+		status_label.text = status_text
 		if thinking_card_lbl and is_instance_valid(thinking_card_lbl):
 			thinking_card_lbl.text = "⏳ [%s] %s\n• %s (%.1fs)" % [
 				_perspective_badge_char(active_perspective),

@@ -44,7 +44,7 @@ func _setup_ui() -> void:
 	actions_row.add_child(btn_paste)
 
 	var btn_open_file = Button.new()
-	btn_open_file.text = "📁 Ouvrir .pgn"
+	btn_open_file.text = "📁 Ouvrir"
 	btn_open_file.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_open_file.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_open_file.add_theme_font_size_override("font_size", DesignTokens.FONT_BUTTON)
@@ -52,7 +52,7 @@ func _setup_ui() -> void:
 	actions_row.add_child(btn_open_file)
 
 	var btn_copy = Button.new()
-	btn_copy.text = "💾 Copier PGN"
+	btn_copy.text = "💾 Copier"
 	btn_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_copy.custom_minimum_size = Vector2(0, DesignTokens.TOUCH_MIN)
 	btn_copy.pressed.connect(func():
