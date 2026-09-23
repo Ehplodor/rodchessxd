@@ -154,7 +154,7 @@ func _populate_side(box: VBoxContainer, summary: Dictionary) -> void:
 	var delta_max: float = float(summary.get("max_delta_chute", 0.0))
 	var bait_max: float = float(summary.get("max_bait", 0.0))
 
-	var color := CliffTypes.get_piste_color(piste)
+	var color := DesignTokens.piste_color(piste)
 	var icon := CliffTypes.get_piste_icon(piste)
 	var name := CliffTypes.get_piste_name(piste)
 

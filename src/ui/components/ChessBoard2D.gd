@@ -106,7 +106,6 @@ var drag_texture_rect: TextureRect:
 var last_move_from: int = -1
 var last_move_to: int = -1
 var in_check_sq: int = -1
-var check_pulse_timer: float = 0.0
 
 var best_move_arrow_from: int = -1
 var best_move_arrow_to: int = -1
@@ -144,16 +143,23 @@ static func get_depth_rainbow_color(depth: int) -> Color:
 		return Color("#0284c7")
 	# Calibrage : progression de 0.0 (prof. 1) à 1.0 (prof. 20)
 	var t = clampf(float(depth - 1) / 19.0, 0.0, 1.0)
-	# Déroulé spectral HSV : rouge (0.00) -> orange (0.08) -> jaune (0.15) -> vert (0.33) -> cyan (0.50) -> bleu (0.62) -> magenta (0.83)
-	var hue = t * 0.83
-	return Color.from_hsv(hue, 0.88, 0.98)
+	# Déroulé HSV orange (0.08) → vert → cyan → bleu → violet (0.78). Le rouge est
+	# volontairement exclu : il désigne la flèche du dernier coup joué.
+	var hue = 0.08 + t * 0.70
+	return Color.from_hsv(hue, 0.85, 0.97)
 
 # Système d'animations et effets visuels
 class CaptureBurstFX extends Control:
 	var center: Vector2 = Vector2.ZERO
 	var radius_max: float = 40.0
-	var ring_progress: float = 0.0
-	var spark_progress: float = 0.0
+	var ring_progress: float = 0.0:
+		set(v):
+			ring_progress = v
+			queue_redraw()
+	var spark_progress: float = 0.0:
+		set(v):
+			spark_progress = v
+			queue_redraw()
 	var ring_color: Color = Color("#fcd34d")
 	var sparks: Array[Dictionary] = []
 	
@@ -163,7 +169,6 @@ class CaptureBurstFX extends Control:
 		ring_color = p_color
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		z_index = 25
-		set_process(true)
 		
 		var spark_colors = [
 			Color("#fbbf24"), # Or brillant
@@ -183,9 +188,6 @@ class CaptureBurstFX extends Control:
 				"color": col
 			})
 	
-	func _process(_delta: float) -> void:
-		queue_redraw()
-	
 	func _draw() -> void:
 		# 1. Onde de choc circulaire
 		if ring_progress > 0.0 and ring_progress < 1.0:
@@ -194,13 +196,13 @@ class CaptureBurstFX extends Control:
 			var stroke = lerpf(3.4, 0.6, ring_progress)
 			var col = ring_color
 			col.a = alpha * 0.90
-			draw_arc(center, r, 0, TAU, 36, col, stroke)
+			draw_arc(center, r, 0, TAU, DesignTokens.arc_segments(r), col, stroke, true)
 			
 			# Flash central doux au départ
 			if ring_progress < 0.35:
 				var flash_col = Color.WHITE
 				flash_col.a = (1.0 - (ring_progress / 0.35)) * 0.45
-				draw_circle(center, r * 0.5, flash_col)
+				draw_circle(center, r * 0.5, flash_col, true, -1.0, true)
 		
 		# 2. Micro-étincelles radiales géométriques
 		if spark_progress > 0.0 and spark_progress < 1.0:
@@ -212,7 +214,25 @@ class CaptureBurstFX extends Control:
 				var sz = sp["size"] * (1.0 - spark_progress * 0.75)
 				var c: Color = sp["color"]
 				c.a = alpha * 0.95
-				draw_circle(p, sz, c)
+				draw_circle(p, sz, c, true, -1.0, true)
+
+# Calque de pulsation du roi en échec : seule cette case se redessine à chaque image,
+# le plateau complet n'est plus repeint en continu pendant un échec.
+class CheckPulseLayer extends Control:
+	var board: ChessBoard2D = null
+	var timer: float = 0.0
+
+	func _process(delta: float) -> void:
+		timer += delta * 4.5
+		queue_redraw()
+
+	func _draw() -> void:
+		if board == null or board.in_check_sq < 0:
+			return
+		var rect := Rect2(board._get_square_screen_pos(board.in_check_sq), Vector2.ONE * board.square_size)
+		var pulse := (sin(timer) + 1.0) * 0.5
+		draw_rect(rect, Color(DesignTokens.CHECK_GLOW, 0.30 + 0.25 * pulse))
+		board._outline_rect(self, rect, DesignTokens.CHECK_BORDER, clampf(board.square_size * 0.035, 1.5, 3.8))
 
 # Calque indépendant pour flèches tactiques et de déplacement (z_index=5 au-dessus des pièces)
 class ArrowOverlay extends Control:
@@ -226,6 +246,7 @@ var active_tweens: Array[Tween] = []
 var ghost_sprites: Array[TextureRect] = []
 var fx_layer: Control = null
 var arrow_overlay: ArrowOverlay = null
+var check_layer: CheckPulseLayer = null
 var flying_piece: TextureRect = null
 var move_anim_duration: float = 0.28
 var is_animating_move: bool = false
@@ -253,8 +274,6 @@ func _get_engine_manager() -> Node:
 func _ready() -> void:
 	custom_minimum_size = Vector2(MIN_BOARD_SIDE, MIN_BOARD_SIDE)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	set_process(false)
-	
 	_preload_piece_textures()
 	eval_bar_ref = get_parent().get_node_or_null("EvalBar") as Control
 	_update_dimensions()
@@ -291,11 +310,6 @@ func _ready() -> void:
 		(host as Control).resized.connect(_on_host_resized)
 
 	reset_board_visuals()
-
-func _process(delta: float) -> void:
-	if in_check_sq != -1:
-		check_pulse_timer += delta * 4.5
-		queue_redraw()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
@@ -379,6 +393,14 @@ func _preload_piece_textures() -> void:
 				piece_textures[Vector2i(t, c)] = load(path)
 
 func _create_piece_nodes() -> void:
+	# Ajouté avant les pièces : la pulsation d'échec reste sous le roi.
+	check_layer = CheckPulseLayer.new()
+	check_layer.board = self
+	check_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	check_layer.size = Vector2(board_size, board_size)
+	check_layer.set_process(false)
+	add_child(check_layer)
+
 	for sq in range(64):
 		var tr = TextureRect.new()
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -993,33 +1015,21 @@ func _draw() -> void:
 
 			# Dernier coup : différenciation visuelle case de départ et case d'arrivée
 			if sq == last_move_from:
-				var from_col = theme.get("last_move_from", theme.get("last_move", Color("#fef08a38")))
-				draw_rect(rect, from_col)
-				var b_w = clampf(square_size * 0.025, 1.0, 2.8)
-				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, b_w)
+				draw_rect(rect, theme["last_move_from"])
+				_outline_rect(self, rect, theme["last_move_border"], clampf(square_size * 0.025, 1.0, 2.8))
 			elif sq == last_move_to:
-				var to_col = theme.get("last_move_to", theme.get("last_move", Color("#facc1550")))
-				draw_rect(rect, to_col)
-				var b_w = clampf(square_size * 0.035, 1.5, 3.8)
-				draw_rect(rect, theme.get("last_move_border", Color("#ca8a0488")), false, b_w)
+				draw_rect(rect, theme["last_move_to"])
+				_outline_rect(self, rect, theme["last_move_border"], clampf(square_size * 0.035, 1.5, 3.8))
 
 			# Case sélectionnée avec fond lumineux chaleureux (sous la pièce)
 			if gc and not is_previewing() and sq == gc.selected_square:
 				draw_rect(rect, theme["selected"])
-				var b_w = clampf(square_size * 0.035, 1.5, 3.8)
-				draw_rect(rect, theme.get("selected_border", Color("#eab308")), false, b_w)
+				_outline_rect(self, rect, theme["selected_border"], clampf(square_size * 0.035, 1.5, 3.8))
 
 			# Surbrillance subtile au survol d'une case de destination autorisée
 			if show_move_hints and not is_previewing() and gc and gc.selected_square != -1 and sq == hovered_sq and sq in gc.legal_destinations:
-				var hov_col = theme.get("legal_hover", Color(1.0, 1.0, 1.0, 0.22))
-				draw_rect(rect, hov_col)
-
-			# Roi en échec avec pulsation rougeoyante fine
-			if sq == in_check_sq:
-				var pulse = (sin(check_pulse_timer) + 1.0) * 0.5
-				draw_rect(rect, Color(0.95, 0.2, 0.2, 0.30 + 0.25 * pulse))
-				var b_w = clampf(square_size * 0.035, 1.5, 3.8)
-				draw_rect(rect, Color(0.9, 0.1, 0.1, 0.85), false, b_w)
+				draw_rect(rect, theme["legal_hover"])
+			# (La pulsation du roi en échec est rendue par check_layer.)
 
 			# Coordonnées discrètes et élégantes intégrées aux cases
 			if disp_f == 0:
@@ -1033,7 +1043,8 @@ func _draw() -> void:
 				var file_char = char(97 + f)
 				var text_col = theme["dark"] if is_light else theme["light"]
 				text_col.a = 0.72
-				var text_pos = rect.position + Vector2(square_size - coord_font_size - coord_pad, square_size - coord_pad)
+				var file_w := font.get_string_size(file_char, HORIZONTAL_ALIGNMENT_LEFT, -1, coord_font_size).x
+				var text_pos = rect.position + Vector2(square_size - file_w - coord_pad, square_size - coord_pad)
 				draw_string(font, text_pos, file_char, HORIZONTAL_ALIGNMENT_LEFT, -1, coord_font_size, text_col)
 
 			# Points de déplacement & anneaux de capture (rendus si pas d'arrow_overlay)
@@ -1042,13 +1053,13 @@ func _draw() -> void:
 				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
 				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
 					var ring_w = clampf(square_size * 0.05, 2.0, 5.0)
-					draw_arc(center, square_size * 0.43, 0, TAU, 24, theme["legal_ring"], ring_w)
+					var ring_r := square_size * 0.43
+					draw_arc(center, ring_r, 0, TAU, DesignTokens.arc_segments(ring_r), theme["legal_ring"], ring_w, true)
 				else:
-					draw_circle(center, square_size * 0.16, theme["legal_dot"])
+					draw_circle(center, square_size * 0.16, theme["legal_dot"], true, -1.0, true)
 
 	# 2. Contour fin du plateau
-	var outer_b_w = clampf(board_size * 0.003, 1.0, 2.5)
-	draw_rect(Rect2(0, 0, board_size, board_size), Color(0.1, 0.15, 0.2, 0.25), false, outer_b_w)
+	_outline_rect(self, Rect2(0, 0, board_size, board_size), Color(0.1, 0.15, 0.2, 0.25), clampf(board_size * 0.003, 1.0, 2.5))
 
 	# 3. Flèches déléguées à arrow_overlay (z_index=5) ou dessinées directement en fallback
 	if arrow_overlay:
@@ -1066,7 +1077,7 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 			var sel_pos = _get_square_screen_pos(gc.selected_square)
 			var sel_rect = Rect2(sel_pos, Vector2(square_size, square_size))
 			# Bordure nette au premier plan encadrant la pièce sélectionnée
-			ci.draw_rect(sel_rect, theme.get("selected_border", Color("#0ea5e9")), false, 2.5)
+			_outline_rect(ci, sel_rect, theme["selected_border"], 2.5)
 
 		if show_move_hints:
 			for sq in gc.legal_destinations:
@@ -1074,13 +1085,13 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 				var piece_on_target = gc.game.get_piece(sq) if gc.game else null
 				if piece_on_target and piece_on_target.type != ChessPiece.Type.NONE:
 					# Anneau de capture bien visible au-dessus de la pièce ennemie prenable
-					var ring_col = theme.get("legal_ring", Color(0.92, 0.28, 0.28, 0.88))
-					ci.draw_arc(center + Vector2(1.0, 1.0), square_size * 0.43, 0, TAU, 24, Color(0, 0, 0, 0.35), 3.5)
-					ci.draw_arc(center, square_size * 0.43, 0, TAU, 24, ring_col, 3.5)
+					var ring_r := square_size * 0.43
+					var seg := DesignTokens.arc_segments(ring_r)
+					ci.draw_arc(center + Vector2(1.0, 1.0), ring_r, 0, TAU, seg, Color(0, 0, 0, 0.35), 3.5, true)
+					ci.draw_arc(center, ring_r, 0, TAU, seg, theme["legal_ring"], 3.5, true)
 				else:
 					# Disque discret et lisible pour case vide
-					var dot_col = theme.get("legal_dot", Color(0.12, 0.16, 0.22, 0.35))
-					ci.draw_circle(center, square_size * 0.16, dot_col)
+					ci.draw_circle(center, square_size * 0.16, theme["legal_dot"], true, -1.0, true)
 
 	# 2. Flèche fine rouge carmin en pointillés du dernier coup joué
 	if last_move_from != -1 and last_move_to != -1 and not is_animating_move:
@@ -1106,7 +1117,8 @@ func _draw_arrows_on_layer(ci: CanvasItem) -> void:
 		_draw_user_arrow(int(a.get("from", -1)), int(a.get("to", -1)), ci)
 	for sq in user_circles:
 		var center = _get_square_screen_pos(int(sq)) + Vector2(square_size * 0.5, square_size * 0.5)
-		ci.draw_arc(center, square_size * 0.42, 0, TAU, 24, Color("#f59e0be0"), 3.0)
+		var circ_r := square_size * 0.42
+		ci.draw_arc(center, circ_r, 0, TAU, DesignTokens.arc_segments(circ_r), DesignTokens.USER_MARK, 3.0, true)
 
 	# 5. Rayons X CHESS-CLIFF : cases-mines, coup le plus séduisant, meilleur coup.
 	if not cliff_overlay.is_empty():
@@ -1121,8 +1133,8 @@ func _draw_cliff_overlay(ci: CanvasItem) -> void:
 		if sq_idx < 0 or sq_idx >= 64:
 			continue
 		var p := _get_square_screen_pos(sq_idx)
-		var cross_col := Color(0.92, 0.25, 0.25, 0.85)
-		ci.draw_rect(Rect2(p + Vector2(2, 2), Vector2(square_size - 4.0, square_size - 4.0)), Color(0.92, 0.20, 0.20, 0.18))
+		var cross_col := DesignTokens.CLIFF_POISON
+		ci.draw_rect(Rect2(p + Vector2(2, 2), Vector2(square_size - 4.0, square_size - 4.0)), Color(cross_col, 0.18))
 		var m_pad := square_size * 0.30
 		ci.draw_line(p + Vector2(m_pad, m_pad), p + Vector2(square_size - m_pad, square_size - m_pad), cross_col, 2.5, true)
 		ci.draw_line(p + Vector2(square_size - m_pad, m_pad), p + Vector2(m_pad, square_size - m_pad), cross_col, 2.5, true)
@@ -1135,9 +1147,9 @@ func _draw_cliff_overlay(ci: CanvasItem) -> void:
 			continue
 		var w := clampf(float(mine.get("weight", 0.5)), 0.0, 1.0)
 		var pos = _get_square_screen_pos(sq)
-		var col = Color(0.96, 0.62, 0.04, 0.30 + 0.55 * w)
-		ci.draw_rect(Rect2(pos + Vector2(1, 1), Vector2(square_size - 2.0, square_size - 2.0)), col, false, 2.5)
-		ci.draw_circle(pos + Vector2(square_size * 0.16, square_size * 0.16), square_size * 0.06, col)
+		var col := Color(DesignTokens.CLIFF_MINE, 0.30 + 0.55 * w)
+		_outline_rect(ci, Rect2(pos, Vector2.ONE * square_size), col, 2.5)
+		ci.draw_circle(pos + Vector2(square_size * 0.16, square_size * 0.16), square_size * 0.06, col, true, -1.0, true)
 
 	# 3. Flèches moteur (meilleur coup + appât) : respectent l'option « aides de coups ».
 	if show_move_hints:
@@ -1147,15 +1159,10 @@ func _draw_cliff_overlay(ci: CanvasItem) -> void:
 		var nature := int(cliff_overlay.get("move_nature", -1))
 
 		if bait_uci.length() >= 4 and bait_uci != best_uci:
-			_draw_cliff_arrow(bait_uci, Color("#f472b6e0"), 0.85, true, ci)
+			_draw_cliff_arrow(bait_uci, DesignTokens.CLIFF_BAIT, 0.85, true, ci)
 		if best_uci.length() >= 4:
-			var arrow_col := Color("#22d3ee")
-			if is_vital or nature == CliffTypes.MoveNature.VITAL:
-				arrow_col = Color("#f59e0b") # Ambre tension survie
-			elif nature == CliffTypes.MoveNature.ATTACK:
-				arrow_col = Color("#ec4899") # Magenta attaque
-			elif nature == CliffTypes.MoveNature.FORCED:
-				arrow_col = Color("#38bdf8") # Bleu ciel forcé
+			var key := CliffTypes.MoveNature.VITAL if is_vital else nature
+			var arrow_col: Color = DesignTokens.NATURE_ARROW.get(key, DesignTokens.NATURE_ARROW[CliffTypes.MoveNature.SAFE])
 			_draw_cliff_arrow(best_uci, arrow_col, 1.15 if is_vital else 1.1, false, ci)
 
 func _draw_cliff_arrow(uci: String, color: Color, width_scale: float, dashed: bool, ci: CanvasItem) -> void:
@@ -1163,23 +1170,56 @@ func _draw_cliff_arrow(uci: String, color: Color, width_scale: float, dashed: bo
 	var to_sq := ChessMove.coord_to_square(uci.substr(2, 2))
 	if from_sq < 0 or to_sq < 0:
 		return
-	var start = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
-	var end = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
-	var dir = (end - start).normalized()
+	_draw_arrow(ci, _square_center(from_sq), _square_center(to_sq), color, {
+		"shaft": clampf(square_size * 0.08, 4.0, 11.0) * width_scale,
+		"head_len": clampf(square_size * 0.28, 12.0, 30.0),
+		"head_w": clampf(square_size * 0.32, 14.0, 34.0),
+		"dashed": dashed,
+	})
+
+func _square_center(sq: int) -> Vector2:
+	return _get_square_screen_pos(sq) + Vector2(square_size * 0.5, square_size * 0.5)
+
+## Contour de rectangle tracé À L'INTÉRIEUR du rectangle (un contour Godot est
+## centré sur le bord : sans décalage il déborderait sur les cases voisines).
+func _outline_rect(ci: CanvasItem, rect: Rect2, color: Color, width: float) -> void:
+	ci.draw_rect(rect.grow(-width * 0.5), color, false, width)
+
+## Primitive unique de flèche (fût + tête triangulaire), options :
+## shaft, head_len, head_w (px) ; dashed ; shadow (décalage px, 0 = aucune) ;
+## origin_disc (rayon du disque de départ, 0 = aucun) ; rim (filet clair sur la tête).
+func _draw_arrow(ci: CanvasItem, start: Vector2, end: Vector2, color: Color, o: Dictionary) -> void:
 	if start.distance_to(end) < 1.0:
 		return
-	var shaft_w: float = clampf(square_size * 0.08, 4.0, 11.0) * width_scale
-	var head_len: float = clampf(square_size * 0.28, 12.0, 30.0)
-	var head_w: float = clampf(square_size * 0.32, 14.0, 34.0)
-	var shaft_end = end - dir * (head_len * 0.85)
-	var perp = Vector2(-dir.y, dir.x)
-	if dashed:
-		ci.draw_dashed_line(start, shaft_end, color, shaft_w, clampf(square_size * 0.1, 4.0, 10.0), true, true)
-	else:
-		ci.draw_line(start, shaft_end, color, shaft_w, true)
-	ci.draw_colored_polygon(PackedVector2Array([
-		end, shaft_end + perp * (head_w * 0.5), shaft_end - perp * (head_w * 0.5)
-	]), color)
+	var dir := (end - start).normalized()
+	var perp := Vector2(-dir.y, dir.x)
+	var shaft: float = o.get("shaft", 6.0)
+	var head_len: float = o.get("head_len", 20.0)
+	var head_w: float = o.get("head_w", 22.0)
+	var shaft_end := end - dir * (head_len * 0.85)
+	var head := PackedVector2Array([end, shaft_end + perp * (head_w * 0.5), shaft_end - perp * (head_w * 0.5)])
+	var dash: float = clampf(square_size * 0.10, 4.0, 11.0)
+	var disc: float = o.get("origin_disc", 0.0)
+	var passes: Array = []
+	var sh: float = o.get("shadow", 0.0)
+	if sh > 0.0:
+		passes.append([Vector2(sh, sh), Color(0, 0, 0, 0.30)])
+	passes.append([Vector2.ZERO, color])
+	for pass_def in passes:
+		var off: Vector2 = pass_def[0]
+		var c: Color = pass_def[1]
+		if disc > 0.0:
+			ci.draw_circle(start + off, disc, c, true, -1.0, true)
+		if o.get("dashed", false):
+			ci.draw_dashed_line(start + off, shaft_end + off, c, shaft, dash, true, true)
+		else:
+			ci.draw_line(start + off, shaft_end + off, c, shaft, true)
+		var moved := PackedVector2Array()
+		for pt in head:
+			moved.append(pt + off)
+		ci.draw_colored_polygon(moved, c)
+	if o.get("rim", false):
+		ci.draw_polyline(PackedVector2Array([head[1], head[0], head[2]]), Color(1, 1, 1, 0.45), 1.2, true)
 
 ## T2.1 — Ajoute/retire une annotation (flèche, ou cercle si départ == arrivée).
 func _annotate(from_sq: int, to_sq: int) -> void:
@@ -1210,22 +1250,11 @@ func _annotate(from_sq: int, to_sq: int) -> void:
 func _draw_user_arrow(from_sq: int, to_sq: int, ci: CanvasItem) -> void:
 	if from_sq < 0 or to_sq < 0:
 		return
-	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
-	var end_pos = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
-	var dir = (end_pos - start_pos).normalized()
-	if start_pos.distance_to(end_pos) < 1.0:
-		return
-	var col = Color("#f59e0bee")
-	var shaft_w: float = clampf(square_size * 0.08, 3.0, 8.0)
-	var head_len: float = clampf(square_size * 0.26, 11.0, 26.0)
-	var head_w: float = clampf(square_size * 0.30, 13.0, 30.0)
-	var shaft_end = end_pos - dir * (head_len * 0.85)
-	var perp = Vector2(-dir.y, dir.x)
-	ci.draw_line(start_pos, shaft_end, col, shaft_w, true)
-	var p1 = end_pos
-	var p2 = shaft_end + perp * (head_w * 0.5)
-	var p3 = shaft_end - perp * (head_w * 0.5)
-	ci.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), col)
+	_draw_arrow(ci, _square_center(from_sq), _square_center(to_sq), DesignTokens.USER_MARK, {
+		"shaft": clampf(square_size * 0.08, 3.0, 8.0),
+		"head_len": clampf(square_size * 0.26, 11.0, 26.0),
+		"head_w": clampf(square_size * 0.30, 13.0, 30.0),
+	})
 
 ## T2.1 — Sérialise / restaure les annotations (persistance dans le JSON de partie).
 func get_user_annotations() -> Dictionary:
@@ -1243,56 +1272,26 @@ func clear_user_annotations() -> void:
 	user_annotations_changed.emit()
 
 func _draw_last_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: CanvasItem = null) -> void:
-	var canvas: CanvasItem = ci if ci != null else self
-	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
-	var end_pos = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
-	
-	var dir = (end_pos - start_pos).normalized()
-	var dist = start_pos.distance_to(end_pos)
-	if dist < 1.0:
-		return
-	
-	var arrow_color: Color = theme.get("last_move_arrow", Color("#ef4444ee"))
-	var shadow_color: Color = Color(0, 0, 0, 0.35)
-	
-	# Flèche fine, élégante et distincte de l'évaluation Stockfish ("rouge et fine, en pointillés")
-	var shaft_width: float = clampf(square_size * 0.06, 2.5, 6.5)
-	var head_length: float = clampf(square_size * 0.24, 10.0, 26.0)
-	var head_width: float = clampf(square_size * 0.26, 11.0, 28.0)
-	var dash_len: float = clampf(square_size * 0.10, 4.0, 11.0)
-	
-	var shaft_end = end_pos - dir * (head_length * 0.8)
-	var perp = Vector2(-dir.y, dir.x)
-	var shadow_offset = Vector2(clampf(square_size * 0.02, 1.2, 2.5), clampf(square_size * 0.02, 1.2, 2.5))
-	
-	# Disque discret d'origine sur la case de départ
-	var start_disc_r = shaft_width * 1.35
-	canvas.draw_circle(start_pos + shadow_offset, start_disc_r, shadow_color)
-	canvas.draw_circle(start_pos, start_disc_r, arrow_color)
-	
-	# Fût en pointillés fins
-	canvas.draw_dashed_line(start_pos + shadow_offset, shaft_end + shadow_offset, shadow_color, shaft_width, dash_len, true, true)
-	canvas.draw_dashed_line(start_pos, shaft_end, arrow_color, shaft_width, dash_len, true, true)
-	
-	# Tête de flèche fine et pointue sur la case d'arrivée
-	var p1 = end_pos
-	var p2 = shaft_end + perp * (head_width * 0.5)
-	var p3 = shaft_end - perp * (head_width * 0.5)
-	
-	canvas.draw_colored_polygon(PackedVector2Array([p1 + shadow_offset, p2 + shadow_offset, p3 + shadow_offset]), shadow_color)
-	canvas.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
-	canvas.draw_polyline(PackedVector2Array([p2, p1, p3]), Color(1.0, 1.0, 1.0, 0.45), 1.0, true)
+	# Flèche fine en pointillés, distincte de la flèche moteur pleine.
+	var shaft := clampf(square_size * 0.06, 2.5, 6.5)
+	_draw_arrow(ci if ci != null else self, _square_center(from_sq), _square_center(to_sq), theme["last_move_arrow"], {
+		"shaft": shaft,
+		"head_len": clampf(square_size * 0.24, 10.0, 26.0),
+		"head_w": clampf(square_size * 0.26, 11.0, 28.0),
+		"dashed": true,
+		"shadow": clampf(square_size * 0.02, 1.2, 2.5),
+		"origin_disc": shaft * 1.35,
+		"rim": true,
+	})
 
 func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: CanvasItem = null, rank_num: int = 0, rank_order: int = 1) -> void:
 	var canvas: CanvasItem = ci if ci != null else self
 	var start_pos = _get_square_screen_pos(from_sq) + Vector2(square_size * 0.5, square_size * 0.5)
 	var end_pos = _get_square_screen_pos(to_sq) + Vector2(square_size * 0.5, square_size * 0.5)
 	
-	var dir = (end_pos - start_pos).normalized()
-	var dist = start_pos.distance_to(end_pos)
-	if dist < 1.0:
+	if start_pos.distance_to(end_pos) < 1.0:
 		return
-	
+
 	# Gradient arc-en-ciel dynamique selon la profondeur atteinte
 	var arrow_color: Color
 	if best_move_arrow_depth > 0:
@@ -1309,29 +1308,14 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 		arrow_color.a = 0.80
 
 	var shaft_width: float = clampf(square_size * 0.12, 5.0, 14.0)
-	var head_length: float = clampf(square_size * 0.35, 15.0, 36.0)
-	var head_width: float = clampf(square_size * 0.40, 18.0, 42.0)
-	
-	var shaft_end = end_pos - dir * (head_length * 0.85)
-	var perp = Vector2(-dir.y, dir.x)
-	
-	# Ombre portée fine
-	var shadow_offset = Vector2(clampf(square_size * 0.025, 1.5, 3.0), clampf(square_size * 0.025, 1.5, 3.0))
-	canvas.draw_line(start_pos + shadow_offset, shaft_end + shadow_offset, Color(0, 0, 0, 0.25), shaft_width + 2.0, true)
-	var shadow_p1 = end_pos + shadow_offset
-	var shadow_p2 = shaft_end + shadow_offset + perp * (head_width * 0.5)
-	var shadow_p3 = shaft_end + shadow_offset - perp * (head_width * 0.5)
-	canvas.draw_colored_polygon(PackedVector2Array([shadow_p1, shadow_p2, shadow_p3]), Color(0, 0, 0, 0.25))
-	
-	# Corps & Tête avec contour subtil pour lisibilité maximale
-	canvas.draw_circle(start_pos, shaft_width * 0.65, arrow_color)
-	canvas.draw_line(start_pos, shaft_end, arrow_color, shaft_width, true)
-	var p1 = end_pos
-	var p2 = shaft_end + perp * (head_width * 0.5)
-	var p3 = shaft_end - perp * (head_width * 0.5)
-	canvas.draw_colored_polygon(PackedVector2Array([p1, p2, p3]), arrow_color)
-	# Filet lumineux blanc discret pour faire ressortir la flèche sur les cases sombres ou claires
-	canvas.draw_polyline(PackedVector2Array([p2, p1, p3]), Color(1.0, 1.0, 1.0, 0.45), 1.2, true)
+	_draw_arrow(canvas, start_pos, end_pos, arrow_color, {
+		"shaft": shaft_width,
+		"head_len": clampf(square_size * 0.35, 15.0, 36.0),
+		"head_w": clampf(square_size * 0.40, 18.0, 42.0),
+		"shadow": clampf(square_size * 0.025, 1.5, 3.0),
+		"origin_disc": shaft_width * 0.65,
+		"rim": true,
+	})
 
 	# Numéro indicatif subtil mais évident à 3/4 de la distance (1/4 du bout de la flèche)
 	if rank_num > 0:
@@ -1342,8 +1326,8 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 		var font_size = int(clampf(badge_radius * 1.45, 10.0, 18.0))
 		
 		# Disque de fond (fond noir semi-opaque élégant + liseré blanc/or fin)
-		canvas.draw_circle(badge_pos + Vector2(0.5, 0.5), badge_radius + 1.2, Color(1.0, 1.0, 1.0, 0.85))
-		canvas.draw_circle(badge_pos, badge_radius, Color(0.08, 0.10, 0.15, 0.95))
+		canvas.draw_circle(badge_pos + Vector2(0.5, 0.5), badge_radius + 1.2, Color(1.0, 1.0, 1.0, 0.85), true, -1.0, true)
+		canvas.draw_circle(badge_pos, badge_radius, Color(0.08, 0.10, 0.15, 0.95), true, -1.0, true)
 		
 		if font:
 			var str_size = font.get_string_size(num_str, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size)
@@ -1354,6 +1338,8 @@ func _draw_modern_move_arrow(from_sq: int, to_sq: int, theme: Dictionary, ci: Ca
 # --- GESTION TACTILE & SOURIS (Clic pour sélectionner, Clic pour déplacer) ---
 
 func _redraw_board_and_overlays() -> void:
+	if check_layer:
+		check_layer.size = Vector2(board_size, board_size)
 	if arrow_overlay:
 		arrow_overlay.size = Vector2(board_size, board_size)
 		arrow_overlay.position = Vector2.ZERO
@@ -1638,7 +1624,11 @@ func _check_king_status() -> void:
 			if p.type == ChessPiece.Type.KING and p.color == game.active_color:
 				in_check_sq = i
 				break
-	set_process(in_check_sq != -1)
+	if check_layer:
+		check_layer.size = Vector2(board_size, board_size)
+		check_layer.set_process(in_check_sq != -1)
+		check_layer.visible = in_check_sq != -1
+		check_layer.queue_redraw()
 
 func _on_engine_eval(_score_cp: int, _mate_in: int, depth: int, best_move: String, _pv: Array, multipv: Array) -> void:
 	if not multipv.is_empty():

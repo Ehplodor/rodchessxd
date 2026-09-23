@@ -65,7 +65,7 @@ func _draw() -> void:
 			var angle := -PI / 2.0 + TAU * float(i) / float(n)
 			ring_pts.append(center + Vector2(cos(angle), sin(angle)) * r_lvl)
 		for i in range(n):
-			draw_line(ring_pts[i], ring_pts[(i + 1) % n], grid_col, 1.0)
+			draw_line(ring_pts[i], ring_pts[(i + 1) % n], grid_col, DesignTokens.STROKE_HAIR, true)
 
 	# Repères chiffrés sur l'axe vertical haut
 	if font != null:
@@ -78,7 +78,7 @@ func _draw() -> void:
 	for i in range(n):
 		var angle := -PI / 2.0 + TAU * float(i) / float(n)
 		var dir := Vector2(cos(angle), sin(angle))
-		draw_line(center, center + dir * radius, grid_col, 1.0)
+		draw_line(center, center + dir * radius, grid_col, DesignTokens.STROKE_HAIR, true)
 
 	# 3. Surface de compétence du joueur
 	var poly := radar_points(_points, center, radius)
@@ -86,9 +86,9 @@ func _draw() -> void:
 	if fill.size() >= 3:
 		draw_colored_polygon(fill, Color(DesignTokens.ACCENT.r, DesignTokens.ACCENT.g, DesignTokens.ACCENT.b, 0.28))
 		for i in range(poly.size()):
-			draw_line(poly[i], poly[(i + 1) % poly.size()], DesignTokens.ACCENT, 2.5)
-			draw_circle(poly[i], 3.5, DesignTokens.ACCENT)
-			draw_circle(poly[i], 1.8, Color.WHITE)
+			draw_line(poly[i], poly[(i + 1) % poly.size()], DesignTokens.ACCENT, 2.5, true)
+			draw_circle(poly[i], 3.5, DesignTokens.ACCENT, true, -1.0, true)
+			draw_circle(poly[i], 1.8, DesignTokens.SURFACE, true, -1.0, true)
 
 	# 4. Libellés des compétences autour du périmètre
 	if font != null:

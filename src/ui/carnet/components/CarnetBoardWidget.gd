@@ -191,9 +191,9 @@ func _draw() -> void:
 
 	# 4. Flèches de résolution
 	if best_move_from >= 0 and best_move_to >= 0:
-		_draw_arrow(best_move_from, best_move_to, Color("#22c55e"))
+		_draw_arrow(best_move_from, best_move_to, DesignTokens.SUCCESS)
 	if mistake_move_from >= 0 and mistake_move_to >= 0:
-		_draw_arrow(mistake_move_from, mistake_move_to, Color("#ef4444"))
+		_draw_arrow(mistake_move_from, mistake_move_to, DesignTokens.DANGER)
 
 func _draw_square_highlight(sq: int, color: Color) -> void:
 	var pos := _get_square_pos(sq)

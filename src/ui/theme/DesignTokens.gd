@@ -28,6 +28,30 @@ const CARD_PAD_V := 8
 const RADIUS_SMALL := 6
 const RADIUS_MEDIUM := 8
 
+# --- Dessin vectoriel (_draw) : épaisseurs et tailles en px viewport ---
+# Le projet utilise le stretch « canvas_items » : ces px suivent déjà l'échelle
+# de l'écran, aucune correction DPI supplémentaire n'est nécessaire.
+const FONT_MICRO := 12      ## Libellés d'axes et de jauges (dessinés, pas des Label)
+const STROKE_HAIR := 1.0    ## Grilles, contours discrets
+const STROKE_THIN := 1.5    ## Repères, liserés
+const STROKE := 2.2         ## Courbes principales
+const STROKE_BOLD := 3.5    ## Flèches, emphase
+
+# --- Surcouches du plateau (indépendantes du thème d'interface : posées sur les cases) ---
+const CHECK_GLOW := Color(0.95, 0.20, 0.20)
+const CHECK_BORDER := Color(0.90, 0.10, 0.10, 0.85)
+const USER_MARK := Color("#f59e0bee")        ## Flèches/cercles d'annotation utilisateur
+const CLIFF_POISON := Color(0.92, 0.25, 0.25, 0.85)  ## Cases fatales (coup unique vital)
+const CLIFF_MINE := Color(0.96, 0.62, 0.04)  ## Cases-mines (opacité ∝ poids du piège)
+const CLIFF_BAIT := Color("#f472b6e0")        ## Flèche du coup appât
+const CLIFF_VITAL := Color("#f59e0b")         ## Coup unique vital / appât (ambre)
+## Couleur de la flèche du meilleur coup selon CliffTypes.MoveNature (SAFE, FORCED, ATTACK, VITAL).
+const NATURE_ARROW := {0: Color("#22d3ee"), 1: Color("#38bdf8"), 2: Color("#ec4899"), 3: Color("#f59e0b")}
+
+## Nombre de segments d'un arc/cercle proportionnel à son rayon (rond à toute taille).
+static func arc_segments(radius: float) -> int:
+	return clampi(int(radius * 1.5) + 12, 16, 96)
+
 # --- Définitions de thèmes d'interface (Mode Obscur / Mode Clair) ---
 const THEME_DARK := {
 	"BG_DEEP": Color("#090d16"),
@@ -52,7 +76,20 @@ const THEME_DARK := {
 	"WARNING": Color("#fbbf24"),
 	"DANGER": Color("#f87171"),
 	"ERROR_BG": Color("#801c21"),
-	"ERROR_TEXT": Color("#ffe3e3")
+	"ERROR_TEXT": Color("#ffe3e3"),
+	# Dessin : camps, graphes, curseurs, pistes CHESS-CLIFF (rampe de sévérité)
+	"SIDE_WHITE": Color("#f8fafc"),
+	"SIDE_BLACK": Color("#090d16"),
+	"GRAPH_GRID": Color(0.28, 0.33, 0.41, 0.40),
+	"GRAPH_WHITE_AREA": Color(0.95, 0.96, 0.98, 0.30),
+	"GRAPH_BLACK_AREA": Color(0.02, 0.03, 0.06, 0.70),
+	"CURSOR": Color("#facc15"),
+	"PISTE_0": Color("#22c55e"),
+	"PISTE_1": Color("#38bdf8"),
+	"PISTE_2": Color("#f59e0b"),
+	"PISTE_3": Color("#ef4444"),
+	"PISTE_4": Color("#d946ef"),
+	"CLIFF_ACCENT": Color("#c084fc"),
 }
 
 const THEME_LIGHT := {
@@ -78,11 +115,33 @@ const THEME_LIGHT := {
 	"WARNING": Color("#d97706"),
 	"DANGER": Color("#dc2626"),
 	"ERROR_BG": Color("#fee2e2"),
-	"ERROR_TEXT": Color("#991b1b")
+	"ERROR_TEXT": Color("#991b1b"),
+	"SIDE_WHITE": Color("#ffffff"),
+	"SIDE_BLACK": Color("#1e293b"),
+	"GRAPH_GRID": Color(0.39, 0.45, 0.55, 0.30),
+	"GRAPH_WHITE_AREA": Color(1.0, 1.0, 1.0, 0.85),
+	"GRAPH_BLACK_AREA": Color(0.06, 0.09, 0.16, 0.55),
+	"CURSOR": Color("#ca8a04"),
+	"PISTE_0": Color("#16a34a"),
+	"PISTE_1": Color("#0284c7"),
+	"PISTE_2": Color("#d97706"),
+	"PISTE_3": Color("#dc2626"),
+	"PISTE_4": Color("#a21caf"),
+	"CLIFF_ACCENT": Color("#9333ea"),
 }
 
 # --- Surfaces et Couleurs dynamiques (initialisées en Dark par défaut) ---
 static var current_theme_mode: String = "dark"
+## Palette active complète (inclut les couleurs de dessin, lues via col()).
+static var palette: Dictionary = THEME_DARK
+
+## Couleur de la palette active par clé (couleurs de dessin : SIDE_*, GRAPH_*, CURSOR, PISTE_n).
+static func col(key: String) -> Color:
+	return palette.get(key, Color.MAGENTA)
+
+## Couleur d'une piste CHESS-CLIFF (0..4) lisible sur le thème actif.
+static func piste_color(piste: int) -> Color:
+	return palette.get("PISTE_%d" % clampi(piste, 0, 4), Color.GRAY)
 
 static var BG_DEEP: Color = THEME_DARK["BG_DEEP"]
 static var BG_BASE: Color = THEME_DARK["BG_BASE"]
@@ -120,6 +179,7 @@ static var ERROR_TEXT: Color = THEME_DARK["ERROR_TEXT"]
 static func apply_theme_mode(mode: String) -> void:
 	current_theme_mode = "light" if mode == "light" else "dark"
 	var p: Dictionary = THEME_LIGHT if current_theme_mode == "light" else THEME_DARK
+	palette = p
 	BG_DEEP = p["BG_DEEP"]
 	BG_BASE = p["BG_BASE"]
 	SURFACE = p["SURFACE"]

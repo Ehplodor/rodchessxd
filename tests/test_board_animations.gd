@@ -55,7 +55,8 @@ func _init() -> void:
 	
 	# 5. Test board with check & arrow
 	board.in_check_sq = 4 # King on e1
-	board.check_pulse_timer = 1.5
+	board.check_layer.timer = 1.5
+	board.check_layer.set_process(true)
 	board.best_move_arrow_from = 12 # e2
 	board.best_move_arrow_to = 28   # e4
 	board.queue_redraw()

@@ -8,9 +8,9 @@ extends RefCounted
 enum Piste {
 	AUTOROUTE = 0,      # 🟢 D < 25 — positions confortables
 	CHEMIN = 1,         # 🔵 D ∈ [25, 50) — calcul modéré
-	CORNICHE = 2,       # 🔴 D ∈ [50, 72) — corniche technique piégeuse
-	FIL_DU_RASOIR = 3,  # ⚫ D ∈ [72, 88) — coup unique ou presque
-	CHAMP_DE_MINES = 4  # ⚠️ D ≥ 88 — survie quasi-impossible pour l'humain
+	CORNICHE = 2,       # 🟠 D ∈ [50, 72) — corniche technique piégeuse
+	FIL_DU_RASOIR = 3,  # 🔴 D ∈ [72, 88) — coup unique ou presque
+	CHAMP_DE_MINES = 4  # ☠️ D ≥ 88 — survie quasi-impossible pour l'humain
 }
 
 ## ── Saillance visuelle ────────────────────────────────────────────────
@@ -64,20 +64,22 @@ const D_LATENT_W_THREAT := 0.65
 const D_LATENT_PRIOR := 15.0    # D adverse supposé avant le premier coup observé
 
 ## ── Couleurs et libellés UI ───────────────────────────────────────────
+## Rampe de sévérité monotone (vert → bleu → ambre → rouge → magenta), lisible sur
+## fond sombre comme clair. L'UI préfère DesignTokens.piste_color (variante par thème).
 const PISTE_COLORS := {
-	Piste.AUTOROUTE:       Color("#2ecc71"),  # Vert
-	Piste.CHEMIN:          Color("#3498db"),  # Bleu
-	Piste.CORNICHE:        Color("#e74c3c"),  # Rouge
-	Piste.FIL_DU_RASOIR:   Color("#2c3e50"),  # Noir
-	Piste.CHAMP_DE_MINES:  Color("#f39c12"),  # Ambre
+	Piste.AUTOROUTE:       Color("#22c55e"),
+	Piste.CHEMIN:          Color("#38bdf8"),
+	Piste.CORNICHE:        Color("#f59e0b"),
+	Piste.FIL_DU_RASOIR:   Color("#ef4444"),
+	Piste.CHAMP_DE_MINES:  Color("#d946ef"),
 }
 
 const PISTE_ICONS := {
 	Piste.AUTOROUTE:       "🟢",
 	Piste.CHEMIN:          "🔵",
-	Piste.CORNICHE:        "🔴",
-	Piste.FIL_DU_RASOIR:   "⚫",
-	Piste.CHAMP_DE_MINES:  "⚠️",
+	Piste.CORNICHE:        "🟠",
+	Piste.FIL_DU_RASOIR:   "🔴",
+	Piste.CHAMP_DE_MINES:  "☠️",
 }
 
 const PISTE_LETTERS := {

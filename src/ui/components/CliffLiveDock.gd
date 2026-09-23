@@ -57,18 +57,18 @@ class CliffGauge extends Control:
 		for z in d_zones:
 			var x0: float = (float(z[0]) / 100.0) * w
 			var x1: float = (float(z[1]) / 100.0) * w
-			var col: Color = CliffTypes.get_piste_color(int(z[2]))
+			var col: Color = DesignTokens.piste_color(int(z[2]))
 			draw_rect(Rect2(x0, 2.0, maxf(1.0, x1 - x0), h), Color(col.r, col.g, col.b, 0.35))
-		draw_rect(Rect2(0, 2.0, w, h), Color(0.6, 0.65, 0.75, 0.45), false, 1.0)
+		draw_rect(Rect2(0, 2.0, w, h), DesignTokens.BORDER, false, 1.0)
 
 		# Curseur D (0..100) — aligné directement sur la difficulté cognitive
 		var t := clampf(float(indice_d) / 100.0, 0.0, 1.0)
 		var px := t * w
 		draw_line(Vector2(px, 0.0), Vector2(px, 2.0 + h + 2.0), Color.WHITE, 2.0, true)
-		draw_circle(Vector2(px, 2.0 + h * 0.5), 4.0, CliffTypes.get_piste_color(piste))
+		draw_circle(Vector2(px, 2.0 + h * 0.5), 4.0, DesignTokens.piste_color(piste), true, -1.0, true)
 		var lbl := "%s  D=%d (%s)" % [side_label, indice_d, CliffTypes.get_piste_name(piste)]
 		draw_string(font, Vector2(2.0, h + 13.0), lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
-				Color(0.85, 0.88, 0.94, 1.0))
+				DesignTokens.TEXT_SECONDARY)
 
 ## Duel topographique (profil altimétrique miroir) avec baseline centrale.
 class CliffDuelGraph extends Control:
@@ -131,14 +131,14 @@ class CliffDuelGraph extends Control:
 		var y_mid := size.y * 0.5
 
 		# Fond topo sombre
-		draw_rect(Rect2(0, 0, size.x, size.y), Color(0.04, 0.06, 0.11, 0.75), true)
+		draw_rect(Rect2(0, 0, size.x, size.y), Color(DesignTokens.BG_DEEP, 0.85), true)
 
 		# Filigranes discrets
-		draw_string(font, Vector2(4, y_mid - 4), "⚪ Blancs", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.7, 0.75, 0.85, 0.35))
-		draw_string(font, Vector2(4, y_mid + 11), "⚫ Noirs", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.7, 0.75, 0.85, 0.35))
+		draw_string(font, Vector2(4, y_mid - 4), "⚪ Blancs", HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.75))
+		draw_string(font, Vector2(4, y_mid + 11), "⚫ Noirs", HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.75))
 
 		# Ligne médiane (baseline 0)
-		draw_line(Vector2(0, y_mid), Vector2(size.x, y_mid), Color(0.4, 0.45, 0.55, 0.5), 1.0)
+		draw_line(Vector2(0, y_mid), Vector2(size.x, y_mid), Color(DesignTokens.BORDER, 0.8), 1.0)
 
 		for i in range(n):
 			var is_white := (i % 2 == 0)
@@ -155,10 +155,13 @@ class CliffDuelGraph extends Control:
 				d_val = int(p.get("indice_d", 0))
 				is_vital = bool(p.get("is_vital", false))
 
-			var col := CliffTypes.get_piste_color(piste)
-			var ratio := clampf(float(d_val) / 100.0 if d_val > 0 else delta, 0.12, 1.0)
+			var col := DesignTokens.piste_color(piste)
+			if i < plies_data.size() and not bool(plies_data[i].get("reliable", true)):
+				col = DesignTokens.TEXT_MUTED
+			# Hauteur = charge D seule (mêmes unités pour toutes les barres) ;
+			# un talon de 2 px garde visibles les demi-coups sans charge.
 			var max_h := y_mid - 3.0
-			var bar_h := ratio * max_h
+			var bar_h := maxf(2.0, clampf(float(d_val) / 100.0, 0.0, 1.0) * max_h)
 			var bar_x := float(i) * w + 1.0
 			var bar_w := maxf(2.0, w - 2.0)
 
@@ -179,12 +182,12 @@ class CliffDuelGraph extends Control:
 			if bait >= CliffTypes.BAIT_THRESHOLD:
 				var cx := bar_x + bar_w * 0.5
 				var ty := (y_mid - bar_h - 2.0) if is_white else (y_mid + bar_h + 2.0)
-				draw_circle(Vector2(cx, ty), 2.5, Color("#f59e0b"))
+				draw_circle(Vector2(cx, ty), 2.5, DesignTokens.CLIFF_VITAL, true, -1.0, true)
 
 			# Surbrillance sélection / hover
 			if i == current:
 				draw_rect(Rect2(float(i) * w, 0.0, maxf(1.0, w), size.y), Color(1, 1, 1, 0.22))
-				draw_rect(Rect2(float(i) * w, 0.0, maxf(1.0, w), size.y), Color("#c084fc"), false, 1.5)
+				draw_rect(Rect2(float(i) * w, 0.0, maxf(1.0, w), size.y), DesignTokens.col("CLIFF_ACCENT"), false, 1.5)
 			elif i == hovered:
 				draw_rect(Rect2(float(i) * w, 0.0, maxf(1.0, w), size.y), Color(1, 1, 1, 0.12))
 
@@ -240,17 +243,17 @@ class CliffSurvivalTunnel extends Control:
 		var y_mid := h_total * 0.5
 
 		# Fond gorge rocheuse sombre
-		draw_rect(Rect2(0, 0, size.x, size.y), Color(0.03, 0.05, 0.09, 0.85), true)
+		draw_rect(Rect2(0, 0, size.x, size.y), Color(DesignTokens.BG_DEEP, 0.9), true)
 
 		# Ligne de démarcation centrale
-		draw_line(Vector2(0, y_mid), Vector2(size.x, y_mid), Color(0.3, 0.35, 0.45, 0.35), 1.0)
+		draw_line(Vector2(0, y_mid), Vector2(size.x, y_mid), Color(DesignTokens.BORDER, 0.7), 1.0)
 
 		# Filigranes discrets sur les berges
-		draw_string(font, Vector2(3, 9), "⚫ Étranglement Noirs", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.65, 0.7, 0.8, 0.35))
-		draw_string(font, Vector2(3, h_total - 3), "⚪ Étranglement Blancs", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.65, 0.7, 0.8, 0.35))
+		draw_string(font, Vector2(3, 11), "⚪ Étranglement Blancs", HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.75))
+		draw_string(font, Vector2(3, h_total - 3), "⚫ Étranglement Noirs", HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.75))
 
-		var y_black_center := y_mid * 0.5
-		var y_white_center := y_mid + (h_total - y_mid) * 0.5
+		var y_white_center := y_mid * 0.5
+		var y_black_center := y_mid + (h_total - y_mid) * 0.5
 
 		var white_radii: Array[float] = []
 		var black_radii: Array[float] = []
@@ -266,7 +269,7 @@ class CliffSurvivalTunnel extends Control:
 			var d_val := int(p.get("indice_d", 0))
 			var is_vital := bool(p.get("is_vital", false))
 			var piste: int = int(p.get("piste", CliffTypes.Piste.AUTOROUTE))
-			var p_col := CliffTypes.get_piste_color(piste)
+			var p_col := DesignTokens.piste_color(piste) if bool(p.get("reliable", true)) else DesignTokens.TEXT_MUTED
 
 			# Liberté : 1.0 (largeur max) -> 0.0 (étranglement)
 			var freedom := clampf(1.0 - (float(d_val) / 100.0), 0.05, 1.0)
@@ -280,13 +283,13 @@ class CliffSurvivalTunnel extends Control:
 				white_radii.append(cur_r)
 				white_cols.append(p_col)
 				black_radii.append(last_b_r)
-				black_cols.append(black_cols.back() if not black_cols.is_empty() else Color(0.4, 0.45, 0.55, 0.5))
+				black_cols.append(black_cols.back() if not black_cols.is_empty() else Color(DesignTokens.BORDER, 0.8))
 			else:
 				last_b_r = cur_r
 				black_radii.append(cur_r)
 				black_cols.append(p_col)
 				white_radii.append(last_w_r)
-				white_cols.append(white_cols.back() if not white_cols.is_empty() else Color(0.4, 0.45, 0.55, 0.5))
+				white_cols.append(white_cols.back() if not white_cols.is_empty() else Color(DesignTokens.BORDER, 0.8))
 
 		# Tracé des flux continus
 		for i in range(n):
@@ -306,8 +309,8 @@ class CliffSurvivalTunnel extends Control:
 			# Conduit Noir
 			var b_col: Color = black_cols[i]
 			if not is_white and (is_vital or d_val >= CliffTypes.D_CHEMIN_MAX):
-				b_col = Color("#f59e0b") if is_vital else Color("#ef4444")
-				draw_rect(Rect2(x0, 0, w, y_mid), Color(0.9, 0.15, 0.15, 0.14), true)
+				b_col = DesignTokens.CLIFF_VITAL if is_vital else DesignTokens.DANGER
+				draw_rect(Rect2(x0, y_mid, w, h_total - y_mid), Color(0.9, 0.15, 0.15, 0.14), true)
 
 			var b_poly := PackedVector2Array([
 				Vector2(x0, y_black_center - rb0),
@@ -321,8 +324,8 @@ class CliffSurvivalTunnel extends Control:
 			# Conduit Blanc
 			var w_col: Color = white_cols[i]
 			if is_white and (is_vital or d_val >= CliffTypes.D_CHEMIN_MAX):
-				w_col = Color("#f59e0b") if is_vital else Color("#ef4444")
-				draw_rect(Rect2(x0, y_mid, w, h_total - y_mid), Color(0.9, 0.15, 0.15, 0.14), true)
+				w_col = DesignTokens.CLIFF_VITAL if is_vital else DesignTokens.DANGER
+				draw_rect(Rect2(x0, 0, w, y_mid), Color(0.9, 0.15, 0.15, 0.14), true)
 
 			var w_poly := PackedVector2Array([
 				Vector2(x0, y_white_center - rw0),
@@ -336,13 +339,13 @@ class CliffSurvivalTunnel extends Control:
 			# Balise d'étranglement critique
 			if is_vital:
 				var vy := y_white_center if is_white else y_black_center
-				draw_circle(Vector2(cx, vy), 3.0, Color.WHITE)
-				draw_arc(Vector2(cx, vy), 4.5, 0, TAU, 12, Color("#f59e0b"), 1.5)
+				draw_circle(Vector2(cx, vy), 3.0, Color.WHITE, true, -1.0, true)
+				draw_arc(Vector2(cx, vy), 4.5, 0, TAU, 24, DesignTokens.CLIFF_VITAL, 1.5, true)
 
 			# Curseur pas sélectionné / survol
 			if i == current:
 				draw_rect(Rect2(x0, 0.0, w, h_total), Color(1, 1, 1, 0.20))
-				draw_rect(Rect2(x0, 0.0, w, h_total), Color("#c084fc"), false, 1.5)
+				draw_rect(Rect2(x0, 0.0, w, h_total), DesignTokens.col("CLIFF_ACCENT"), false, 1.5)
 			elif i == hovered:
 				draw_rect(Rect2(x0, 0.0, w, h_total), Color(1, 1, 1, 0.10))
 
@@ -561,8 +564,8 @@ class CliffPhaseSpace2D extends Control:
 			return
 
 		# 1. Fond du cadre
-		draw_rect(Rect2(pad_l, pad_t, w, h), Color(0.08, 0.10, 0.16, 0.75))
-		draw_rect(Rect2(pad_l, pad_t, w, h), Color(0.25, 0.32, 0.45, 0.5), false, 1.0)
+		draw_rect(Rect2(pad_l, pad_t, w, h), Color(DesignTokens.BG_DEEP, 0.85))
+		draw_rect(Rect2(pad_l, pad_t, w, h), DesignTokens.BORDER, false, 1.0)
 
 		# 2. Grilles et repères selon le mode
 		match mode:
@@ -570,18 +573,18 @@ class CliffPhaseSpace2D extends Control:
 				# Diagonale d'équilibre (X = Y)
 				draw_dashed_line(Vector2(pad_l, pad_t + h), Vector2(pad_l + w, pad_t), Color(0.4, 0.48, 0.65, 0.4), 1.0, 6.0)
 				# Lignes médianes D=50
-				draw_dashed_line(Vector2(pad_l + w * 0.5, pad_t), Vector2(pad_l + w * 0.5, pad_t + h), Color(0.3, 0.35, 0.45, 0.3), 1.0, 4.0)
-				draw_dashed_line(Vector2(pad_l, pad_t + h * 0.5), Vector2(pad_l + w, pad_t + h * 0.5), Color(0.3, 0.35, 0.45, 0.3), 1.0, 4.0)
+				draw_dashed_line(Vector2(pad_l + w * 0.5, pad_t), Vector2(pad_l + w * 0.5, pad_t + h), Color(DesignTokens.BORDER, 0.6), 1.0, 4.0)
+				draw_dashed_line(Vector2(pad_l, pad_t + h * 0.5), Vector2(pad_l + w, pad_t + h * 0.5), Color(DesignTokens.BORDER, 0.6), 1.0, 4.0)
 				# Quadrants
-				draw_string(font, Vector2(pad_l + 4, pad_t + 12), "Noirs en charge", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.7, 0.75, 0.85, 0.35))
-				draw_string(font, Vector2(pad_l + w - 4, pad_t + h - 4), "Blancs en charge", HORIZONTAL_ALIGNMENT_RIGHT, -1, 8, Color(0.7, 0.75, 0.85, 0.35))
-				draw_string(font, Vector2(pad_l + w - 4, pad_t + 12), "Combat total", HORIZONTAL_ALIGNMENT_RIGHT, -1, 8, Color(0.9, 0.4, 0.4, 0.35))
-				draw_string(font, Vector2(pad_l + 4, pad_t + h - 4), "Calme plat", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.4, 0.8, 0.5, 0.35))
+				draw_string(font, Vector2(pad_l + 4, pad_t + 12), "Noirs en charge", HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.75))
+				draw_string(font, Vector2(pad_l + w - 4, pad_t + h - 4), "Blancs en charge", HORIZONTAL_ALIGNMENT_RIGHT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.75))
+				draw_string(font, Vector2(pad_l + w - 4, pad_t + 12), "Combat total", HORIZONTAL_ALIGNMENT_RIGHT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.DANGER, 0.7))
+				draw_string(font, Vector2(pad_l + 4, pad_t + h - 4), "Calme plat", HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.SUCCESS, 0.7))
 
 				if mode == PhaseMode.COUP_COMPLET:
-					draw_string(font, Vector2(pad_l + w * 0.5, pad_t + 10), "♟️ Tour N (X=D_Blanc, Y=D_Noir)", HORIZONTAL_ALIGNMENT_CENTER, -1, 8, Color(0.75, 0.8, 0.95, 0.3))
+					draw_string(font, Vector2(pad_l + w * 0.5, pad_t + 10), "♟️ Tour N (X=D_Blanc, Y=D_Noir)", HORIZONTAL_ALIGNMENT_CENTER, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.75))
 				elif mode == PhaseMode.TENSION_LATENTE:
-					draw_string(font, Vector2(pad_l + w * 0.5, pad_t + 10), "⚡ Tension Latente & Surprise (X=D_Blanc, Y=D_Noir)", HORIZONTAL_ALIGNMENT_CENTER, -1, 8, Color(0.75, 0.8, 0.95, 0.3))
+					draw_string(font, Vector2(pad_l + w * 0.5, pad_t + 10), "⚡ Tension Latente & Surprise (X=D_Blanc, Y=D_Noir)", HORIZONTAL_ALIGNMENT_CENTER, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.75))
 
 			PhaseMode.EQUATEUR:
 				# Équateur Y=0
@@ -590,15 +593,15 @@ class CliffPhaseSpace2D extends Control:
 				# Méridien Éval=0
 				var x_mer := pad_l + w * 0.5
 				draw_dashed_line(Vector2(x_mer, pad_t), Vector2(x_mer, pad_t + h), Color(0.35, 0.45, 0.6, 0.4), 1.0, 4.0)
-				draw_string(font, Vector2(pad_l + 4, pad_t + 12), "Nord : Blancs sous tension", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.9, 0.9, 1.0, 0.4))
-				draw_string(font, Vector2(pad_l + 4, pad_t + h - 4), "Sud : Noirs sous tension", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.7, 0.75, 0.85, 0.4))
+				draw_string(font, Vector2(pad_l + 4, pad_t + 12), "Nord : Blancs sous tension", HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_SECONDARY, 0.8))
+				draw_string(font, Vector2(pad_l + 4, pad_t + h - 4), "Sud : Noirs sous tension", HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.TEXT_MUTED, 0.8))
 
 			PhaseMode.RAVIN_VECTOR:
 				var x_mer := pad_l + w * 0.5
 				draw_dashed_line(Vector2(x_mer, pad_t), Vector2(x_mer, pad_t + h), Color(0.35, 0.45, 0.6, 0.4), 1.0, 4.0)
 				# Ligne D=50
-				draw_dashed_line(Vector2(pad_l, pad_t + h * 0.5), Vector2(pad_l + w, pad_t + h * 0.5), Color(0.3, 0.35, 0.45, 0.3), 1.0, 4.0)
-				draw_string(font, Vector2(pad_l + w - 4, pad_t + 12), "Ravin & Vecteurs de Chute", HORIZONTAL_ALIGNMENT_RIGHT, -1, 8, Color(0.95, 0.5, 0.5, 0.45))
+				draw_dashed_line(Vector2(pad_l, pad_t + h * 0.5), Vector2(pad_l + w, pad_t + h * 0.5), Color(DesignTokens.BORDER, 0.6), 1.0, 4.0)
+				draw_string(font, Vector2(pad_l + w - 4, pad_t + 12), "Ravin & Vecteurs de Chute", HORIZONTAL_ALIGNMENT_RIGHT, -1, DesignTokens.FONT_MICRO - 2, Color(DesignTokens.DANGER, 0.75))
 
 		if n == 0:
 			return
@@ -617,7 +620,7 @@ class CliffPhaseSpace2D extends Control:
 					var p0 := pts[i]
 					var p1 := pts[i + 1]
 					var fm_step: Dictionary = full_moves[i]
-					var p_col: Color = CliffTypes.get_piste_color(maxi(int(fm_step.get("piste_w", 0)), int(fm_step.get("piste_b", 0))))
+					var p_col: Color = DesignTokens.piste_color(maxi(int(fm_step.get("piste_w", 0)), int(fm_step.get("piste_b", 0))))
 					draw_line(p0, p1, Color(p_col.r, p_col.g, p_col.b, 0.8), 2.0, true)
 
 			# Nœuds du coup complet
@@ -626,24 +629,24 @@ class CliffPhaseSpace2D extends Control:
 				var fm: Dictionary = full_moves[i]
 				var is_v: bool = bool(fm.get("is_vital", false))
 				if is_v:
-					draw_arc(pt, 8.0, 0, TAU, 16, Color("#f59e0b"), 2.0)
-				draw_circle(pt, 4.5, Color("#38bdf8"))
-				draw_arc(pt, 4.5, 0, TAU, 16, Color.WHITE, 1.2)
+					draw_arc(pt, 8.0, 0, TAU, 24, DesignTokens.CLIFF_VITAL, 2.0, true)
+				draw_circle(pt, 4.5, DesignTokens.ACCENT, true, -1.0, true)
+				draw_arc(pt, 4.5, 0, TAU, 24, Color.WHITE, 1.2, true)
 
 				if i == current:
-					draw_arc(pt, 9.5, 0, TAU, 20, Color("#c084fc"), 2.0)
+					draw_arc(pt, 9.5, 0, TAU, 24, DesignTokens.col("CLIFF_ACCENT"), 2.0, true)
 					draw_dashed_line(Vector2(pad_l, pt.y), Vector2(pad_l + w, pt.y), Color(0.75, 0.5, 1.0, 0.4), 1.0, 3.0)
 					draw_dashed_line(Vector2(pt.x, pad_t), Vector2(pt.x, pad_t + h), Color(0.75, 0.5, 1.0, 0.4), 1.0, 3.0)
 
 				if i == hovered:
-					draw_arc(pt, 7.0, 0, TAU, 16, Color.WHITE, 1.5)
+					draw_arc(pt, 7.0, 0, TAU, 24, Color.WHITE, 1.5, true)
 					var m_num: int = int(fm.get("move_num", 1))
 					var sw_txt: String = str(fm.get("san_w", ""))
 					var sb_txt: String = str(fm.get("san_b", ""))
 					var dw_num: int = int(fm.get("d_w", 0))
 					var db_num: int = int(fm.get("d_b", 0))
 					var tip := "%d. %s / %s (Dw=%d, Db=%d)" % [m_num, sw_txt, sb_txt, dw_num, db_num]
-					draw_string(font, pt + Vector2(6, -6), tip, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.95))
+					draw_string(font, pt + Vector2(6, -6), tip, HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(1, 1, 1, 0.95))
 			return
 
 		# 4. Traitement standard des modes par demi-coup
@@ -657,7 +660,7 @@ class CliffPhaseSpace2D extends Control:
 				var p0 := pts[i]
 				var p1 := pts[i + 1]
 				var step_i: Dictionary = plies_data[i]
-				var p_col: Color = CliffTypes.get_piste_color(int(step_i.get("piste", 0)))
+				var p_col: Color = DesignTokens.piste_color(int(step_i.get("piste", 0)))
 				draw_line(p0, p1, Color(p_col.r, p_col.g, p_col.b, 0.75), 2.0, true)
 
 		# Vecteurs de chute (spécifique au mode RAVIN_VECTOR)
@@ -671,7 +674,7 @@ class CliffPhaseSpace2D extends Control:
 					var v_len := clampf(delta * 55.0, 10.0, 42.0)
 					var dir_x := -1.0 if is_white else 1.0
 					var end_pt := pt + Vector2(dir_x * v_len, 4.0)
-					var col_v := Color("#ef4444") if delta >= 0.25 else Color("#f59e0b")
+					var col_v := DesignTokens.DANGER if delta >= 0.25 else DesignTokens.CLIFF_VITAL
 					draw_line(pt, end_pt, col_v, 2.0, true)
 					var perp := Vector2(0, 1)
 					draw_colored_polygon(PackedVector2Array([
@@ -692,25 +695,25 @@ class CliffPhaseSpace2D extends Control:
 			# Halo de choc ou de surprise cognitive
 			var s_nature: int = int(p.get("surprise_nature", CliffTypes.SurpriseNature.NORMAL))
 			if s_nature == CliffTypes.SurpriseNature.SHOCK:
-				draw_arc(pt, 9.0, 0, TAU, 16, Color("#ef4444"), 2.2)
+				draw_arc(pt, 9.0, 0, TAU, 24, DesignTokens.DANGER, 2.2, true)
 			elif s_nature == CliffTypes.SurpriseNature.SURPRISE:
-				draw_arc(pt, 7.5, 0, TAU, 16, Color("#f59e0b"), 1.8)
+				draw_arc(pt, 7.5, 0, TAU, 24, DesignTokens.CLIFF_VITAL, 1.8, true)
 			elif s_nature == CliffTypes.SurpriseNature.MIRACLE or s_nature == CliffTypes.SurpriseNature.RELIEF:
-				draw_arc(pt, 7.5, 0, TAU, 16, Color("#10b981"), 1.8)
+				draw_arc(pt, 7.5, 0, TAU, 24, DesignTokens.SUCCESS, 1.8, true)
 
 			if is_vital:
-				draw_arc(pt, 7.0, 0, TAU, 16, Color("#f59e0b"), 2.0)
+				draw_arc(pt, 7.0, 0, TAU, 24, DesignTokens.CLIFF_VITAL, 2.0, true)
 
-			draw_circle(pt, 4.0, col_node)
-			draw_arc(pt, 4.0, 0, TAU, 16, border_node, 1.2)
+			draw_circle(pt, 4.0, col_node, true, -1.0, true)
+			draw_arc(pt, 4.0, 0, TAU, 24, border_node, 1.2, true)
 
 			if i == current:
-				draw_arc(pt, 8.5, 0, TAU, 20, Color("#c084fc"), 2.0)
+				draw_arc(pt, 8.5, 0, TAU, 24, DesignTokens.col("CLIFF_ACCENT"), 2.0, true)
 				draw_dashed_line(Vector2(pad_l, pt.y), Vector2(pad_l + w, pt.y), Color(0.75, 0.5, 1.0, 0.4), 1.0, 3.0)
 				draw_dashed_line(Vector2(pt.x, pad_t), Vector2(pt.x, pad_t + h), Color(0.75, 0.5, 1.0, 0.4), 1.0, 3.0)
 
 			if i == hovered:
-				draw_arc(pt, 6.0, 0, TAU, 16, Color.WHITE, 1.5)
+				draw_arc(pt, 6.0, 0, TAU, 24, Color.WHITE, 1.5, true)
 				var san_str := str(p.get("san", p.get("move_uci", "?")))
 				var d_num := int(p.get("indice_d", 0))
 				var tip := ""
@@ -721,7 +724,7 @@ class CliffPhaseSpace2D extends Control:
 					tip = "#%d %s%s (D_actif=%d, D_latent=%d)" % [i + 1, san_str, s_suffix, d_num, d_latent]
 				else:
 					tip = "#%d %s%s (D=%d)" % [i + 1, san_str, s_suffix, d_num]
-				draw_string(font, pt + Vector2(6, -6), tip, HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(1, 1, 1, 0.95))
+				draw_string(font, pt + Vector2(6, -6), tip, HORIZONTAL_ALIGNMENT_LEFT, -1, DesignTokens.FONT_MICRO - 2, Color(1, 1, 1, 0.95))
 
 var _source_label: Label
 var _status_label: Label
@@ -756,7 +759,7 @@ var _report: Dictionary = {}
 func _init() -> void:
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.07, 0.10, 0.16, 0.96)
+	sb.bg_color = Color(DesignTokens.SURFACE, 0.96)
 	sb.border_color = Color(0.35, 0.25, 0.55, 0.7)
 	sb.set_border_width_all(1)
 	sb.set_corner_radius_all(DesignTokens.RADIUS_MEDIUM)
@@ -784,7 +787,7 @@ func _build() -> void:
 	_title_label.clip_text = true
 	_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_title_label.add_theme_font_size_override("font_size", DesignTokens.FONT_CAPTION)
-	_title_label.add_theme_color_override("font_color", Color("#c084fc"))
+	_title_label.add_theme_color_override("font_color", DesignTokens.col("CLIFF_ACCENT"))
 	header.add_child(_title_label)
 	_btn_stop = Button.new()
 	_btn_stop.text = "⏹ Stop"
@@ -826,10 +829,10 @@ func _build() -> void:
 	_progress.show_percentage = false
 	_progress.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb_bg := StyleBoxFlat.new()
-	sb_bg.bg_color = Color(0.1, 0.14, 0.22, 0.6)
+	sb_bg.bg_color = Color(DesignTokens.SURFACE_ELEVATED, 0.6)
 	sb_bg.set_corner_radius_all(2)
 	var sb_fill := StyleBoxFlat.new()
-	sb_fill.bg_color = Color("#c084fc")
+	sb_fill.bg_color = DesignTokens.col("CLIFF_ACCENT")
 	sb_fill.set_corner_radius_all(2)
 	_progress.add_theme_stylebox_override("background", sb_bg)
 	_progress.add_theme_stylebox_override("fill", sb_fill)
@@ -998,7 +1001,7 @@ func _update_phase_buttons_style() -> void:
 		var is_active: bool = (modes[i] == cur_m)
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = Color(0.24, 0.18, 0.38, 0.95) if is_active else Color(0.10, 0.13, 0.20, 0.8)
-		sb.border_color = Color("#c084fc") if is_active else Color(0.3, 0.35, 0.45, 0.5)
+		sb.border_color = DesignTokens.col("CLIFF_ACCENT") if is_active else Color(0.3, 0.35, 0.45, 0.5)
 		sb.set_border_width_all(1)
 		sb.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
 		b.add_theme_stylebox_override("normal", sb)
@@ -1134,11 +1137,11 @@ func highlight_step(idx: int) -> void:
 		_phase_space.set_current(idx)
 	for i in range(_chips.size()):
 		var is_cur := (i == idx)
-		var p_col: Color = CliffTypes.get_piste_color(_ply_pistes[i])
+		var p_col: Color = DesignTokens.piste_color(_ply_pistes[i])
 		_chips[i].add_theme_color_override("font_color", Color.WHITE if is_cur else p_col)
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.22, 0.28, 0.42, 0.95) if is_cur else Color(0.10, 0.14, 0.22, 0.90)
-		sb.border_color = Color("#c084fc") if is_cur else p_col
+		sb.bg_color = Color(0.22, 0.28, 0.42, 0.95) if is_cur else Color(DesignTokens.SURFACE_ELEVATED, 0.9)
+		sb.border_color = DesignTokens.col("CLIFF_ACCENT") if is_cur else p_col
 		sb.set_border_width_all(2 if is_cur else 1)
 		sb.set_corner_radius_all(DesignTokens.RADIUS_SMALL)
 		sb.content_margin_left = 4
@@ -1180,7 +1183,7 @@ func highlight_step(idx: int) -> void:
 			var surv := int(round(float(step.get("p_survie", 1.0)) * 100.0))
 			expl = "Coup #%d (%s) : %s (D=%d) · Survie : %d%%" % [idx + 1, san_m, p_name, d_val, surv]
 		_narrative.text = "👉 " + expl
-		_narrative.add_theme_color_override("font_color", Color("#f1f5f9"))
+		_narrative.add_theme_color_override("font_color", DesignTokens.TEXT_PRIMARY)
 	else:
 		_gauge_white.set_values(float(sw.get("p_survie_ligne", 1.0)), int(sw.get("indice_d", 0)),
 				int(sw.get("global_piste", CliffTypes.Piste.AUTOROUTE)))
@@ -1209,7 +1212,7 @@ func stop_replay() -> void:
 func _append_chip(step: Dictionary, idx: int) -> void:
 	var san: String = str(step.get("san", step.get("move_uci", "?")))
 	var piste: int = int(step.get("piste", CliffTypes.Piste.AUTOROUTE))
-	var col := CliffTypes.get_piste_color(piste)
+	var col := DesignTokens.piste_color(piste)
 	var is_white: bool = bool(step.get("is_white", (idx % 2 == 0)))
 	var is_vital: bool = bool(step.get("is_vital", false))
 	var nature: int = int(step.get("move_nature", CliffTypes.MoveNature.VITAL if is_vital else CliffTypes.MoveNature.SAFE))
@@ -1217,7 +1220,7 @@ func _append_chip(step: Dictionary, idx: int) -> void:
 	if nature_icon == "" or nature == CliffTypes.MoveNature.SAFE:
 		nature_icon = CliffTypes.get_piste_icon(piste)
 
-	var move_num := int(step.get("ply", idx)) / 2 + 1
+	var move_num: int = ChessGame.ply_info_from_fen(str(step.get("fen_before", "")), 0)["move_number"] 			if step.has("fen_before") else int(step.get("ply", idx)) / 2 + 1
 	var move_tag := "%d. %s" % [move_num, san] if is_white else "%d... %s" % [move_num, san]
 
 	var btn := Button.new()
@@ -1232,9 +1235,9 @@ func _append_chip(step: Dictionary, idx: int) -> void:
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.add_theme_font_size_override("font_size", 10)
 	btn.add_theme_color_override("font_color", col)
-	var border_col := Color("#f59e0b") if is_vital else col
+	var border_col := DesignTokens.CLIFF_VITAL if is_vital else col
 	btn.add_theme_stylebox_override("normal",
-			DesignTokens.flat(Color(0.10, 0.14, 0.22, 0.90), DesignTokens.RADIUS_SMALL, border_col, 1 if not is_vital else 2, Vector2(4, 1)))
+			DesignTokens.flat(Color(DesignTokens.SURFACE_ELEVATED, 0.9), DesignTokens.RADIUS_SMALL, border_col, 1 if not is_vital else 2, Vector2(4, 1)))
 	btn.add_theme_stylebox_override("hover",
 			DesignTokens.flat(Color(0.18, 0.22, 0.32, 0.98), DesignTokens.RADIUS_SMALL, Color.WHITE, 1, Vector2(4, 1)))
 	btn.add_theme_stylebox_override("pressed",
@@ -1258,7 +1261,7 @@ func _append_chip(step: Dictionary, idx: int) -> void:
 	placeholder.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	placeholder.custom_minimum_size = Vector2(56, 26)
 	placeholder.add_theme_font_size_override("font_size", 12)
-	placeholder.add_theme_color_override("font_color", Color(0.4, 0.45, 0.55, 0.35))
+	placeholder.add_theme_color_override("font_color", Color(DesignTokens.TEXT_MUTED, 0.6))
 
 	if is_white:
 		col_box.add_child(placeholder)

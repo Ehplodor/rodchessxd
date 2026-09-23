@@ -30,7 +30,7 @@ func set_piste(piste: int, d_score: int = -1, delta: float = 0.0, bait: float = 
 		return
 
 	visible = true
-	var color := CliffTypes.get_piste_color(piste)
+	var color := DesignTokens.piste_color(piste)
 	var icon := CliffTypes.get_piste_icon(piste)
 	var name := CliffTypes.get_piste_name(piste)
 	var letter := CliffTypes.get_piste_letter(piste)

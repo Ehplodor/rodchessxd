@@ -234,10 +234,11 @@ func prepare_live_analysis(total_plies: int) -> void:
 	phase_boundaries.clear()
 	var n = maxi(2, total_plies)
 	for i in range(n):
+		var info: Dictionary = ChessGame.ply_info_from_fen(_start_fen(), i)
 		evaluations.append({
 			"ply": i,
-			"move_number": (i / 2) + 1,
-			"is_white": (i % 2 == 0),
+			"move_number": info["move_number"],
+			"is_white": info["is_white"],
 			"score_cp": 0,
 			"ci_margin": 140.0,
 			"ci_lower": -140.0,
@@ -247,6 +248,10 @@ func prepare_live_analysis(total_plies: int) -> void:
 	active_ply = 0
 	_geom_dirty = true
 	queue_redraw()
+
+func _start_fen() -> String:
+	var gc = get_node_or_null("/root/GameController")
+	return gc.game.start_fen if gc and gc.game else ChessGame.INITIAL_FEN
 
 func update_live_ply(ply_idx: int, record: Dictionary) -> void:
 	while evaluations.size() <= ply_idx:
@@ -299,208 +304,205 @@ func _notification(what: int) -> void:
 		_geom_dirty = true
 		queue_redraw()
 
+# --- Géométrie ---
+const MARGIN_LEFT := 32.0
+const MARGIN_RIGHT := 12.0
+const MARGIN_TOP := 10.0
+const MARGIN_BOTTOM := 26.0  # Bande basse : libellé du coup courant, hors courbe
+## Échelle symlog : fine autour de 0 (±1,5 pion quasi linéaire), compressée jusqu'à ±12 pions.
+const MAX_DISPLAY_CP := 1200.0
+const SYMLOG_C := 150.0
+## Un mat se place au-delà de toute évaluation affichable (norme > 1).
+const MATE_NORM := 1.12
+
+## Évaluation (cp, point de vue Blancs) de la position de départ, avant le premier coup.
+var start_score_cp: int = 20
+var _poly_ok: Dictionary = {}
+
+func set_start_score(cp: int) -> void:
+	start_score_cp = cp
+	_geom_dirty = true
+	queue_redraw()
+
+func _plot_rect() -> Rect2:
+	return Rect2(MARGIN_LEFT, MARGIN_TOP,
+			maxf(10.0, size.x - MARGIN_LEFT - MARGIN_RIGHT),
+			maxf(10.0, size.y - MARGIN_TOP - MARGIN_BOTTOM))
+
+## Ordonnée d'une évaluation (symlog symétrique, mats au-delà du plafond).
+func _eval_to_y(cp: float, mate_in: int = 0) -> float:
+	var r := _plot_rect()
+	var mid_y := r.position.y + r.size.y * 0.5
+	var half_h := r.size.y * 0.44
+	var norm: float
+	if mate_in != 0 or absf(cp) >= 9000.0:
+		var white_mates := mate_in > 0 if mate_in != 0 else cp > 0.0
+		norm = MATE_NORM if white_mates else -MATE_NORM
+	else:
+		var abs_cp := minf(absf(cp), MAX_DISPLAY_CP)
+		norm = signf(cp) * log(1.0 + abs_cp / SYMLOG_C) / log(1.0 + MAX_DISPLAY_CP / SYMLOG_C)
+	return mid_y - norm * half_h
+
+## Abscisse du demi-coup `ply` (-1 = position de départ, au bord gauche).
+func _ply_to_x(ply: int) -> float:
+	var r := _plot_rect()
+	var n := maxi(1, evaluations.size())
+	return r.position.x + float(ply + 1) * r.size.x / float(n)
+
+func _rebuild_geometry() -> void:
+	_cached_size = size
+	_geom_dirty = false
+	var r := _plot_rect()
+	var mid_y := r.position.y + r.size.y * 0.5
+	_cached_points.clear()
+	_cached_ci_upper.clear()
+	_cached_ci_lower.clear()
+	_cached_ci_poly.clear()
+	_cached_fill_white.clear()
+	_cached_fill_black.clear()
+
+	_cached_points.append(Vector2(r.position.x, _eval_to_y(float(start_score_cp))))
+	_cached_ci_upper.append(_cached_points[0])
+	_cached_ci_lower.append(_cached_points[0])
+	for i in range(evaluations.size()):
+		var record: Dictionary = evaluations[i]
+		var score_cp := float(record.get("score_cp", 0))
+		var mate_in := int(record.get("mate_in", 0))
+		var px := _ply_to_x(i)
+		_cached_points.append(Vector2(px, _eval_to_y(score_cp, mate_in)))
+		var margin := float(record.get("ci_margin", 35.0))
+		_cached_ci_upper.append(Vector2(px, _eval_to_y(score_cp + margin, mate_in)))
+		_cached_ci_lower.append(Vector2(px, _eval_to_y(score_cp - margin, mate_in)))
+
+	_cached_ci_poly.append_array(_cached_ci_upper)
+	for k in range(_cached_ci_lower.size() - 1, -1, -1):
+		_cached_ci_poly.append(_cached_ci_lower[k])
+
+	# Aires Blancs/Noirs : la courbe est coupée EXACTEMENT sur l'axe 0 à chaque
+	# changement de signe (sinon les aires débordent en biseau de l'autre côté).
+	var axis_pts := PackedVector2Array()
+	for k in range(_cached_points.size()):
+		var p := _cached_points[k]
+		if k > 0:
+			var q := _cached_points[k - 1]
+			if (q.y - mid_y) * (p.y - mid_y) < 0.0:
+				var t := (mid_y - q.y) / (p.y - q.y)
+				axis_pts.append(Vector2(lerpf(q.x, p.x, t), mid_y))
+		axis_pts.append(p)
+	var right := r.position.x + r.size.x
+	_cached_fill_white.append(Vector2(r.position.x, mid_y))
+	_cached_fill_black.append(Vector2(r.position.x, mid_y))
+	for p in axis_pts:
+		_cached_fill_white.append(Vector2(p.x, minf(p.y, mid_y)))
+		_cached_fill_black.append(Vector2(p.x, maxf(p.y, mid_y)))
+	_cached_fill_white.append(Vector2(right, mid_y))
+	_cached_fill_black.append(Vector2(right, mid_y))
+
+	# Triangulation vérifiée une fois par géométrie, pas à chaque image.
+	_poly_ok = {
+		"ci": Geometry2D.triangulate_polygon(_cached_ci_poly).size() > 0,
+		"white": Geometry2D.triangulate_polygon(_cached_fill_white).size() > 0,
+		"black": Geometry2D.triangulate_polygon(_cached_fill_black).size() > 0,
+	}
+
 func _draw() -> void:
-	var w = size.x
-	var h = size.y
+	var w := size.x
+	var h := size.y
+	var r := _plot_rect()
+	var mid_y := r.position.y + r.size.y * 0.5
+	var right := r.position.x + r.size.x
+	var font := ThemeDB.fallback_font
+	var fs := DesignTokens.FONT_MICRO - 1
 
-	var left_margin = 32.0
-	var right_margin = 12.0
-	# La bande HUD moteur a été déplacée dans la TopBar (Main) : la courbe occupe
-	# désormais presque toute la hauteur du panneau.
-	var top_margin = 10.0
-	var bottom_margin = 26.0 # Bande basse : libellé du coup courant, hors courbe
-
-	var graph_w = maxf(10.0, w - left_margin - right_margin)
-	var graph_h = maxf(10.0, h - top_margin - bottom_margin)
-	var mid_y = top_margin + graph_h * 0.5
-
-	# 1. Fond élégant adapté au thème (Sombre / Clair)
+	# 1. Fond + cadre.
 	draw_rect(Rect2(0, 0, w, h), DesignTokens.BG_DEEP, true)
-	draw_rect(Rect2(0, 0, w, h), DesignTokens.BORDER, false, 1.0)
+	draw_rect(Rect2(0.5, 0.5, w - 1.0, h - 1.0), DesignTokens.BORDER, false, DesignTokens.STROKE_HAIR)
 
-	# 2. Échelle Y logarithmique symétrique (symlog) et lignes repères
-	# Permet de distinguer finement les petits avantages (0..2 pions) tout en visualisant
-	# les grosses variations (+5, +10, mats) sans saturation abrupte.
-	# Formule : sign(cp) * log(1 + |cp| / C) / log(1 + max_cp / C)
-	var max_display_cp: float = 1200.0 # Échelle jusqu'à ±12 pions (ou mat)
-	var symlog_c: float = 150.0 # Constante de transition linéaire -> log (1.5 pion)
-	var max_log_val: float = log(1.0 + max_display_cp / symlog_c)
-	var half_h: float = float(graph_h) * 0.44
+	# 2. Repères ±2 et ±5 pions + axe d'égalité.
+	var grid := DesignTokens.col("GRAPH_GRID")
+	for g_cp in [500.0, 200.0, -200.0, -500.0]:
+		var gy := _eval_to_y(g_cp)
+		var c := grid if absf(g_cp) == 500.0 else Color(grid, grid.a * 0.6)
+		draw_line(Vector2(r.position.x, gy), Vector2(right, gy), c, DesignTokens.STROKE_HAIR)
+		draw_string(font, Vector2(3, gy + 4), "%+.1f" % (g_cp / 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DesignTokens.TEXT_MUTED)
+	draw_line(Vector2(r.position.x, mid_y), Vector2(right, mid_y), Color(DesignTokens.ACCENT, 0.55), DesignTokens.STROKE_THIN)
+	draw_string(font, Vector2(6, mid_y + 4), " 0.0", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DesignTokens.ACCENT)
 
-	var eval_to_y = func(cp: float) -> float:
-		var sign_cp: float = 1.0 if cp >= 0.0 else -1.0
-		var abs_cp: float = minf(absf(cp), max_display_cp)
-		var norm: float = (log(1.0 + abs_cp / symlog_c) / max_log_val) * sign_cp
-		return mid_y - (norm * half_h)
-
-	var default_font = ThemeDB.fallback_font
-	var font_size = 11
-
-	# Lignes repères clés : +5.0, +2.0, 0.0, -2.0, -5.0
-	var guide_evals := [500.0, 200.0, -200.0, -500.0]
-	var guide_labels := ["+5.0", "+2.0", "-2.0", "-5.0"]
-	for k in range(guide_evals.size()):
-		var g_cp = guide_evals[k]
-		var gy = eval_to_y.call(g_cp)
-		var is_major = absf(g_cp) == 500.0
-		var col = Color("#47556944") if is_major else Color("#33415533")
-		draw_line(Vector2(left_margin, gy), Vector2(w - right_margin, gy), col, 1.0)
-		draw_string(default_font, Vector2(3, gy + 3), guide_labels[k], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.TEXT_MUTED)
-
-	# Ligne médiane 0.0 (Parité / Égalité)
-	draw_line(Vector2(left_margin, mid_y), Vector2(w - right_margin, mid_y), Color("#38bdf888"), 1.5)
-	draw_string(default_font, Vector2(6, mid_y + 3), " 0.0", HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, DesignTokens.ACCENT)
-
-	# 3. État sans données : Affichage explicite du mode d'emploi
-	var total_points = evaluations.size()
-	if total_points < 2:
-		var msg1 = "📈 Courbe d'Avantage"
-		var msg2 = "Touchez « Analyser » sous le plateau pour la tracer"
-		var s1 := 18
-		var s2 := 15
-		var msg1_w = default_font.get_string_size(msg1, HORIZONTAL_ALIGNMENT_LEFT, -1, s1).x
-		var msg2_w = default_font.get_string_size(msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, s2).x
-		draw_string(default_font, Vector2((w - msg1_w) * 0.5, mid_y - 8), msg1, HORIZONTAL_ALIGNMENT_LEFT, -1, s1, DesignTokens.TEXT_SECONDARY)
-		draw_string(default_font, Vector2((w - msg2_w) * 0.5, mid_y + 16), msg2, HORIZONTAL_ALIGNMENT_LEFT, -1, s2, DesignTokens.TEXT_MUTED)
+	# 3. Sans données : mode d'emploi.
+	if evaluations.is_empty():
+		_draw_centered(font, "📈 Courbe d'avantage", mid_y - 8, DesignTokens.FONT_BODY, DesignTokens.TEXT_SECONDARY)
+		_draw_centered(font, "Touchez « Analyser » sous le plateau pour la tracer", mid_y + 16, DesignTokens.FONT_CAPTION, DesignTokens.TEXT_MUTED)
 		return
 
-	# 4. Calcul des coordonnées des points & halo de l'intervalle de confiance (IC 95%)
 	if _geom_dirty or size != _cached_size:
-		_cached_size = size
-		_geom_dirty = false
-		var step_x = graph_w / float(total_points - 1)
-		_cached_points.clear()
-		_cached_ci_upper.clear()
-		_cached_ci_lower.clear()
-		_cached_ci_poly.clear()
-		_cached_fill_white.clear()
-		_cached_fill_black.clear()
+		_rebuild_geometry()
 
-		for i in range(total_points):
-			var record = evaluations[i]
-			var score_cp = float(record.get("score_cp", 0))
-			var px = left_margin + i * step_x
-			var py = eval_to_y.call(score_cp)
-			_cached_points.append(Vector2(px, py))
+	# 4. Bande d'intervalle de confiance.
+	var ci_col := DesignTokens.ACCENT
+	if _poly_ok.get("ci", false):
+		draw_colored_polygon(_cached_ci_poly, Color(ci_col, 0.12))
+	draw_polyline(_cached_ci_upper, Color(ci_col, 0.25), DesignTokens.STROKE_HAIR, true)
+	draw_polyline(_cached_ci_lower, Color(ci_col, 0.25), DesignTokens.STROKE_HAIR, true)
 
-			var margin = float(record.get("ci_margin", 35.0))
-			var ci_u = score_cp + margin
-			var ci_l = score_cp - margin
-			_cached_ci_upper.append(Vector2(px, eval_to_y.call(ci_u)))
-			_cached_ci_lower.append(Vector2(px, eval_to_y.call(ci_l)))
+	# 5. Aires d'avantage Blancs (au-dessus) / Noirs (en dessous).
+	if _poly_ok.get("white", false):
+		draw_colored_polygon(_cached_fill_white, DesignTokens.col("GRAPH_WHITE_AREA"))
+	if _poly_ok.get("black", false):
+		draw_colored_polygon(_cached_fill_black, DesignTokens.col("GRAPH_BLACK_AREA"))
 
-		for p_u in _cached_ci_upper:
-			_cached_ci_poly.append(p_u)
-		for j in range(_cached_ci_lower.size() - 1, -1, -1):
-			_cached_ci_poly.append(_cached_ci_lower[j])
+	# 6. Repères de phase (fin d'ouverture, début de finale).
+	for bound in phase_boundaries:
+		var bp := int(bound)
+		if bp <= 0 or bp >= evaluations.size():
+			continue
+		var bx := _ply_to_x(bp)
+		draw_dashed_line(Vector2(bx, r.position.y), Vector2(bx, r.end.y), Color(DesignTokens.TEXT_MUTED, 0.45),
+				DesignTokens.STROKE_HAIR, 5.0, true, true)
 
-		_cached_fill_white.append(Vector2(left_margin, mid_y))
-		for p in _cached_points:
-			_cached_fill_white.append(Vector2(p.x, min(p.y, mid_y)))
-		_cached_fill_white.append(Vector2(left_margin + graph_w, mid_y))
+	# 7. Courbe principale.
+	draw_polyline(_cached_points, DesignTokens.ACCENT, DesignTokens.STROKE, true)
 
-		_cached_fill_black.append(Vector2(left_margin, mid_y))
-		for p in _cached_points:
-			_cached_fill_black.append(Vector2(p.x, max(p.y, mid_y)))
-		_cached_fill_black.append(Vector2(left_margin + graph_w, mid_y))
-
-	var points = _cached_points
-	var ci_upper_points = _cached_ci_upper
-	var ci_lower_points = _cached_ci_lower
-	var ci_poly = _cached_ci_poly
-	var fill_white = _cached_fill_white
-	var fill_black = _cached_fill_black
-
-	# 5. Bande d'intervalle de confiance (IC 95% ombré doux)
-	if ci_poly.size() >= 3 and not Geometry2D.triangulate_polygon(ci_poly).is_empty():
-		draw_colored_polygon(ci_poly, Color(0.22, 0.74, 0.97, 0.12))
-	if ci_upper_points.size() >= 2:
-		draw_polyline(ci_upper_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
-	if ci_lower_points.size() >= 2:
-		draw_polyline(ci_lower_points, Color(0.22, 0.74, 0.97, 0.25), 1.0, true)
-
-	# 6. Polygones de remplissage distinctifs :
-	# Aire blanche pure et soignée du côté blanc (au-dessus de mid_y),
-	# Aire noire profonde du côté noir (en-dessous de mid_y).
-	if fill_white.size() >= 3 and not Geometry2D.triangulate_polygon(fill_white).is_empty():
-		draw_colored_polygon(fill_white, Color(0.95, 0.96, 0.98, 0.35))
-	if fill_black.size() >= 3 and not Geometry2D.triangulate_polygon(fill_black).is_empty():
-		draw_colored_polygon(fill_black, Color(0.02, 0.03, 0.06, 0.70))
-
-	# Liseré doux séparateur sur les contours des aires
-	if fill_white.size() >= 2:
-		draw_polyline(fill_white, Color(1.0, 1.0, 1.0, 0.25), 1.0, true)
-	if fill_black.size() >= 2:
-		draw_polyline(fill_black, Color(0.0, 0.0, 0.0, 0.50), 1.0, true)
-
-	# 7. Tracé de la courbe principale
-	if points.size() >= 2:
-		draw_polyline(points, Color("#38bdf8"), 2.2, true)
-
-	# 8. Pastilles pour les coups remarquables (alignées sur la taxonomie du rapport :
-	#    brillants, coups uniques, imprécisions, erreurs, gaffes / occasions manquées).
-	for i in range(total_points):
-		var record = evaluations[i]
+	# 8. Pastilles des coups remarquables (taxonomie du rapport).
+	for i in range(evaluations.size()):
+		var record: Dictionary = evaluations[i]
 		if record.get("is_placeholder", false):
 			continue
 		var marker := notable_marker_for(int(record.get("quality", ChessMove.Quality.NONE)))
 		if marker.is_empty():
 			continue
-		var pt = points[i]
-		var marker_radius := float(marker["radius"])
-		draw_circle(pt, marker_radius, marker["color"])
+		var pt := _cached_points[i + 1]
+		var mr := float(marker["radius"])
+		draw_circle(pt, mr, marker["color"], true, -1.0, true)
 		if float(marker["ring"]) > 0.0:
-			draw_arc(pt, marker_radius, 0, TAU, 18, Color("#ffffff"), float(marker["ring"]))
+			draw_arc(pt, mr, 0, TAU, DesignTokens.arc_segments(mr), DesignTokens.TEXT_PRIMARY, float(marker["ring"]), true)
 
-	# 8bis. T2.3 — Repères de phase (fin d'ouverture, début de finale).
-	if not points.is_empty():
-		for bound in phase_boundaries:
-			var bp: int = int(bound)
-			if bp <= 0 or bp >= total_points:
-				continue
-			var bx: float = points[bp].x
-			draw_dashed_line(Vector2(bx, top_margin), Vector2(bx, h - bottom_margin), Color(1, 1, 1, 0.22), 1.0, 5.0, true, true)
+	# 9. Curseur actif (-1 = position de départ).
+	var cur := clampi(active_ply, -1, evaluations.size() - 1)
+	var cpt := _cached_points[cur + 1]
+	var cursor := DesignTokens.col("CURSOR")
+	draw_line(Vector2(cpt.x, r.position.y), Vector2(cpt.x, r.end.y), Color(cursor, 0.65), DesignTokens.STROKE_THIN)
+	draw_circle(cpt, 5.0, cursor, true, -1.0, true)
+	draw_arc(cpt, 5.0, 0, TAU, DesignTokens.arc_segments(5.0), DesignTokens.BG_DEEP, DesignTokens.STROKE_THIN, true)
 
-	# 9. Curseur actif : ligne + point, SANS texte superposé à la courbe.
-	if active_ply >= 0 and active_ply < points.size():
-		var cursor_pt = points[active_ply]
-		draw_line(Vector2(cursor_pt.x, top_margin), Vector2(cursor_pt.x, h - bottom_margin), Color("#facc15aa"), 1.8)
-		draw_circle(cursor_pt, 5.0, Color("#facc15"))
-		draw_arc(cursor_pt, 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
-	elif active_ply == -1 and not points.is_empty():
-		# Curseur positionné sur le bord gauche de départ
-		var init_y = eval_to_y.call(20.0)
-		draw_line(Vector2(left_margin, top_margin), Vector2(left_margin, h - bottom_margin), Color("#facc15aa"), 1.8)
-		draw_circle(Vector2(left_margin, init_y), 5.0, Color("#facc15"))
-		draw_arc(Vector2(left_margin, init_y), 5.0, 0, TAU, 16, Color("#090e1a"), 1.5)
+	# 10. Libellé du coup courant dans la bande basse (jamais sur la courbe).
+	var caption := "Position initiale   (%s)" % EvalFormatter.format_cp_mate(start_score_cp, 0)
+	if cur >= 0:
+		var rec: Dictionary = evaluations[cur]
+		var eval_str := EvalFormatter.format_cp_mate(int(rec.get("score_cp", 0)), int(rec.get("mate_in", 0)))
+		var margin_pawns := float(rec.get("ci_margin", 0.0)) / 100.0
+		var ci_str := " [±%.1f]" % margin_pawns if margin_pawns > 0.0 else ""
+		var ply_label := ("%d. %s" if rec.get("is_white", true) else "%d... %s") % [int(rec.get("move_number", 1)), str(rec.get("san", ""))]
+		var badge_sym := ChessMove.quality_to_symbol(rec.get("quality", ChessMove.Quality.NONE))
+		if badge_sym != "":
+			ply_label += " " + badge_sym
+		caption = "%s   (%s%s)" % [ply_label, eval_str, ci_str]
+	draw_rect(Rect2(r.position.x, h - 24, r.size.x, 20), DesignTokens.SURFACE_ELEVATED, true)
+	draw_string(font, Vector2(r.position.x + 4, h - 7), caption, HORIZONTAL_ALIGNMENT_LEFT,
+			int(r.size.x - 8.0), DesignTokens.FONT_MICRO + 1, DesignTokens.TEXT_PRIMARY)
 
-	# 10. Libellé du coup courant dans la bande basse avec IC (hors de la courbe).
-	if active_ply == -1 and not evaluations.is_empty():
-		var caption = "Position initiale   (+0.2)"
-		draw_rect(Rect2(left_margin, h - 24, graph_w, 20), DesignTokens.SURFACE_ELEVATED, true)
-		var cap_w = graph_w - 8.0
-		draw_string(default_font, Vector2(left_margin + 4, h - 7), caption,
-				HORIZONTAL_ALIGNMENT_LEFT, int(cap_w), 13, DesignTokens.TEXT_PRIMARY)
-	else:
-		var rec = evaluations[active_ply] if active_ply >= 0 and active_ply < evaluations.size() else {}
-		if not rec.is_empty():
-			var score_cp = int(rec.get("score_cp", 0))
-			var eval_str = EvalFormatter.format_cp_mate(score_cp, int(rec.get("mate_in", 0)))
-			var margin_pawns = float(rec.get("ci_margin", 0.0)) / 100.0
-			var ci_str = " [±%.1f]" % margin_pawns if margin_pawns > 0.0 else ""
-			var move_num = rec.get("move_number", 1)
-			var san = rec.get("san", "")
-			var is_w = rec.get("is_white", true)
-			var qual = rec.get("quality", ChessMove.Quality.NONE)
-			var badge_sym = ChessMove.quality_to_symbol(qual)
-			var ply_label = ("%d. %s" if is_w else "%d... %s") % [move_num, san]
-			if badge_sym != "":
-				ply_label += " " + badge_sym
-			var caption = "%s   (%s%s)" % [ply_label, eval_str, ci_str]
-			draw_rect(Rect2(left_margin, h - 24, graph_w, 20), DesignTokens.SURFACE_ELEVATED, true)
-			var cap_w = graph_w - 8.0
-			draw_string(default_font, Vector2(left_margin + 4, h - 7), caption,
-					HORIZONTAL_ALIGNMENT_LEFT, int(cap_w), 13, DesignTokens.TEXT_PRIMARY)
+func _draw_centered(font: Font, text: String, y: float, fs: int, color: Color) -> void:
+	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	draw_string(font, Vector2(maxf(4.0, (size.x - tw) * 0.5), y), text, HORIZONTAL_ALIGNMENT_LEFT, int(size.x - 8.0), fs, color)
 
 # --- SCRUBBING TACTILE & NAVIGATION ---
 
@@ -528,16 +530,14 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag and _scrubbing:
 		_scrub_to(event.position.x, false)
 
-## Ply sous le doigt (hors de la colonne d'échelle de gauche).
+## Ply sous le doigt (-1 = position de départ, au bord gauche).
 func _ply_at(pos_x: float) -> int:
-	var total_points = evaluations.size()
-	if total_points == 0:
+	var n := evaluations.size()
+	if n == 0:
 		return -1
-	var left_margin = 32.0
-	var right_margin = 12.0
-	var graph_w = maxf(1.0, size.x - left_margin - right_margin)
-	var ratio = clampf((pos_x - left_margin) / graph_w, 0.0, 1.0)
-	return clampi(int(round(ratio * (total_points - 1))), 0, total_points - 1)
+	var r := _plot_rect()
+	var ratio := clampf((pos_x - r.position.x) / r.size.x, 0.0, 1.0)
+	return clampi(int(round(ratio * n)) - 1, -1, n - 1)
 
 ## Scrubbing (M2) : le marqueur suit le doigt à chaque événement (instantané),
 ## mais la navigation moteur est throttlée (~90 ms) pour éviter les rafales
@@ -545,7 +545,7 @@ func _ply_at(pos_x: float) -> int:
 ## final est validé au relâchement (_commit_scrub).
 func _scrub_to(pos_x: float, force: bool) -> void:
 	var target = _ply_at(pos_x)
-	if target < 0 or target == active_ply:
+	if evaluations.is_empty() or target == active_ply:
 		return
 	active_ply = target
 	queue_redraw()
@@ -558,7 +558,7 @@ func _scrub_to(pos_x: float, force: bool) -> void:
 			gc.navigate_to_ply(target)
 
 func _commit_scrub() -> void:
-	if active_ply >= 0:
+	if not evaluations.is_empty():
 		var gc = get_node_or_null("/root/GameController")
 		if gc:
 			gc.navigate_to_ply(active_ply)
