@@ -1741,7 +1741,10 @@ func _parse_engine_line(line: String) -> void:
 						i += 1
 				"score":
 					if i + 2 < tokens.size():
-						has_score = true
+						# Un score « lowerbound/upperbound » n'est qu'une borne transitoire
+						# (fail-high/low d'aspiration) : l'ignorer évite le jitter de l'éval.
+						var bound := i + 3 < tokens.size() and tokens[i + 3] in ["lowerbound", "upperbound"]
+						has_score = not bound
 						if tokens[i + 1] == "cp":
 							score_cp = tokens[i + 2].to_int()
 							mate_in = 0

@@ -631,8 +631,9 @@ func refresh_for_current_ply() -> void:
 	var move_title = "Position initiale"
 	if gc and gc.game and current_ply_index >= 0 and current_ply_index < gc.game.move_history.size():
 		var m = gc.game.move_history[current_ply_index]
-		var move_num = (current_ply_index / 2) + 1
-		var is_white = (current_ply_index % 2 == 0)
+		var info: Dictionary = gc.game.ply_info(current_ply_index)
+		var move_num: int = info["move_number"]
+		var is_white: bool = info["is_white"]
 		var dots = "." if is_white else "..."
 		move_title = "Coup %d%s %s" % [move_num, dots, m.san]
 	
@@ -844,9 +845,10 @@ func _execute_prompt(label_text: String, query_text: String, prompt_type: String
 		extra_context["last_move_uci"] = m.uci
 		extra_context["quality"] = m.quality
 		extra_context["cp_loss"] = m.centipawn_loss
-		extra_context["move_number"] = (current_ply_index / 2) + 1
+		var ply_info: Dictionary = game.ply_info(current_ply_index)
+		extra_context["move_number"] = ply_info["move_number"]
 		extra_context["ply_index"] = current_ply_index
-		extra_context["last_move_color"] = "white" if (current_ply_index % 2 == 0) else "black"
+		extra_context["last_move_color"] = "white" if ply_info["is_white"] else "black"
 		extra_context["is_check"] = m.is_check
 		extra_context["is_checkmate"] = m.is_checkmate
 		extra_context["motifs"] = m.motifs

@@ -28,6 +28,22 @@ var move_history: Array[ChessMove] = []
 var state_history: Array[Dictionary] = []
 var history_index: int = -1
 
+## FEN de la position de départ (avant le premier coup de move_history).
+var start_fen: String = INITIAL_FEN
+
+## Diagnostics du dernier load_pgn (coups non reconnus, commentaire non fermé…).
+var pgn_errors: Array[String] = []
+
+const DEFAULT_PGN_HEADERS := {
+	"Event": "RodChessXD Game",
+	"Site": "Mobile",
+	"Date": "????.??.??",
+	"Round": "1",
+	"White": "Player 1",
+	"Black": "Player 2",
+	"Result": "*"
+}
+
 # Métadonnées PGN
 var pgn_headers: Dictionary = {
 	"Event": "RodChessXD Game",
@@ -118,8 +134,21 @@ func load_fen(fen: String) -> bool:
 	white_king_sq = _find_king_square(ChessPiece.PieceColor.WHITE)
 	black_king_sq = _find_king_square(ChessPiece.PieceColor.BLACK)
 	save_state_snapshot()
+	start_fen = get_fen()
 	board_changed.emit()
 	return true
+
+## Numéro de coup et camp du demi-coup d'index `ply` d'une partie partant de `fen`.
+## Gère les parties qui démarrent avec les Noirs au trait ou à un numéro ≠ 1.
+static func ply_info_from_fen(fen: String, ply: int) -> Dictionary:
+	var parts := fen.strip_edges().split(" ")
+	var black_first := parts.size() > 1 and parts[1] == "b"
+	var first_number := maxi(1, parts[5].to_int()) if parts.size() > 5 else 1
+	var abs_ply := ply + (1 if black_first else 0)
+	return {"move_number": first_number + abs_ply / 2, "is_white": abs_ply % 2 == 0}
+
+func ply_info(ply: int) -> Dictionary:
+	return ply_info_from_fen(start_fen, ply)
 
 func get_fen() -> String:
 	var fen = ""
@@ -650,33 +679,39 @@ func is_game_over() -> bool:
 
 # --- PARSING PGN ---
 
+## Charge la PREMIÈRE partie d'un texte PGN (les suivantes sont ignorées).
+## Renvoie faux si la position de départ est invalide ou si aucun coup n'a pu être
+## lu dans un texte qui en contenait ; les anomalies non bloquantes sont listées
+## dans `pgn_errors` (la partie est conservée jusqu'au premier coup illisible).
 func load_pgn(pgn: String) -> bool:
-	reset_board()
-	var lines = pgn.split("\n")
-	var move_text = ""
-	
-	for line in lines:
-		var trimmed = line.strip_edges()
+	pgn_headers = DEFAULT_PGN_HEADERS.duplicate()
+	pgn_errors.clear()
+	var header_re := RegEx.create_from_string('^\\[\\s*([A-Za-z0-9_]+)\\s+"((?:[^"\\\\]|\\\\.)*)"\\s*\\]$')
+	var move_lines: PackedStringArray = []
+	var in_movetext := false
+	for line in pgn.split("\n"):
+		var trimmed := line.strip_edges()
 		if trimmed.begins_with("[") and trimmed.ends_with("]"):
-			var content = trimmed.substr(1, trimmed.length() - 2)
-			var space_idx = content.find(" ")
-			if space_idx != -1:
-				var key = content.substr(0, space_idx)
-				var val = content.substr(space_idx + 1).replace('"', '')
-				pgn_headers[key] = val
-		else:
-			move_text += " " + trimmed
-	
-	# Initialiser le plateau avec la position initiale (ou le tag FEN si présent)
-	if pgn_headers.has("FEN"):
-		load_fen(pgn_headers["FEN"])
-	else:
-		load_fen(INITIAL_FEN)
+			if in_movetext:
+				break  # En-têtes de la partie suivante.
+			var m := header_re.search(trimmed)
+			if m:
+				pgn_headers[m.get_string(1)] = m.get_string(2).replace('\\"', '"').replace("\\\\", "\\")
+			continue
+		if trimmed.begins_with("%"):
+			continue  # Ligne d'échappement PGN.
+		if trimmed != "":
+			in_movetext = true
+		move_lines.append(trimmed)
 
-	_apply_pgn_moves(move_text)
+	var start := str(pgn_headers.get("FEN", "")).strip_edges()
+	if not load_fen(start if start != "" else INITIAL_FEN):
+		pgn_errors.append("FEN de départ invalide : " + start)
+		return false
 
+	_apply_pgn_moves("\n".join(move_lines))
 	board_changed.emit()
-	return true
+	return not (move_history.is_empty() and not pgn_errors.is_empty())
 
 ## Vrai dès qu'un token de résultat PGN a été rencontré (arrête l'application des coups).
 var _pgn_result_seen: bool = false
@@ -695,9 +730,17 @@ func _apply_pgn_moves(text: String) -> void:
 			buf = ""
 			var end := text.find("}", i)
 			if end == -1:
-				end = n - 1
+				pgn_errors.append("Commentaire { non fermé")
+				break
 			_apply_clock_comment(text.substr(i, end - i + 1))
 			i = end + 1
+			continue
+		if c == ";":
+			# Commentaire jusqu'à la fin de la ligne.
+			_flush_pgn_token(buf)
+			buf = ""
+			var eol := text.find("\n", i)
+			i = n if eol == -1 else eol + 1
 			continue
 		if c == "(":
 			_flush_pgn_token(buf)
@@ -734,18 +777,29 @@ func _flush_pgn_token(raw: String) -> void:
 	var token := _clean_pgn_token(raw_tok)
 	if token == "":
 		return
-	if token.begins_with("$") or token.begins_with(";"):
+	if token.begins_with("$"):
 		return
 	var found_move := _find_matching_move(token)
 	if found_move:
 		make_move(found_move)
+	else:
+		# Un coup illisible rend toute la suite fausse : on s'arrête là.
+		pgn_errors.append("Coup non reconnu : " + raw_tok)
+		_pgn_result_seen = true
+
+## Numéro de coup en tête de token : « 12. », « 12... » ou « 12 » isolé.
+static var _move_number_re := RegEx.create_from_string("^\\d+(\\.+|$)")
 
 func _clean_pgn_token(raw: String) -> String:
-	var tok := raw.strip_edges()
-	while tok.length() > 0 and (tok[0].is_valid_int() or tok[0] == '.'):
-		tok = tok.substr(1)
+	var tok := _move_number_re.sub(raw.strip_edges(), "")
+	# Roque noté avec des zéros (0-0, 0-0-0).
+	tok = tok.replace("0-0-0", "O-O-O").replace("0-0", "O-O")
 	tok = tok.replace("+", "").replace("#", "").replace("!", "").replace("?", "")
-	return tok
+	# Glyphes d'évaluation isolés (±, =, ∞, +-…) : ce ne sont pas des coups.
+	var glyphless := tok
+	for g in ["=", "-", "±", "∓", "∞", "⩲", "⩱", "□", "N"]:
+		glyphless = glyphless.replace(g, "")
+	return "" if glyphless.is_empty() else tok
 
 ## Extrait le temps restant d'un commentaire `{[%clk 0:05:30]}` et l'attache au dernier coup.
 func _apply_clock_comment(comment: String) -> void:
@@ -933,14 +987,21 @@ func _find_matching_move(token: String) -> ChessMove:
 ## coach/du joueur et les annotations d'horloge (T2.2), compatibles Lichess/Chess.com.
 func export_pgn(include_annotations: bool = false) -> String:
 	var pgn = ""
-	for k in pgn_headers.keys():
-		pgn += '[%s "%s"]\n' % [k, pgn_headers[k]]
+	var headers := pgn_headers.duplicate()
+	if start_fen != INITIAL_FEN:
+		headers["SetUp"] = "1"
+		headers["FEN"] = start_fen
+	for k in headers.keys():
+		pgn += '[%s "%s"]\n' % [k, str(headers[k]).replace("\\", "\\\\").replace('"', '\\"')]
 	pgn += "\n"
 
 	for i in range(move_history.size()):
 		var m := move_history[i]
-		if i % 2 == 0:
-			pgn += str((i / 2) + 1) + ". "
+		var info := ply_info(i)
+		if info["is_white"]:
+			pgn += "%d. " % info["move_number"]
+		elif i == 0:
+			pgn += "%d... " % info["move_number"]
 		pgn += m.san
 		if include_annotations:
 			var nag := quality_nag(m.quality)
@@ -951,7 +1012,7 @@ func export_pgn(include_annotations: bool = false) -> String:
 				var clk := _format_clock_annotation(m.clock_sec)
 				comment = ("%s [%%clk %s]" % [comment, clk]) if comment != "" else ("[%%clk %s]" % clk)
 			if comment != "":
-				pgn += " {%s}" % comment
+				pgn += " {%s}" % comment.replace("}", ")")
 		pgn += " "
 
 	pgn += pgn_headers.get("Result", "*")

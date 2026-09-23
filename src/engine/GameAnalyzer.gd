@@ -52,6 +52,8 @@ const SCHEMA_VERSION := 2
 
 var opening_info: Dictionary = {}
 var theory_plies: int = 0
+## Évaluation (cp, Blancs) de la position de départ : premier point du graphe.
+var start_score_cp: int = 20
 var white_phase_stats: Dictionary = {}
 var black_phase_stats: Dictionary = {}
 var biggest_swings: Array = []
@@ -112,17 +114,18 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		return _fail_analysis(err_msg)
 
 	# Analyse de la position de départ (une seule fois)
-	var sim_game = ChessGame.new()
-	sim_game.load_fen(ChessGame.INITIAL_FEN)
+	var start_fen: String = game.start_fen
+	var sim_game = ChessGame.new(start_fen)
 
-	var start_eval = _evaluate_move_position(ChessGame.INITIAL_FEN, depth, mode, dynamic_base, dynamic_max, time_per_move, 20)
+	var start_eval = _evaluate_move_position(start_fen, depth, mode, dynamic_base, dynamic_max, time_per_move, 20)
 	if start_eval.has("error"):
 		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
 	if start_eval.get("timed_out", false) and start_eval.get("depth", 0) <= 0:
 		return _fail_analysis("Le moteur n'a pas répondu à l'évaluation de la position de départ.")
-	var prev_score_cp = start_eval.get("score_cp", 20)
+	var prev_score_cp = start_eval.get("score_cp", 0)
+	start_score_cp = int(prev_score_cp)
 	var prev_best_move = start_eval.get("best_move", "")
-	var prev_fen: String = ChessGame.INITIAL_FEN
+	var prev_fen: String = start_fen
 	var prev_pv: Array = start_eval.get("pv_line", [])
 	var prev_multipv: Array = start_eval.get("multipv_lines", [])
 	var white_loss_sum = 0
@@ -138,7 +141,8 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 			return _fail_analysis("Le moteur d'échecs s'est arrêté en cours d'analyse de la partie.")
 		
 		var move = moves[i]
-		var is_white = (i % 2 == 0)
+		var ply_info := ChessGame.ply_info_from_fen(start_fen, i)
+		var is_white: bool = ply_info["is_white"]
 		var score_before = prev_score_cp
 		var expected_best_move = prev_best_move
 		var fen_before: String = prev_fen
@@ -246,7 +250,7 @@ func start_game_analysis(game: ChessGame, depth: int = 14, options: Dictionary =
 		# Enregistrement pour la courbe d'avantage avec IC
 		var move_record = {
 			"ply": i,
-			"move_number": (i / 2) + 1,
+			"move_number": ply_info["move_number"],
 			"is_white": is_white,
 			"san": move.san,
 			"uci": move.uci,
@@ -367,17 +371,18 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		return cancelled_report
 
 	# Analyse de la position de départ (une seule fois)
-	var sim_game = ChessGame.new()
-	sim_game.load_fen(ChessGame.INITIAL_FEN)
+	var start_fen: String = game.start_fen
+	var sim_game = ChessGame.new(start_fen)
 
-	var start_eval = await _evaluate_move_position_async(ChessGame.INITIAL_FEN, depth, mode, dynamic_base, dynamic_max, time_per_move, 20)
+	var start_eval = await _evaluate_move_position_async(start_fen, depth, mode, dynamic_base, dynamic_max, time_per_move, 20)
 	if start_eval.has("error"):
 		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
 	if start_eval.get("timed_out", false) and start_eval.get("depth", 0) <= 0:
 		return _fail_analysis("Le moteur n'a pas répondu à l'évaluation de la position de départ.")
-	var prev_score_cp = start_eval.get("score_cp", 20)
+	var prev_score_cp = start_eval.get("score_cp", 0)
+	start_score_cp = int(prev_score_cp)
 	var prev_best_move = start_eval.get("best_move", "")
-	var prev_fen: String = ChessGame.INITIAL_FEN
+	var prev_fen: String = start_fen
 	var prev_pv: Array = start_eval.get("pv_line", [])
 	var prev_multipv: Array = start_eval.get("multipv_lines", [])
 	var white_loss_sum = 0
@@ -395,7 +400,8 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 			return _fail_analysis("Le moteur d'échecs s'est arrêté en cours d'analyse de la partie.")
 		
 		var move = moves[i]
-		var is_white = (i % 2 == 0)
+		var ply_info := ChessGame.ply_info_from_fen(start_fen, i)
+		var is_white: bool = ply_info["is_white"]
 		var score_before = prev_score_cp
 		var expected_best_move = prev_best_move
 		var fen_before: String = prev_fen
@@ -508,7 +514,7 @@ func start_game_analysis_async(game: ChessGame, depth: int = 14, options: Dictio
 		var eval_ci = _calculate_eval_ci_margin(depth_reached, cp_loss, is_tactical)
 		var move_record = {
 			"ply": i,
-			"move_number": (i / 2) + 1,
+			"move_number": ply_info["move_number"],
 			"is_white": is_white,
 			"san": move.san,
 			"uci": move.uci,
@@ -669,9 +675,8 @@ static func _extract_clock_deltas(moves: Array) -> Array:
 		var m = moves[i]
 		if not (m is ChessMove) or m.clock_sec < 0.0:
 			continue
+		# La couleur du coup est toujours renseignée par le générateur de coups.
 		var col := int(m.color)
-		if col == ChessPiece.PieceColor.NONE:
-			col = 0 if i % 2 == 0 else 1
 		if last_clock.has(col):
 			deltas[i] = maxf(0.0, float(last_clock[col]) - float(m.clock_sec))
 		last_clock[col] = float(m.clock_sec)
@@ -1409,7 +1414,8 @@ func _classify_move(i: int, moves: Array, pos_evals: Array, depth: int) -> Dicti
 	var move: ChessMove = moves[i]
 	var before: Dictionary = pos_evals[i]
 	var after: Dictionary = pos_evals[i + 1]
-	var is_white := (i % 2 == 0)
+	var ply_info := ChessGame.ply_info_from_fen(str(pos_evals[0].get("fen", ChessGame.INITIAL_FEN)), i)
+	var is_white: bool = ply_info["is_white"]
 	var score_before := int(before.get("score_cp", 0))
 	var score_after := int(after.get("score_cp", 0))
 	var mate_after := int(after.get("mate_in", 0))
@@ -1446,7 +1452,7 @@ func _classify_move(i: int, moves: Array, pos_evals: Array, depth: int) -> Dicti
 	var eval_ci = _calculate_eval_ci_margin(eff_d, cp_loss, is_tactical)
 	return {
 		"ply": i,
-		"move_number": (i / 2) + 1,
+		"move_number": ply_info["move_number"],
 		"is_white": is_white,
 		"san": move.san,
 		"uci": move.uci,
@@ -1607,13 +1613,14 @@ func _start_game_analysis_budget(game: ChessGame, depth: int, options: Dictionar
 	if not _wait_for_engine():
 		return _fail_analysis("Moteur d'échecs indisponible : impossible d'analyser la partie.")
 
-	var sim_game = ChessGame.new()
-	sim_game.load_fen(ChessGame.INITIAL_FEN)
+	var start_fen: String = game.start_fen
+	var sim_game = ChessGame.new(start_fen)
 	var pos_evals: Array = []
-	var start_eval := _evaluate_fen_sync(ChessGame.INITIAL_FEN, base_depth, -1)
+	var start_eval := _evaluate_fen_sync(start_fen, base_depth, -1)
 	if start_eval.has("error"):
 		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
-	start_eval["fen"] = ChessGame.INITIAL_FEN
+	start_eval["fen"] = start_fen
+	start_score_cp = int(start_eval.get("score_cp", 0))
 	pos_evals.append(start_eval)
 	var provisional: Array = []
 
@@ -1623,7 +1630,7 @@ func _start_game_analysis_budget(game: ChessGame, depth: int, options: Dictionar
 		if engine_manager == null or not engine_manager.is_engine_available():
 			return _fail_analysis("Le moteur d'échecs s'est arrêté en cours d'analyse de la partie.")
 		var move: ChessMove = moves[i]
-		var is_white := (i % 2 == 0)
+		var is_white: bool = ChessGame.ply_info_from_fen(start_fen, i)["is_white"]
 		sim_game.make_move(move)
 		var fen_after: String = sim_game.get_fen()
 		if wait_for_display:
@@ -1704,13 +1711,14 @@ func _start_game_analysis_budget_async(game: ChessGame, depth: int, options: Dic
 		return cancelled_report
 
 	var tree = Engine.get_main_loop() as SceneTree
-	var sim_game = ChessGame.new()
-	sim_game.load_fen(ChessGame.INITIAL_FEN)
+	var start_fen: String = game.start_fen
+	var sim_game = ChessGame.new(start_fen)
 	var pos_evals: Array = []
-	var start_eval = await _evaluate_fen_async(ChessGame.INITIAL_FEN, base_depth, -1)
+	var start_eval = await _evaluate_fen_async(start_fen, base_depth, -1)
 	if start_eval.has("error"):
 		return _fail_analysis("Échec de l'évaluation de la position de départ par le moteur.")
-	start_eval["fen"] = ChessGame.INITIAL_FEN
+	start_eval["fen"] = start_fen
+	start_score_cp = int(start_eval.get("score_cp", 0))
 	pos_evals.append(start_eval)
 	var provisional: Array = []
 
@@ -1720,7 +1728,7 @@ func _start_game_analysis_budget_async(game: ChessGame, depth: int, options: Dic
 		if engine_manager == null or not engine_manager.is_engine_available():
 			return _fail_analysis("Le moteur d'échecs s'est arrêté en cours d'analyse de la partie.")
 		var move: ChessMove = moves[i]
-		var is_white := (i % 2 == 0)
+		var is_white: bool = ChessGame.ply_info_from_fen(start_fen, i)["is_white"]
 		sim_game.make_move(move)
 		var fen_after: String = sim_game.get_fen()
 		if wait_for_display:
@@ -1789,6 +1797,7 @@ func _build_final_report() -> Dictionary:
 		"black_stats": black_stats,
 		"opening": opening_info,
 		"theory_plies": theory_plies,
+		"start_score_cp": start_score_cp,
 		"white_phase_stats": white_phase_stats,
 		"black_phase_stats": black_phase_stats,
 		"biggest_swings": biggest_swings,
@@ -1860,8 +1869,9 @@ func build_report_from_cliff_plies(game: ChessGame, cliff_plies: Array, depth: i
 	# pos_evals[0] est la position de départ (fen_before du premier ply ou INITIAL_FEN).
 	var pos_evals: Array = []
 	var first_step: Dictionary = cliff_plies[0]
-	var initial_fen := str(first_step.get("fen_before", ChessGame.INITIAL_FEN))
-	var initial_score := int(first_step.get("score_cp", 20))
+	var initial_fen := str(first_step.get("fen_before", game.start_fen))
+	var initial_score := int(first_step.get("score_cp", 0))
+	start_score_cp = initial_score
 	var initial_mate := int(first_step.get("mate_in", 0))
 	var initial_best := str(first_step.get("best_move", ""))
 	var initial_pv: Array = first_step.get("pv_line", [])
@@ -1897,17 +1907,26 @@ func build_report_from_cliff_plies(game: ChessGame, cliff_plies: Array, depth: i
 			after_pv = next_step.get("pv_line", [])
 			after_mpv = next_step.get("multipv_lines", [])
 		else:
-			# Dernier coup de la partie : si échec et mat ou pat
+			# Dernier coup de la partie : pas d'oracle APRÈS le coup.
 			var m: ChessMove = moves[i]
-			var is_white_mover := (i % 2 == 0)
+			var is_white_mover: bool = ChessGame.ply_info_from_fen(initial_fen, i)["is_white"]
 			after_fen = str(cur_step.get("fen_after", ""))
+			var final_game: ChessGame = ChessGame.new(after_fen) if after_fen != "" else null
 			if m.is_checkmate or m.san.ends_with("#"):
 				after_score = 10000 if is_white_mover else -10000
 				after_mate = 1 if is_white_mover else -1
+			elif final_game != null and not final_game.has_any_legal_move():
+				after_score = 0  # Pat : nulle exacte.
 			else:
-				# Si pas mat, on déduit l'évaluation finale
+				# La ligne MultiPV du coup joué donne l'évaluation exacte après le coup ;
+				# à défaut, l'évaluation avant le coup (approximation : coup supposé exact).
 				after_score = int(cur_step.get("score_cp", 0))
 				after_mate = int(cur_step.get("mate_in", 0))
+				for line in cur_step.get("multipv_lines", []):
+					if line is Dictionary and str(line.get("best_move", "")) == m.uci:
+						after_score = int(line.get("score_cp", after_score))
+						after_mate = int(line.get("mate_in", 0))
+						break
 
 		pos_evals.append({
 			"score_cp": after_score,

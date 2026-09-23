@@ -169,7 +169,7 @@ func _get_player_quality_stats() -> Dictionary:
 			var m = gc.game.move_history[i]
 			if m.is_theory:
 				continue
-			var is_w = (i % 2 == 0)
+			var is_w: bool = m.color == ChessPiece.PieceColor.WHITE
 			var target = w_stats if is_w else b_stats
 			match m.quality:
 				ChessMove.Quality.BRILLIANT: target["brilliant"] += 1
@@ -852,12 +852,22 @@ func _build_moves_table_header(filtered: bool) -> void:
 		header.add_child(filtered_header)
 
 # Mode dense (2 coups par ligne) : affichage historique complet.
+## Numéro de coup et camp d'un demi-coup de la partie affichée (gère un départ Noirs).
+func _ply_info(ply: int) -> Dictionary:
+	var gc = get_node_or_null("/root/GameController")
+	if gc and gc.game:
+		return gc.game.ply_info(ply)
+	return ChessGame.ply_info_from_fen(ChessGame.INITIAL_FEN, ply)
+
 func _build_dense(moves: Array, cur_ply: int) -> void:
-	var move_pair_count: int = (moves.size() + 1) / 2
+	# Départ Noirs : la première rangée n'a qu'un coup noir (« 1. … e5 »).
+	var offset: int = 0 if moves.is_empty() or _ply_info(0)["is_white"] else 1
+	var first_number: int = _ply_info(0)["move_number"] if not moves.is_empty() else 1
+	var move_pair_count: int = (moves.size() + offset + 1) / 2
 	for pair_idx in range(move_pair_count):
-		var white_ply: int = pair_idx * 2
+		var white_ply: int = pair_idx * 2 - offset
 		var black_ply: int = white_ply + 1
-		var move_number: int = pair_idx + 1
+		var move_number: int = first_number + pair_idx
 
 		var current_panel := PanelContainer.new()
 		current_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -891,13 +901,21 @@ func _build_dense(moves: Array, cur_ply: int) -> void:
 		current_row.add_child(num_lbl)
 
 		# Coup Blanc
-		var white_move: ChessMove = moves[white_ply]
-		var white_btn := _make_move_button(white_move, white_ply)
-		current_row.add_child(white_btn)
-		if white_ply == cur_ply:
-			_highlight_active(white_btn)
-			_active_btn = white_btn
-		move_buttons.append(white_btn)
+		if white_ply >= 0:
+			var white_move: ChessMove = moves[white_ply]
+			var white_btn := _make_move_button(white_move, white_ply)
+			current_row.add_child(white_btn)
+			if white_ply == cur_ply:
+				_highlight_active(white_btn)
+				_active_btn = white_btn
+			move_buttons.append(white_btn)
+		else:
+			var ellipsis := Label.new()
+			ellipsis.text = "…"
+			ellipsis.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			ellipsis.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			ellipsis.add_theme_color_override("font_color", DesignTokens.TEXT_MUTED)
+			current_row.add_child(ellipsis)
 
 		# Coup Noir (si existant)
 		if black_ply < moves.size():
@@ -942,8 +960,8 @@ func _build_filtered_single(moves: Array, cur_ply: int) -> void:
 		panel.add_child(row)
 
 		var num_lbl := Label.new()
-		var move_num: int = (i / 2) + 1
-		num_lbl.text = str(move_num) + ("..." if i % 2 == 1 else ".")
+		var info := _ply_info(i)
+		num_lbl.text = str(info["move_number"]) + ("." if info["is_white"] else "...")
 		num_lbl.custom_minimum_size = Vector2(44, 0)
 		num_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		num_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

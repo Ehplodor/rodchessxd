@@ -13,10 +13,11 @@ static func apply_live_state(game: Dictionary, live: ChessGame) -> void:
 	var moves_arr: Array = []
 	for i in range(live.move_history.size()):
 		var m = live.move_history[i]
+		var info := live.ply_info(i)
 		moves_arr.append({
 			"ply": i,
-			"move_number": (i / 2) + 1,
-			"is_white": (i % 2 == 0),
+			"move_number": info["move_number"],
+			"is_white": info["is_white"],
 			"san": m.san,
 			"uci": m.uci,
 			"quality": m.quality,

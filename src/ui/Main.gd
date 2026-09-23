@@ -1538,6 +1538,7 @@ func _update_graph_phase_boundaries(report: Dictionary) -> void:
 	if advantage_graph == null:
 		return
 	advantage_graph.set_phase_boundaries(GameSnapshot.phase_boundaries(report))
+	advantage_graph.set_start_score(int(report.get("start_score_cp", 20)))
 
 ## T1.1 — Joue le premier coup de la ligne moteur choisie en mode Test (sandbox).
 func _on_engine_line_selected(_rank: int, pv: Array, best_move: String) -> void:

@@ -135,9 +135,10 @@ func execute_coach_prompt(
 		extra_context["last_move_uci"] = m.uci
 		extra_context["quality"] = m.quality
 		extra_context["cp_loss"] = m.centipawn_loss
-		extra_context["move_number"] = (current_ply / 2) + 1
+		var info: Dictionary = game.ply_info(current_ply)
+		extra_context["move_number"] = info["move_number"]
 		extra_context["ply_index"] = current_ply
-		extra_context["last_move_color"] = "white" if (current_ply % 2 == 0) else "black"
+		extra_context["last_move_color"] = "white" if info["is_white"] else "black"
 		extra_context["is_check"] = m.is_check
 		extra_context["is_checkmate"] = m.is_checkmate
 		extra_context["motifs"] = m.motifs
@@ -355,8 +356,9 @@ RÈGLES DE RIGUEUR TACTIQUE (ANTI-HALLUCINATION) :
 				for p in range(start_ply, cur_ply + 1):
 					if p < gc.game.move_history.size():
 						var mv = gc.game.move_history[p]
-						var num = (p / 2) + 1
-						if p % 2 == 0:
+						var info: Dictionary = gc.game.ply_info(p)
+						var num: int = info["move_number"]
+						if info["is_white"]:
 							moves_tokens.append("%d. %s" % [num, mv.san])
 						else:
 							if p == start_ply:

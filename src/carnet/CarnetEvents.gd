@@ -272,7 +272,7 @@ static func annotate_game(game_data: Dictionary, analysis: Dictionary, options: 
 		var atom := annotate(coup)
 		if not atom.is_empty():
 			out.append(atom)
-			var move_num := (i / 2) + 1
+			var move_num := int(rec.get("move_number", mv.get("move_number", (i / 2) + 1)))
 			var side_icon := "⚪" if is_white else "⚫"
 			var move_san := str(rec.get("san", mv.get("san", uci)))
 			var cat := str(atom.get("categorie", "remarquable"))

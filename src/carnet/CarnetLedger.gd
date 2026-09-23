@@ -164,8 +164,11 @@ static func _build_motif(key: String, atoms: Array, G: int, today: String, optio
 	}
 
 ## Poids de récence d'un événement : w(e) = 0,5 ^ (âge_jours / 45).
+## Une date illisible compte pour une demi-vie (poids 0,5) : ni récente, ni oubliée.
 static func _recency_weight(atom: Dictionary, today: String) -> float:
 	var age := _age_days(str(atom.get("date_iso", "")), today)
+	if age < 0.0:
+		age = CarnetConfig.DEMI_VIE_JOURS
 	return pow(0.5, age / CarnetConfig.DEMI_VIE_JOURS)
 
 ## Gravité (négatif) ou mérite (positif) normalisé sur [0, 1] (§4.3, §4.4.1).
@@ -430,7 +433,7 @@ static func _age_days(date_iso: String, today_iso: String) -> float:
 	var a := DateUtil.day_index(date_iso)
 	var b := DateUtil.day_index(today_iso)
 	if a < 0 or b < 0:
-		return 0.0
+		return -1.0  # Âge inconnu.
 	return maxf(0.0, float(b - a))
 
 static func libelle(famille: String, cle: String) -> String:

@@ -331,10 +331,11 @@ func record_pgn_game(pgn_text: String, source: String = "pgn_import", external_i
 	var moves_arr: Array[Dictionary] = []
 	for i in range(dummy_game.move_history.size()):
 		var m = dummy_game.move_history[i]
+		var info: Dictionary = dummy_game.ply_info(i)
 		moves_arr.append({
 			"ply": i,
-			"move_number": (i / 2) + 1,
-			"is_white": (i % 2 == 0),
+			"move_number": info["move_number"],
+			"is_white": info["is_white"],
 			"san": m.san,
 			"uci": m.uci
 		})
@@ -401,10 +402,11 @@ func record_active_game(game: ChessGame, title_override: String = "", source: St
 	var moves_arr: Array[Dictionary] = []
 	for i in range(game.move_history.size()):
 		var m = game.move_history[i]
+		var info: Dictionary = game.ply_info(i)
 		moves_arr.append({
 			"ply": i,
-			"move_number": (i / 2) + 1,
-			"is_white": (i % 2 == 0),
+			"move_number": info["move_number"],
+			"is_white": info["is_white"],
 			"san": m.san,
 			"uci": m.uci,
 			"quality": m.quality,
