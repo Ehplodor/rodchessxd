@@ -28,6 +28,7 @@ static func apply_to_moves(moves: Array, report: Dictionary) -> int:
 		m.cliff_indice_d = int(p_data.get("effort_d", p_data.get("indice_d", -1)))
 		m.cliff_surprise_nature = int(p_data.get("surprise_nature", CliffTypes.SurpriseNature.NORMAL))
 		m.cliff_surprise_delta = int(p_data.get("surprise_delta", 0))
+		m.cliff_reliable = bool(p_data.get("reliable", true))
 		applied += 1
 	return applied
 
@@ -65,12 +66,15 @@ static func build_step_visual(step: Dictionary, xray_enabled: bool) -> Dictionar
 	}
 	return {"best_uci": best_u, "overlay": overlay}
 
-## Retrouve une étape de la ligne Cliff par FEN (avant/après) ou par UCI.
+## Retrouve une étape de la ligne Cliff par FEN ou par UCI.
+## Une FEN désigne d'abord l'étape qui s'y DÉCIDE (fen_before : les métriques décrivent
+## le dilemme de cette position) ; fen_after ne sert que pour la position finale.
 static func find_step(plies: Array, uci: String, fen: String) -> Dictionary:
 	if fen != "":
-		for p in plies:
-			if p is Dictionary and (str(p.get("fen_after", "")) == fen or str(p.get("fen_before", "")) == fen):
-				return p
+		for key in ["fen_before", "fen_after"]:
+			for p in plies:
+				if p is Dictionary and str(p.get(key, "")) == fen:
+					return p
 	if uci != "":
 		for p in plies:
 			if p is Dictionary and str(p.get("move_uci", "")) == uci:
@@ -88,8 +92,8 @@ static func line_piste_summary(report: Dictionary, is_white_turn: bool) -> Dicti
 		"p_survie": float(summary.get("p_survie_ligne", 1.0)),
 	}
 
-## Meilleur coup de la première étape d'un rapport Cliff (flèche initiale), "" sinon.
-static func first_step_best_uci(report: Dictionary) -> String:
+## Premier coup de la ligne étudiée (flèche initiale), "" sinon.
+static func first_step_uci(report: Dictionary) -> String:
 	var plies: Array = report.get("plies", [])
 	if plies.is_empty() or not (plies[0] is Dictionary):
 		return ""

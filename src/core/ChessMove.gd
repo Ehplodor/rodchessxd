@@ -50,6 +50,7 @@ var cliff_p_survie: float = 1.0
 var cliff_indice_d: int = -1        # 0..100, -1 = non calculé
 var cliff_surprise_nature: int = 0  # CliffTypes.SurpriseNature, 0 = NORMAL
 var cliff_surprise_delta: int = 0   # Delta D(t+1) - D_latent(t)
+var cliff_reliable: bool = true     # Faux si le moteur a échoué sur ce demi-coup
 
 func _init(p_from: int = -1, p_to: int = -1, p_piece: int = ChessPiece.Type.NONE, p_color: int = ChessPiece.PieceColor.NONE) -> void:
 	from_sq = p_from

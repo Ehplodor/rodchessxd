@@ -25,6 +25,10 @@ func _init() -> void:
 	test_h_mob_collapsed()
 	test_h_mob_multiple()
 	test_p_survie_ligne()
+	test_p_survie_forced()
+	test_bait_semantics()
+	test_viable_ignores_unknown()
+	test_horizon_no_regime_jump()
 	test_surprise_classification()
 
 	print(">>> ALL CLIFF MATH TESTS PASSED SUCCESSFULLY! <<<")
@@ -44,8 +48,11 @@ func test_wdl_mate() -> void:
 	var w_win = CliffMath.wdl(0, 3)
 	var w_loss = CliffMath.wdl(0, -5)
 	print("test_wdl_mate: mate_in 3 = ", w_win, ", mate_in -5 = ", w_loss)
-	assert(abs(w_win - 0.997) < 0.001, "wdl for mate in +3 should be 0.997")
-	assert(abs(w_loss - 0.005) < 0.001, "wdl for mate in -5 should be 0.005")
+	assert(w_win > CliffMath.wdl(3000, 0), "any winning mate must outrank any cp eval")
+	assert(w_loss < CliffMath.wdl(-3000, 0), "any losing mate must rank below any cp eval")
+	assert(CliffMath.wdl(0, 1) > CliffMath.wdl(0, 20), "shorter mate must be better")
+	assert(CliffMath.wdl(0, -1) < CliffMath.wdl(0, -20), "being mated sooner must be worse")
+	assert(CliffMath.wdl(0, 200) == CliffMath.wdl(0, CliffTypes.MATE_HORIZON), "mates beyond horizon are equal")
 
 func test_saillance_check_highest() -> void:
 	var quiet_move = {
@@ -105,9 +112,10 @@ func test_boltzmann_sharp() -> void:
 	assert(dist[1] > 0.90, "With beta=12, v=0.8 vs 0.2 must overwhelmingly dominate")
 
 func test_suite_forcee_check() -> void:
-	assert(CliffMath.is_suite_forcee(true, false, false, false) == true)
-	assert(CliffMath.is_suite_forcee(false, true, false, false) == true)
-	assert(CliffMath.is_suite_forcee(false, false, false, false) == false)
+	assert(CliffMath.is_suite_forcee(true, false, false) == true)
+	assert(CliffMath.is_suite_forcee(false, true, false) == true)
+	assert(CliffMath.is_suite_forcee(false, false, true) == true)
+	assert(CliffMath.is_suite_forcee(false, false, false) == false)
 
 func test_delta_chute() -> void:
 	var d_wide = CliffMath.delta_chute(0.65, 0.60)
@@ -181,3 +189,29 @@ func test_surprise_classification() -> void:
 	assert(CliffTypes.get_surprise_icon(CliffTypes.SurpriseNature.SHOCK) == "⚡⚡", "SHOCK icon should be ⚡⚡")
 	assert(CliffTypes.get_surprise_icon(CliffTypes.SurpriseNature.RELIEF) == "🪂", "RELIEF icon should be 🪂")
 	print("test_surprise_classification: ok")
+
+func test_p_survie_forced() -> void:
+	assert(abs(CliffMath.p_survie(false, 0.6) - 0.6) < 0.0001, "non-forced: raw viable mass")
+	var pf = CliffMath.p_survie(true, 0.6)
+	assert(abs(pf - 0.8) < 0.0001, "forced: miss probability halved (0.4 -> 0.2)")
+	assert(CliffMath.p_survie(true, 1.0) == 1.0, "forced never lowers survival")
+	print("test_p_survie_forced: ok")
+
+func test_bait_semantics() -> void:
+	assert(CliffMath.bait(0.70, 0.70) == 0.0, "tempting move = best move -> no bait")
+	assert(CliffMath.bait(0.70, 0.67) == 0.0, "tempting move viable -> no bait")
+	assert(abs(CliffMath.bait(0.70, 0.30) - 0.40) < 0.0001, "bait = real loss")
+	assert(CliffMath.bait(1.0, -1.0) == 1.0, "bait clamped to 1")
+	print("test_bait_semantics: ok")
+
+func test_viable_ignores_unknown() -> void:
+	var v = CliffMath.get_viable_indices([0.70, 0.69, 0.69], 0.70, [true, true, false])
+	assert(v == [0, 1], "a bound-only move is never viable")
+	print("test_viable_ignores_unknown: ok")
+
+func test_horizon_no_regime_jump() -> void:
+	# 5 et 7 demi-coups identiques : même pire fenêtre de 4.
+	var p5 = CliffMath.p_survie_horizon_min([0.9, 0.5, 0.5, 0.9, 0.9], 4)
+	var p7 = CliffMath.p_survie_horizon_min([0.9, 0.5, 0.5, 0.9, 0.9, 0.9, 0.9], 4)
+	assert(abs(p5 - p7) < 0.0001, "no jump between line lengths")
+	print("test_horizon_no_regime_jump: ok")

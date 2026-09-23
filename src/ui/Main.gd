@@ -2387,7 +2387,7 @@ func _on_engine_compare_all_lines_requested(lines: Array, meta: Dictionary) -> v
 	var opts := {
 		"deep_depth": mini(10, int(oracle.get("deep_depth", 10))),
 		"timeout_ms": mini(1500, int(oracle.get("timeout_ms", 1500))),
-		"multipv": int(oracle.get("multipv", 2)),
+		"multipv": int(oracle.get("multipv", 3)),
 		"fast_mode": true,
 		"max_plies": mini(4, int(envelope.get("max_plies", 4))),
 		"line_plies": 4,
@@ -2522,7 +2522,7 @@ func _start_cliff_super_live(pv_override: Array = [], source_meta: Dictionary = 
 	var opts := {
 		"deep_depth": int(oracle.get("deep_depth", 16)),
 		"timeout_ms": int(oracle.get("timeout_ms", 3000)),
-		"multipv": int(oracle.get("multipv", 2)),
+		"multipv": int(oracle.get("multipv", 3)),
 		"fast_mode": bool(envelope.get("fast_mode", true)),
 		"max_plies": int(envelope.get("max_plies", 8)),
 		"shallow_depth": int(intuition.get("shallow_depth", 1)),
@@ -2605,7 +2605,7 @@ func _on_cliff_super_live_finished(report: Dictionary) -> void:
 		engine_lines_panel.set_line_pistes({
 			_cliff_studied_rank: CliffAnnotations.line_piste_summary(report, is_white_turn)
 		})
-		var best_u := CliffAnnotations.first_step_best_uci(report)
+		var best_u := CliffAnnotations.first_step_uci(report)
 		if best_u != "" and chess_board != null:
 			chess_board.set_best_move_arrow(best_u)
 
@@ -2706,7 +2706,7 @@ func study_full_game() -> void:
 		"top_k": int(intuition.get("top_k", 5)),
 		"ucinewgame": bool(intuition.get("ucinewgame", true)),
 		"timeout_ms": int(oracle.get("timeout_ms", 4000)),
-		"multipv": int(oracle.get("multipv", 2))
+		"multipv": int(oracle.get("multipv", 3))
 	}
 	_cliff_full_running = true
 	_update_cliff_button_style()

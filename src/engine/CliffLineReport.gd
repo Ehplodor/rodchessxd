@@ -69,14 +69,17 @@ func get_tactical_leverage(index: int) -> int:
 	var p := get_ply(index)
 	return int(p.get("leverage", int(p.get("pression_d", 0)) - int(p.get("indice_d", 0))))
 
-## Retourne le premier point de rupture critique s'il existe dans la ligne/partie
+## Premier point de rupture critique de la ligne/partie : un ravin (Δ ≥ seuil de corniche)
+## ou une survie quasi nulle, sur un demi-coup dont l'analyse moteur est fiable.
 func get_rupture_point() -> Dictionary:
 	var plies: Array = get_plies()
 	for i in range(plies.size()):
 		var p: Dictionary = plies[i]
+		if not bool(p.get("reliable", true)):
+			continue
 		var delta: float = float(p.get("delta_chute", 0.0))
 		var survie: float = float(p.get("p_survie", 1.0))
-		if delta >= 0.35 or survie < 0.05:
+		if delta >= CliffTypes.DELTA_CORNICHE or survie < CliffTypes.P_FIL_LO:
 			return {"index": i, "ply_data": p}
 	return {}
 

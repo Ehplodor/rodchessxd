@@ -74,8 +74,10 @@ func _test_find_step() -> void:
 		{"move_uci": "e2e4", "fen_before": "FEN_A", "fen_after": "FEN_B"},
 		{"move_uci": "e7e5", "fen_before": "FEN_B", "fen_after": "FEN_C"},
 	]
-	_check(str(CliffAnnotations.find_step(plies, "", "FEN_B").get("move_uci", "")) == "e2e4",
-			"recherche par FEN (première correspondance)")
+	_check(str(CliffAnnotations.find_step(plies, "", "FEN_B").get("move_uci", "")) == "e7e5",
+			"recherche par FEN : l'étape décidée dans cette position")
+	_check(str(CliffAnnotations.find_step(plies, "", "FEN_C").get("move_uci", "")) == "e7e5",
+			"recherche par FEN finale (fen_after)")
 	_check(str(CliffAnnotations.find_step(plies, "e7e5", "").get("move_uci", "")) == "e7e5",
 			"recherche par UCI")
 	_check(CliffAnnotations.find_step(plies, "zzzz", "").is_empty(), "introuvable → {}")
@@ -93,5 +95,5 @@ func _test_line_summary() -> void:
 	_check(is_equal_approx(float(w.get("p_survie", 0.0)), 0.7), "p_survie côté blancs")
 	var b := CliffAnnotations.line_piste_summary(report, false)
 	_check(int(b.get("piste", -1)) == 5, "résumé côté noirs")
-	_check(CliffAnnotations.first_step_best_uci(report) == "g1f3", "premier coup de la ligne")
-	_check(CliffAnnotations.first_step_best_uci({}) == "", "rapport vide → \"\"")
+	_check(CliffAnnotations.first_step_uci(report) == "g1f3", "premier coup de la ligne")
+	_check(CliffAnnotations.first_step_uci({}) == "", "rapport vide → \"\"")

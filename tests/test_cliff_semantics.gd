@@ -51,12 +51,14 @@ func _init() -> void:
 	# 4. Helpers de suite forcée.
 	var init_game := ChessGame.new()
 	var init_moves := init_game.get_legal_moves()
-	_check(not CliffAnalyzer._has_winning_capture(init_moves), "pas de capture gagnante au départ")
-	_check(not CliffAnalyzer._has_material_tension(init_moves), "pas de tension matérielle au départ")
+	_check(not CliffAnalyzer._has_winning_capture(init_game, init_moves), "pas de capture gagnante au départ")
 
+	# exd5 : pion contre pion défendu par la dame — simple échange, pas un gain forcé.
 	var tact := ChessGame.new("rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2")
-	var tact_moves := tact.get_legal_moves()
-	_check(CliffAnalyzer._has_winning_capture(tact_moves), "capture gagnante détectée (exd5)")
+	_check(not CliffAnalyzer._has_winning_capture(tact, tact.get_legal_moves()), "échange défendu ≠ capture gagnante (exd5)")
+	# Cavalier en prise non défendu : gain réel.
+	var hang := ChessGame.new("rnbqkb1r/pppppppp/8/4n3/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 1 3")
+	_check(CliffAnalyzer._has_winning_capture(hang, hang.get_legal_moves()), "pièce non défendue = capture gagnante (dxe5)")
 
 	# 5. _build_visual_info : appât + mines cohérents.
 	var analyzer := CliffAnalyzer.new(null)

@@ -8,20 +8,16 @@ const MoveQualityService = preload("res://src/ui/components/MoveQualityService.g
 const CliffTypes = preload("res://src/engine/CliffTypes.gd")
 
 ## 1. Probabilité WDL (0.0 à 1.0) du point de vue du camp qui joue.
-## Intègre le cas des mats forcés (+mat / -mat).
+## Ordre strict garanti : mat perdant < toute éval cp < mat gagnant, et un mat
+## plus court vaut toujours mieux qu'un mat plus long.
 static func wdl(score_cp: int, mate_in: int = 0) -> float:
 	if mate_in != 0:
-		if mate_in > 0:
-			# Nous matons dans mate_in coups -> proche de 1.0
-			return clampf(1.0 - float(mate_in) / 1000.0, 0.95, 1.0)
-		else:
-			# Nous sommes matés dans abs(mate_in) coups -> proche de 0.0
-			return clampf(float(absi(mate_in)) / 1000.0, 0.0, 0.05)
-	
-	if absi(score_cp) >= 30000:
-		return 1.0 if score_cp > 0 else 0.0
-
-	return clampf(MoveQualityService.win_percentage(score_cp) / 100.0, 0.0, 1.0)
+		var span := 1.0 - CliffTypes.WDL_MATE_FLOOR
+		var n := float(mini(absi(mate_in), CliffTypes.MATE_HORIZON))
+		var dist := span * n / float(CliffTypes.MATE_HORIZON)
+		return 1.0 - dist if mate_in > 0 else dist
+	var cp_ceil := CliffTypes.WDL_CP_CEIL
+	return clampf(MoveQualityService.win_percentage(score_cp) / 100.0, 1.0 - cp_ceil, cp_ceil)
 
 ## Valeur en points d'une pièce pour le calcul du ratio de capture.
 static func piece_point_value(piece_type: int) -> float:
@@ -34,6 +30,9 @@ static func piece_point_value(piece_type: int) -> float:
 			return 5.0
 		ChessPiece.Type.QUEEN:
 			return 9.0
+		ChessPiece.Type.KING:
+			# Le roi ne peut capturer qu'une pièce non défendue : il ne risque rien.
+			return 0.0
 		_:
 			return 1.0
 
@@ -77,9 +76,13 @@ static func saillance(move_dict: Dictionary) -> float:
 static func v_percu(wdl_static: float, s: float) -> float:
 	return wdl_static + s
 
-## 4. Appât / piège naturel Bait(m) = max(0, V_perçu(m) - WDL_deep(m)).
-static func bait(v_percu_m: float, wdl_deep_m: float) -> float:
-	return maxf(0.0, v_percu_m - wdl_deep_m)
+## 4. Appât Bait = perte réelle subie en jouant le coup le plus séduisant.
+## Nul si ce coup est viable (un coup séduisant ET bon n'est pas un piège).
+static func bait(wdl_best: float, wdl_deep_tempting: float) -> float:
+	var loss := wdl_best - wdl_deep_tempting
+	if loss <= CliffTypes.WDL_MOK_TOLERANCE + 0.0001:
+		return 0.0
+	return clampf(loss, 0.0, 1.0)
 
 ## 5. Distribution Boltzmann P_humain(m) = exp(β·V_i) / Σ exp(β·V_j).
 ## Protégé contre les overflows numériques par soustraction du maximum.
@@ -115,24 +118,27 @@ static func p_humain_distribution(v_percu_all: Array) -> Array[float]:
 		result.append(e / sum_exp)
 	return result
 
-## 6. Détection de suite tactiquement forcée (échec, reprise, pièce en prise, tension).
-static func is_suite_forcee(prev_was_check: bool, is_recapture: bool, material_en_prise: bool, tension_materielle: bool) -> bool:
-	return prev_was_check or is_recapture or material_en_prise or tension_materielle
+## 6. Suite tactiquement forcée : échec à parer, reprise disponible ou gain matériel sûr.
+static func is_suite_forcee(in_check: bool, is_recapture: bool, material_en_prise: bool) -> bool:
+	return in_check or is_recapture or material_en_prise
 
-## 7. Probabilité de survie sur un demi-coup : P_SUITE_FORCEE si forcé,
-## sinon somme des probabilités des coups viables M_ok.
-## Si viable_p_sum < 0.0, fallback sur p_humain_best pour rétrocompatibilité.
-static func p_survie(is_forcee: bool, p_humain_best: float, viable_p_sum: float = -1.0) -> float:
+## 7. Probabilité de survie sur un demi-coup = somme des P_humain des coups viables.
+## Dans une suite forcée, la probabilité de rater est atténuée (FORCED_MISS_FACTOR),
+## sans jamais écraser la mesure Boltzmann par une constante.
+static func p_survie(is_forcee: bool, viable_p_sum: float) -> float:
+	var p := clampf(viable_p_sum, 0.0, 1.0)
 	if is_forcee:
-		return CliffTypes.P_SUITE_FORCEE
-	if viable_p_sum >= 0.0:
-		return clampf(viable_p_sum, 0.0, 1.0)
-	return clampf(p_humain_best, 0.0, 1.0)
+		p = 1.0 - (1.0 - p) * CliffTypes.FORCED_MISS_FACTOR
+	return p
 
 ## 7b. Retourne les indices des coups viables (écart WDL <= seuil tolérance).
-static func get_viable_indices(wdl_all: Array, wdl_best: float) -> Array[int]:
+## `known` (optionnel, parallèle à wdl_all) : un coup dont la valeur profonde
+## n'est qu'une borne supérieure n'est jamais compté comme viable.
+static func get_viable_indices(wdl_all: Array, wdl_best: float, known: Array = []) -> Array[int]:
 	var viable: Array[int] = []
 	for i in range(wdl_all.size()):
+		if i < known.size() and not bool(known[i]):
+			continue
 		if (wdl_best - float(wdl_all[i])) <= (CliffTypes.WDL_MOK_TOLERANCE + 0.0001):
 			viable.append(i)
 	return viable
@@ -143,12 +149,12 @@ static func delta_chute(wdl_best: float, wdl_second: float) -> float:
 
 ## 9. Entropie de mobilité viable H_mob (Shannon en bits log2).
 ## Filtre les coups viables M_ok et calcule l'entropie de dispersion de P_humain.
-static func h_mob(wdl_all: Array, wdl_best: float, p_humain_all: Array) -> float:
+static func h_mob(wdl_all: Array, wdl_best: float, p_humain_all: Array, known: Array = []) -> float:
 	var n := wdl_all.size()
 	if n <= 1 or p_humain_all.size() != n:
 		return 0.0
 
-	var viable_indices := get_viable_indices(wdl_all, wdl_best)
+	var viable_indices := get_viable_indices(wdl_all, wdl_best, known)
 
 	if viable_indices.size() <= 1:
 		return 0.0
@@ -178,7 +184,9 @@ static func p_survie_ligne(p_survie_array: Array) -> float:
 		prod *= clampf(float(p), 0.0, 1.0)
 	return clampf(prod, 0.0, 1.0)
 
-## 10b. Survie locale sur horizon glissant H=4 demi-coups (évite l'effondrement à zéro).
+## 10b. Survie locale : pire produit sur une fenêtre glissante de H demi-coups
+## (évite l'effondrement asymptotique du produit sur une longue partie ;
+## identique au produit simple quand la ligne tient dans la fenêtre).
 static func p_survie_horizon_min(p_survie_array: Array, window_size: int = CliffTypes.HORIZON_PLIES) -> float:
 	var n := p_survie_array.size()
 	if n == 0:
@@ -207,17 +215,20 @@ static func indice_d(delta_array: Array, p_survie_array: Array, bait_array: Arra
 		var d_val := float(delta_array[i]) if i < delta_array.size() else 0.0
 		var p_val := float(p_survie_array[i]) if i < p_survie_array.size() else 1.0
 		var b_val := float(bait_array[i]) if i < bait_array.size() else 0.0
-		sum_num += (CliffTypes.D_WEIGHT_CHUTE * d_val
-			+ CliffTypes.D_WEIGHT_SURVIE * (1.0 - p_val)
-			+ CliffTypes.D_WEIGHT_BAIT * b_val)
+		# Chaque composante est ramenée dans [0, 1] avant pondération.
+		sum_num += (CliffTypes.D_WEIGHT_CHUTE * clampf(d_val, 0.0, 1.0)
+			+ CliffTypes.D_WEIGHT_SURVIE * (1.0 - clampf(p_val, 0.0, 1.0))
+			+ CliffTypes.D_WEIGHT_BAIT * clampf(b_val, 0.0, 1.0))
 
 	var avg_num := sum_num / float(n)
-	# Multiplicateur de restriction de mobilité : de 1.0 (large mobilité >= 1.5 bit) à 1.45 (coup unique H_mob = 0)
-	var mob_mult := 1.0 + 0.30 * clampf(1.5 - h_mob_avg, 0.0, 1.5)
-	var raw_d := (avg_num * mob_mult) / 1.15
+	var ref := CliffTypes.D_MOB_REF_BITS
+	var mob_mult := 1.0 + CliffTypes.D_MOB_GAIN * clampf(ref - h_mob_avg, 0.0, ref)
+	var raw_d := (avg_num * mob_mult) / CliffTypes.D_NORMALIZER
 	return clampi(int(round(raw_d)), 0, 100)
 
-## 12. Classification par « piste » (matrice de décision classique).
+## 12. Classification par « piste » (matrice P/Δ/Bait historique).
+## Non utilisée par l'analyseur (la piste dérive de D) ; conservée comme
+## grille de lecture indépendante et contrôle de cohérence dans les tests.
 static func classify_piste(p_ligne: float, delta_max: float, bait_max: float) -> CliffTypes.Piste:
 	if p_ligne < CliffTypes.P_FIL_LO:
 		return CliffTypes.Piste.CHAMP_DE_MINES

@@ -4,12 +4,13 @@ extends RefCounted
 ## Source unique de vérité pour la classification de complexité cognitive.
 
 ## ── Classification CLIFF par « piste » ─────────────────────────────────
+## La piste est dérivée de l'indice D (voir get_piste_from_d et les seuils D_*_MAX).
 enum Piste {
-	AUTOROUTE = 0,      # 🟢 P_survie ≥ 0.65, Δ faible — positions confortables
-	CHEMIN = 1,         # 🔵 P_survie ∈ [0.40, 0.65) — chemin balisé avec calcul modéré
-	CORNICHE = 2,       # 🔴 P_survie ∈ [0.15, 0.40) ou Bait élevé — corniche technique piégeuse
-	FIL_DU_RASOIR = 3,  # ⚫ Δ_chute ≥ 0.30 & P faible — seul coup unique sauvant la partie
-	CHAMP_DE_MINES = 4  # ⚠️ P_survie < 0.03 — survie quasi-impossible pour l'humain
+	AUTOROUTE = 0,      # 🟢 D < 25 — positions confortables
+	CHEMIN = 1,         # 🔵 D ∈ [25, 50) — calcul modéré
+	CORNICHE = 2,       # 🔴 D ∈ [50, 72) — corniche technique piégeuse
+	FIL_DU_RASOIR = 3,  # ⚫ D ∈ [72, 88) — coup unique ou presque
+	CHAMP_DE_MINES = 4  # ⚠️ D ≥ 88 — survie quasi-impossible pour l'humain
 }
 
 ## ── Saillance visuelle ────────────────────────────────────────────────
@@ -20,7 +21,9 @@ const W_BACKWARD := 0.10   # Recul = angle mort cognitif
 
 ## ── Boltzmann ─────────────────────────────────────────────────────────
 const BETA := 12.0          # Température cognitive inverse (constante, difficulté intrinsèque)
-const P_SUITE_FORCEE := 0.95  # Probabilité de survie sur une suite forcée
+## Dans une suite forcée (échec, reprise, gain matériel), la probabilité de rater
+## le bon coup est multipliée par ce facteur : l'humain y est guidé, pas infaillible.
+const FORCED_MISS_FACTOR := 0.5
 
 ## ── Seuils de classification par piste ─────────────────────────────────
 const P_AUTOROUTE := 0.65     # P_survie_ligne ≥ 0.65
@@ -29,15 +32,36 @@ const P_CORNICHE_LO := 0.15   # P_survie_ligne ∈ [0.15, 0.40)
 const P_FIL_LO := 0.03        # P_survie_ligne ∈ [0.03, 0.15)
                                # P_survie_ligne < 0.03 → CHAMP_DE_MINES
 
-const DELTA_CORNICHE := 0.30  # Δ_chute ≥ 0.30 → position sur fil du rasoir
+const DELTA_CORNICHE := 0.30  # Δ_chute ≥ 0.30 → ravin (règle de l'Abysse)
 const BAIT_THRESHOLD := 0.25  # Bait ≥ 0.25 → piège naturel
 const WDL_MOK_TOLERANCE := 0.05 # Écart WDL max pour qu'un coup soit « viable » (H_mob)
+const DELTA_VITAL := 0.20       # Δ mesuré ≥ 0.20 avec un seul coup viable → coup unique vital
+
+## ── Bornes WDL : les mats restent toujours au-delà de toute évaluation en cp ──
+const WDL_CP_CEIL := 0.98       # Plafond d'une évaluation en centipions
+const WDL_MATE_FLOOR := 0.985   # Mat gagnant le plus lointain (mat en MATE_HORIZON)
+const MATE_HORIZON := 50        # Au-delà, tous les mats se valent
+
+## ── Sondes et approximations du moteur ────────────────────────────────
+const PROBE_DEPTH := 6          # Profondeur des sondes « searchmoves » (coups hors MultiPV)
+const PROBE_TIMEOUT_MS := 250
+const PROBE_COUNT := 3          # Nb max de coups humains probables sondés hors MultiPV
+const SHALLOW_TIMEOUT_MS := 250
+const SHALLOW_PLACEHOLDER_PENALTY := 0.10 # Coups non évalués en mode rapide : WDL_best - pénalité
 
 ## ── Indice composite D ────────────────────────────────────────────────
 const D_WEIGHT_CHUTE := 35.0
 const D_WEIGHT_SURVIE := 40.0
 const D_WEIGHT_BAIT := 25.0
-const D_H_MOB_OFFSET := 0.2
+## Multiplicateur de mobilité : 1 + D_MOB_GAIN · clamp(D_MOB_REF_BITS - H_mob, 0, D_MOB_REF_BITS)
+## (de 1.0 pour ≥ 1.5 bit de choix viables à 1.45 pour un coup unique).
+const D_MOB_GAIN := 0.30
+const D_MOB_REF_BITS := 1.5
+## Normalisation : un demi-coup « moyen difficile » (Δ≈0.5, P≈0.5, pas d'appât, H=0) ≈ D 50.
+const D_NORMALIZER := 1.15
+## Tension latente : D_latent = W_THREAT · menace + (1 - W_THREAT) · D_adverse_précédent
+const D_LATENT_W_THREAT := 0.65
+const D_LATENT_PRIOR := 15.0    # D adverse supposé avant le premier coup observé
 
 ## ── Couleurs et libellés UI ───────────────────────────────────────────
 const PISTE_COLORS := {
@@ -96,8 +120,8 @@ const HORIZON_PLIES := 4
 ## ── Zones de jauge calibrées sur D (segments croissants de 0 à 100) ────
 const GAUGE_D_ZONES := [D_AUTOROUTE_MAX, D_CHEMIN_MAX, D_CORNICHE_MAX, D_RASOIR_MAX]
 
-## ── Zones de jauge historiques (segments par P_survie décroissante) ───
-const GAUGE_ZONES := [P_FIL_LO, P_CORNICHE_LO, P_CHEMIN_LO]  # [0.03, 0.15, 0.40, 0.65]
+## ── Zones de jauge historiques (segments par P_survie croissante) ─────
+const GAUGE_ZONES := [P_FIL_LO, P_CORNICHE_LO, P_CHEMIN_LO]  # [0.03, 0.15, 0.40]
 
 static func get_piste_from_d(d_score: int) -> int:
 	if d_score < D_AUTOROUTE_MAX:
