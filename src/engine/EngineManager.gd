@@ -135,6 +135,8 @@ var _install_inner_match := ""
 var _install_target_name := ""
 var _install_last_bytes := 0
 var cancel_eval_requested := false
+## Nombre de recherches `go` envoyées (instrumentation des benchmarks CHESS-CLIFF).
+var go_count := 0
 var _received_any_output := false
 var _log_first_raw_line := true
 var _started_msec := 0
@@ -996,6 +998,7 @@ func start_engine() -> bool:
 		send_command("setoption name Threads value %d" % SettingsManager.get_setting("engine_threads", SettingsManager.get_default_engine_threads()))
 		send_command("setoption name Hash value %d" % SettingsManager.get_setting("engine_hash_mb", SettingsManager.get_default_engine_hash()))
 		send_command("setoption name UCI_AnalyseMode value true")
+		send_command("setoption name UCI_ShowWDL value true")
 		_multipv_requested = default_multipv()
 		send_command("setoption name MultiPV value %d" % _multipv_requested)
 	send_command("isready")
@@ -1075,6 +1078,8 @@ func _reset_eval_accumulators() -> void:
 func send_command(cmd: String) -> void:
 	if not is_engine_running:
 		return
+	if cmd.begins_with("go"):
+		go_count += 1
 	if _use_wasm:
 		if ClassDB.class_exists("JavaScriptBridge"):
 			var js_cmd := cmd.c_escape()
@@ -1533,6 +1538,112 @@ func evaluate_deep_multipv_sync(fen: String, depth: int, multipv: int = 2, timeo
 
 	return res
 
+## Recherche synchrone unifiée (CHESS-CLIFF). Une seule requête `go` couvre, au choix :
+## l'intuition (MultiPV = tous les coups légaux, faible profondeur), l'oracle (MultiPV K
+## profond) ou la vérification groupée de coups hors MultiPV (`searchmoves`).
+## opts : depth, multipv (1..256), searchmoves (Array), clear_tt (ucinewgame préalable),
+## timeout_ms, use_cache (lecture/écriture du cache LRU, recherches complètes seulement).
+## Silencieuse pour l'UI (aucun evaluation_updated). Les lignes retournées ne mêlent pas
+## des profondeurs éloignées : seules celles à depth ≥ depth(rang 1) - 1 sont gardées.
+func search_sync(fen: String, opts: Dictionary = {}) -> Dictionary:
+	var depth := maxi(1, int(opts.get("depth", 10)))
+	var mpv := clampi(int(opts.get("multipv", 1)), 1, 256)
+	var searchmoves: Array = opts.get("searchmoves", [])
+	var timeout_ms := int(opts.get("timeout_ms", 3000))
+	var use_cache := searchmoves.is_empty() and bool(opts.get("use_cache", true))
+	if not is_engine_available() or not _engine_io_available():
+		return {"score_cp": 0, "mate_in": 0, "best_move": "", "depth": 0, "timed_out": false,
+				"multipv_lines": [], "error": "engine_unavailable"}
+
+	if use_cache:
+		var cached := get_cached_eval(fen, depth, mpv)
+		if not cached.is_empty():
+			cached["from_cache"] = true
+			return cached
+
+	if is_evaluating:
+		send_command("stop")
+		var stop_wait := 0
+		while is_evaluating and stop_wait < 200:
+			OS.delay_msec(1)
+			stop_wait += 1
+
+	if bool(opts.get("clear_tt", false)):
+		state_mutex.lock()
+		var ready_serial := _readyok_serial
+		state_mutex.unlock()
+		send_command("ucinewgame")
+		send_command("isready")
+		_wait_for_readyok_sync(ready_serial, 500)
+
+	if mpv != _multipv_requested:
+		send_command("setoption name MultiPV value %d" % mpv)
+
+	state_mutex.lock()
+	_in_shallow_sync = true
+	_evaluation_generation += 1
+	current_fen = fen
+	is_evaluating = true
+	cancel_eval_requested = false
+	_reset_eval_accumulators()
+	state_mutex.unlock()
+
+	send_command("position fen " + fen)
+	var go := "go depth %d" % depth
+	if not searchmoves.is_empty():
+		go += " searchmoves " + " ".join(PackedStringArray(searchmoves))
+	send_command(go)
+
+	# Attente fine (0,2 ms) : le coût d'une recherche depth 1-2 est de l'ordre de la ms,
+	# une attente par tranches de 10-15 ms dominerait le temps total.
+	var started := Time.get_ticks_msec()
+	var cancelled := false
+	while is_evaluating:
+		if cancel_eval_requested:
+			cancelled = true
+			break
+		if Time.get_ticks_msec() - started >= timeout_ms:
+			break
+		OS.delay_usec(200)
+
+	var timed_out := is_evaluating and not cancelled
+	if is_evaluating:
+		send_command("stop")
+		var settle := 0
+		while is_evaluating and settle < 300:
+			OS.delay_msec(1)
+			settle += 1
+		if is_evaluating:
+			state_mutex.lock()
+			is_evaluating = false
+			state_mutex.unlock()
+
+	state_mutex.lock()
+	_in_shallow_sync = false
+	cancel_eval_requested = false
+	var lines: Array = []
+	var top_depth := eval_depth
+	for l in multipv_lines:
+		if int(l.get("depth", 0)) >= top_depth - 1:
+			lines.append(l.duplicate(true))
+	var result := {
+		"score_cp": eval_score_cp,
+		"mate_in": eval_mate_in,
+		"best_move": best_move_uci,
+		"depth": eval_depth,
+		"timed_out": timed_out,
+		"cancelled": cancelled,
+		"pv_line": pv_line.duplicate(),
+		"multipv_lines": lines,
+	}
+	state_mutex.unlock()
+
+	if mpv != _multipv_requested:
+		send_command("setoption name MultiPV value %d" % _multipv_requested)
+	if use_cache and not timed_out and not cancelled and int(result["depth"]) >= depth:
+		store_cached_eval(fen, result)
+	return result
+
 ## Sonde ultra-rapide d'un coup suspect (Radar de Pièges CHESS-CLIFF V2.3).
 ## Réutilise l'arbre existant dans la table de transposition (aucun ucinewgame)
 ## et restreint la recherche racine via "searchmoves <uci>" pour un temps de réponse typique de 5 à 15 ms.
@@ -1726,6 +1837,7 @@ func _parse_engine_line(line: String) -> void:
 		state_mutex.unlock()
 		var mate_in = 0
 		var pv: Array[String] = []
+		var wdl: Array[int] = []
 		var rank := 1
 		var has_score := false
 
@@ -1754,6 +1866,10 @@ func _parse_engine_line(line: String) -> void:
 							# En centipions, un mat est représenté par ±10000
 							score_cp = 10000 if mate_in > 0 else -10000
 							i += 2
+				"wdl":
+					if i + 3 < tokens.size():
+						wdl = [tokens[i + 1].to_int(), tokens[i + 2].to_int(), tokens[i + 3].to_int()]
+						i += 3
 				"pv":
 					# Tous les tokens suivants sont les coups de la ligne principale
 					for j in range(i + 1, tokens.size()):
@@ -1782,6 +1898,9 @@ func _parse_engine_line(line: String) -> void:
 				"fen": current_fen_snapshot,
 				"pv": pv.duplicate()
 			}
+			if wdl.size() == 3:
+				# WDL natif (‰) ramené au point de vue des Blancs, comme score_cp.
+				line_rec["wdl"] = wdl if white_to_move else [wdl[2], wdl[1], wdl[0]]
 			state_mutex.lock()
 			if _stop_pending or generation != _evaluation_generation:
 				state_mutex.unlock()

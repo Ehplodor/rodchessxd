@@ -19,6 +19,9 @@ const CarnetOverlay = preload("res://src/ui/carnet/CarnetOverlay.gd")
 const CarnetBatchRunner = preload("res://src/carnet/CarnetBatchRunner.gd")
 const CliffAnalyzer = preload("res://src/engine/CliffAnalyzer.gd")
 const CliffTypes = preload("res://src/engine/CliffTypes.gd")
+const CliffMoments = preload("res://src/engine/CliffMoments.gd")
+const CliffMomentsPanel = preload("res://src/ui/components/CliffMomentsPanel.gd")
+const PlayerSide = preload("res://src/core/PlayerSide.gd")
 
 @onready var main_scroll: ScrollContainer = $MainScroll
 @onready var vbox: VBoxContainer = $MainScroll/VBox
@@ -742,6 +745,7 @@ func _on_game_position_changed() -> void:
 				if move_list:
 					move_list.set_analysis_report(last_ea)
 					var cliff_rep: Dictionary = last_ea.get("cliff_data", g.get("cliff_data", {}))
+					_apply_moment_markers(cliff_rep)
 					if not cliff_rep.is_empty():
 						_apply_cliff_data_to_moves(cliff_rep)
 						move_list.set_cliff_report(cliff_rep)
@@ -752,6 +756,7 @@ func _on_game_position_changed() -> void:
 					game_review_panel.set_report(last_ea)
 			else:
 				var cliff_rep: Dictionary = g.get("cliff_data", {})
+				_apply_moment_markers(cliff_rep)
 				if not cliff_rep.is_empty():
 					_apply_cliff_data_to_moves(cliff_rep)
 					if move_list:
@@ -1419,6 +1424,11 @@ func _sync_eval_to_ply(ply_idx: int) -> void:
 				if EngineManager and EngineManager.has_method("get_engine_display_name"):
 					eng_name = EngineManager.get_engine_display_name()
 				engine_lines_panel.set_lines([init_line], eng_name, 1)
+
+	if _moment_overlay_ply != -99 and ply_idx != _moment_overlay_ply:
+		_moment_overlay_ply = -99
+		if chess_board != null:
+			chess_board.clear_cliff_overlay()
 
 	# Synchronisation bidirectionnelle : navigation classique -> cockpit Super-Live
 	if cliff_dock != null and cliff_dock.visible:
@@ -2314,6 +2324,10 @@ func _on_analysis_finished(report: Dictionary) -> void:
 	if report.has("error"):
 		var err: String = report["error"]
 		_show_error_banner(err)
+		if _moments_after_classic:
+			_moments_after_classic = false
+			if cliff_moments_panel != null:
+				cliff_moments_panel.clear()
 		if live_eval_enabled:
 			_trigger_live_eval()
 		return
@@ -2346,6 +2360,10 @@ func _on_analysis_finished(report: Dictionary) -> void:
 		if move_list:
 			move_list.set_cliff_report(report["cliff_data"])
 
+	if _moments_after_classic:
+		_moments_after_classic = false
+		call_deferred("study_full_game")
+
 ## ── Intégration CHESS-CLIFF (Super Live V2.2 + analyse rétrospective) ────────
 var cliff_analyzer: CliffAnalyzer = null
 var cliff_thread: Thread = null
@@ -2365,6 +2383,14 @@ var _cliff_prev_multipv: int = 1
 var _cliff_studied_rank: int = 0
 ## Intervalle du rejeu Super Live (secondes par pas) — surchargeable en test.
 var _cliff_replay_interval: float = 1.0
+## Super-Analyse « Moments clés » (rapport cliff_version 3).
+var cliff_moments_panel: CliffMomentsPanel = null
+var _cliff_moments_report: Dictionary = {}
+var _cliff_moments_phase: String = ""
+## Super-Analyse demandée sans analyse classique : relancée à la fin de celle-ci.
+var _moments_after_classic: bool = false
+## Demi-coup affiché par une carte « Voir » (sa surcouche disparaît dès qu'on navigue ailleurs).
+var _moment_overlay_ply: int = -99
 
 func _setup_cliff_dock() -> void:
 	if cliff_dock != null:
@@ -2378,6 +2404,11 @@ func _setup_cliff_dock() -> void:
 	cliff_dock.replay_toggled.connect(_on_cliff_replay_toggled)
 	cliff_dock.full_game_requested.connect(study_full_game)
 	cliff_dock.step_selected.connect(_on_cliff_dock_step_selected)
+	cliff_moments_panel = CliffMomentsPanel.new()
+	engine_lines_panel.add_child(cliff_moments_panel)
+	cliff_moments_panel.stop_requested.connect(_stop_all_cliff_analysis)
+	cliff_moments_panel.close_requested.connect(_close_cliff_moments_panel)
+	cliff_moments_panel.moment_selected.connect(_on_cliff_moment_selected)
 
 func _on_cliff_dock_step_selected(idx: int, fen: String, uci: String) -> void:
 	var plies: Array = _cliff_last_report.get("plies", [])
@@ -2415,9 +2446,9 @@ func _on_btn_toggle_cliff_pressed() -> void:
 	if _cliff_full_running or is_cliff_live_active:
 		_stop_all_cliff_analysis()
 		return
-	# Si un rapport pour la partie complète existe déjà et le dock est caché, on l'affiche
-	if not _cliff_last_report.is_empty() and cliff_dock != null and not cliff_dock.visible:
-		cliff_dock.visible = true
+	# Si les moments clés de la partie existent déjà et le panneau est caché, on le réaffiche
+	if not _cliff_moments_report.is_empty() and cliff_moments_panel != null and not cliff_moments_panel.visible:
+		cliff_moments_panel.set_report(_cliff_moments_report, PlayerSide.resolve(GameController.game) == "white")
 		return
 	study_full_game()
 
@@ -2430,7 +2461,6 @@ func _on_engine_compare_all_lines_requested(lines: Array, meta: Dictionary) -> v
 	var start_fen := GameController.game.get_fen()
 	var tier := _cliff_finesse_tier()
 	var envelope := ComputeFinesse.cliff_envelope_opts(tier)
-	var intuition := ComputeFinesse.cliff_intuition_opts(tier)
 	var oracle := ComputeFinesse.cliff_oracle_opts(tier)
 
 	# Budget temps dur (Arnaud) : 250 ms par ligne max, profondeur limitée à 10 pour le meso rapide
@@ -2438,12 +2468,11 @@ func _on_engine_compare_all_lines_requested(lines: Array, meta: Dictionary) -> v
 		"deep_depth": mini(10, int(oracle.get("deep_depth", 10))),
 		"timeout_ms": mini(1500, int(oracle.get("timeout_ms", 1500))),
 		"multipv": int(oracle.get("multipv", 3)),
-		"fast_mode": true,
 		"max_plies": mini(4, int(envelope.get("max_plies", 4))),
 		"line_plies": 4,
 		"shallow_depth": 1,
-		"top_k": 3,
-		"ucinewgame": false, # TT Warming : préserve le cache de transposition
+		# Racine commune mémorisée par l'analyseur : payée une seule fois pour toutes les lignes.
+		"probe_max": 4,
 		"source_meta": meta
 	}
 
@@ -2500,6 +2529,8 @@ func _cliff_xray_enabled() -> bool:
 	return bool(sm.get_setting("cliff_xray_enabled", false)) if sm != null else false
 
 func _cliff_begin(meta: Dictionary) -> void:
+	if cliff_moments_panel != null:
+		cliff_moments_panel.visible = false
 	_cliff_suspended_live = live_eval_enabled
 	if EngineManager != null and EngineManager.has_method("stop_evaluation"):
 		EngineManager.stop_evaluation()
@@ -2573,11 +2604,8 @@ func _start_cliff_super_live(pv_override: Array = [], source_meta: Dictionary = 
 		"deep_depth": int(oracle.get("deep_depth", 16)),
 		"timeout_ms": int(oracle.get("timeout_ms", 3000)),
 		"multipv": int(oracle.get("multipv", 3)),
-		"fast_mode": bool(envelope.get("fast_mode", true)),
 		"max_plies": int(envelope.get("max_plies", 8)),
 		"shallow_depth": int(intuition.get("shallow_depth", 1)),
-		"top_k": int(intuition.get("top_k", 5)),
-		"ucinewgame": bool(intuition.get("ucinewgame", true)),
 		"source_meta": meta
 	}
 
@@ -2665,6 +2693,11 @@ func _stop_cliff_super_live() -> void:
 	_stop_all_cliff_analysis()
 
 func _stop_all_cliff_analysis() -> void:
+	if _moments_after_classic:
+		_moments_after_classic = false
+		_cancel_analysis_if_running()
+	if cliff_moments_panel != null and (_cliff_full_running or not cliff_moments_panel.has_report()):
+		cliff_moments_panel.clear()
 	if cliff_analyzer != null and cliff_analyzer.is_analyzing:
 		cliff_analyzer.cancel()
 	if _cliff_full_analyzer != null and _cliff_full_analyzer.is_analyzing:
@@ -2728,7 +2761,8 @@ func _on_cliff_replay_toggled(playing: bool) -> void:
 			chess_board.clear_preview_fen()
 			chess_board.clear_cliff_overlay()
 
-## Analyse rétrospective de toute la partie (Phase D).
+## Super-Analyse « Moments clés » : analyse classique (réutilisée ou lancée d'abord),
+## criblage MultiPV 2 peu profond de chaque coup, puis Cliff sur les seuls candidats.
 func study_full_game() -> void:
 	if _cliff_full_running or is_cliff_live_active:
 		return
@@ -2743,6 +2777,22 @@ func study_full_game() -> void:
 		_show_error_banner("Moteur Stockfish non disponible.")
 		return
 
+	var n_moves := GameController.game.move_history.size()
+	if cliff_dock != null:
+		cliff_dock.clear()
+	if cliff_moments_panel != null:
+		cliff_moments_panel.clear()
+		cliff_moments_panel.visible = true
+
+	# Les moments clés s'appuient sur l'analyse classique : on la lance d'abord si besoin,
+	# puis _on_analysis_finished rappelle study_full_game.
+	if not _has_classic_evals():
+		_moments_after_classic = true
+		if cliff_moments_panel != null:
+			cliff_moments_panel.show_progress("Analyse classique…", 0, n_moves)
+		_on_btn_analyze_game_pressed()
+		return
+
 	_cliff_suspended_live = live_eval_enabled
 	var tier := _cliff_finesse_tier()
 	var gopts := ComputeFinesse.game_analysis_opts(tier)
@@ -2750,146 +2800,126 @@ func study_full_game() -> void:
 	var oracle := ComputeFinesse.cliff_oracle_opts(tier)
 	var opts := {
 		"deep_depth": int(gopts.get("depth", 14)),
-		"theory_plies": int(gopts.get("theory_plies", 8)),
-		"fast_mode": str(gopts.get("mode", "budget")) != "depth",
 		"shallow_depth": int(intuition.get("shallow_depth", 1)),
-		"top_k": int(intuition.get("top_k", 5)),
-		"ucinewgame": bool(intuition.get("ucinewgame", true)),
 		"timeout_ms": int(oracle.get("timeout_ms", 4000)),
 		"multipv": int(oracle.get("multipv", 3))
 	}
+	var evals: Array = advantage_graph.evaluations.duplicate(true)
+	var theory_plies := 0
+	while theory_plies < evals.size() and bool(evals[theory_plies].get("is_theory", false)):
+		theory_plies += 1
+
 	_cliff_full_running = true
 	_update_cliff_button_style()
-	if is_instance_valid(engine_lines_panel):
-		engine_lines_panel.set_frozen(true)
-	if cliff_dock != null:
-		cliff_dock.clear()
-		cliff_dock.set_dock_title("🏔️ CHESS-CLIFF · Super-Analyse")
-		cliff_dock.show_computing(0, GameController.game.move_history.size())
-		cliff_dock.set_source_label("Super-Analyse de la partie · %d coups" % GameController.game.move_history.size())
 	if EngineManager != null and EngineManager.has_method("stop_evaluation"):
 		EngineManager.stop_evaluation()
-	_show_toast("🏔️ Super-Analyse de la partie en cours…", true)
-
-	# Remise visuelle à la position de départ pour suivre le déplacement des pièces coup par coup
-	GameController.current_ply_index = -1
-	GameController.game.restore_state(0)
-	GameController.position_changed.emit()
-	if chess_board:
-		chess_board.last_move_from = -1
-		chess_board.last_move_to = -1
-		chess_board.best_move_arrow_from = -1
-		chess_board.best_move_arrow_to = -1
-		chess_board.clear_cliff_overlay()
-		chess_board.reset_board_visuals()
+	_cliff_moments_phase = "Tri des coups…"
+	if cliff_moments_panel != null:
+		cliff_moments_panel.show_progress(_cliff_moments_phase, 0, n_moves)
 
 	_cliff_full_analyzer = CliffAnalyzer.new(EngineManager)
 	_cliff_full_analyzer.progress.connect(func(cur: int, tot: int):
 		call_deferred("_on_cliff_full_progress", cur, tot)
 	)
-	_cliff_full_analyzer.ply_cliff_computed.connect(func(ply: int, data: Dictionary):
-		call_deferred("_on_cliff_full_ply_step", ply, data)
-	)
+	var an := _cliff_full_analyzer
 	var game_ref = GameController.game
+	var work := func():
+		var gaps: Dictionary = an.screen_plies(game_ref, theory_plies)
+		var cands: Array = [] if an.cancel_requested else CliffMoments.select_candidates(evals, gaps)
+		_cliff_moments_phase = "Analyse des moments…"
+		var cliff: Dictionary = {} if an.cancel_requested else an.analyze_plies(game_ref, cands, opts)
+		return CliffMoments.build_report(evals, gaps, cands, cliff, an.cancel_requested)
 	if OS.has_feature("web"):
-		var rep = _cliff_full_analyzer.analyze_game(game_ref, opts)
-		_on_cliff_full_finished(rep)
+		_on_cliff_full_finished(work.call())
 	else:
 		_join_thread(_cliff_full_thread)
 		_cliff_full_thread = _start_worker(func():
-			var rep = _cliff_full_analyzer.analyze_game(game_ref, opts)
-			call_deferred("_on_cliff_full_finished", rep)
+			call_deferred("_on_cliff_full_finished", work.call())
 		)
 
-func _on_cliff_full_ply_step(ply_idx: int, step_data: Dictionary) -> void:
-	if not _cliff_full_running:
-		return
-	if GameController == null or GameController.game == null:
-		return
-	var total_moves = GameController.game.move_history.size()
-	if ply_idx < 0 or ply_idx >= total_moves:
-		return
-
-	GameController.current_ply_index = ply_idx
-	GameController.game.restore_state(ply_idx + 1)
-
-	if chess_board != null:
-		var move: ChessMove = GameController.game.move_history[ply_idx]
-		chess_board.best_move_arrow_depth = 0
-		chess_board.best_move_arrow_from = -1
-		chess_board.best_move_arrow_to = -1
-		if chess_board.arrow_overlay:
-			chess_board.arrow_overlay.queue_redraw()
-		chess_board.queue_redraw()
-
-		if move.captured_piece != ChessPiece.Type.NONE:
-			_on_play_sound("capture")
-		elif move.is_check:
-			_on_play_sound("check")
-		else:
-			_on_play_sound("move")
-		chess_board._animate_navigation_forward(move, true)
-		_apply_cliff_overlay_for_step(step_data)
-
-	if cliff_dock != null:
-		cliff_dock.set_step(step_data)
-
-	_update_player_labels()
-
+## Vrai si l'analyse classique complète de la partie courante est affichée.
+func _has_classic_evals() -> bool:
+	if advantage_graph == null or GameController == null or GameController.game == null:
+		return false
+	var evals: Array = advantage_graph.evaluations
+	var n := GameController.game.move_history.size()
+	if evals.size() < n or n == 0:
+		return false
+	for e in evals:
+		if not (e is Dictionary) or bool(e.get("is_placeholder", false)):
+			return false
+	return true
 
 func _on_cliff_full_progress(cur: int, tot: int) -> void:
-	if cliff_dock != null:
-		cliff_dock.show_computing(cur, tot)
+	if cliff_moments_panel != null and _cliff_full_running:
+		cliff_moments_panel.show_progress(_cliff_moments_phase, cur, tot)
 
 func _on_cliff_full_finished(report: Dictionary) -> void:
 	_join_thread(_cliff_full_thread)
 	_cliff_full_running = false
 	_update_cliff_button_style()
-	if is_instance_valid(engine_lines_panel):
-		engine_lines_panel.set_frozen(false)
-
-	if report.has("error"):
-		_show_error_banner(str(report["error"]))
-		if _cliff_suspended_live:
-			_trigger_live_eval()
+	if _cliff_suspended_live:
+		_trigger_live_eval()
+	if bool(report.get("cancelled", false)):
+		if cliff_moments_panel != null:
+			cliff_moments_panel.clear()
 		return
 
-	_cliff_last_report = report
-	if cliff_dock != null:
-		cliff_dock.set_report(report)
+	_cliff_moments_report = report
+	var hero_white := PlayerSide.resolve(GameController.game) == "white"
+	if cliff_moments_panel != null:
+		cliff_moments_panel.set_report(report, hero_white)
+	if advantage_graph != null:
+		advantage_graph.set_moment_markers(CliffMoments.markers(report))
 	_apply_cliff_data_to_moves(report)
 	if move_list:
 		move_list.set_cliff_report(report)
-
-	# Dérivation automatique de l'analyse normale complète à partir du Super-Live de partie
-	if analyzer != null and GameController != null and GameController.game != null:
-		var game_ref = GameController.game
-		var tier := _cliff_finesse_tier()
-		var gopts := ComputeFinesse.game_analysis_opts(tier)
-		var deep_d: int = int(gopts.get("depth", 14))
-		var classic_report: Dictionary = analyzer.build_report_from_cliff_plies(game_ref, report.get("plies", []), deep_d)
-		classic_report["cliff_data"] = report
-		
-		var evals = classic_report.get("evaluations", [])
-		if advantage_graph != null:
-			advantage_graph.set_evaluations(evals)
-			_update_graph_phase_boundaries(classic_report)
-		if move_list:
-			move_list.set_analysis_report(classic_report)
-			move_list.refresh()
-		if game_review_panel:
-			game_review_panel.set_report(classic_report)
-
-		# Sauvegarde dans DatabaseManager de l'analyse unifiée
-		_persist_engine_analysis(classic_report, evals, deep_d, report)
-
-	var cur_ply = GameController.current_ply_index if GameController else -1
-	_sync_eval_to_ply(cur_ply)
-
 	_archive_cliff_report(report)
-	if _cliff_suspended_live:
-		_trigger_live_eval()
-	_show_toast("🏔️ Analyse complète (Normale & Cliff) terminée !", true)
+	var n := (report.get("moments", []) as Array).size()
+	_show_toast("🏔️ %d moment%s clé%s trouvé%s" % [n, "s" if n > 1 else "", "s" if n > 1 else "", "s" if n > 1 else ""], true)
+
+## Carte « Voir » : position AVANT le coup, flèches (bon coup, appât) et cases piégées.
+func _on_cliff_moment_selected(moment: Dictionary) -> void:
+	if GameController == null or GameController.game == null:
+		return
+	var ply := int(moment.get("ply", 0))
+	GameController.navigate_to_ply(ply - 1)
+	_sync_eval_to_ply(ply - 1)
+	if chess_board == null:
+		return
+	var step: Dictionary = {}
+	for p in _cliff_moments_report.get("plies", []):
+		if int(p.get("ply", -1)) == ply:
+			step = p
+			break
+	var visual := CliffAnnotations.build_step_visual(step, true) if not step.is_empty() else {}
+	var overlay: Dictionary = visual.get("overlay", {})
+	if overlay.is_empty():
+		chess_board.set_best_move_arrow(str(moment.get("best_uci", "")))
+		return
+	overlay["label"] = "%s %s" % [str(moment.get("icon", "")), str(moment.get("title", ""))]
+	if str(moment.get("bait_uci", "")) == "":
+		overlay["bait_uci"] = ""
+	chess_board.set_cliff_overlay(overlay)
+	_moment_overlay_ply = ply - 1
+
+func _close_cliff_moments_panel() -> void:
+	if cliff_moments_panel != null:
+		cliff_moments_panel.visible = false
+	if chess_board != null:
+		chess_board.clear_cliff_overlay()
+	_moment_overlay_ply = -99
+
+## Fanions du graphe pour le rapport Cliff archivé de la partie affichée (v3 seulement).
+func _apply_moment_markers(cliff_rep: Dictionary) -> void:
+	if advantage_graph == null:
+		return
+	if int(cliff_rep.get("cliff_version", 0)) >= 3:
+		_cliff_moments_report = cliff_rep
+		advantage_graph.set_moment_markers(CliffMoments.markers(cliff_rep))
+	else:
+		_cliff_moments_report = {}
+		advantage_graph.set_moment_markers([])
 
 ## Persiste le rapport au niveau de la partie (lu par _on_game_position_changed).
 func _archive_cliff_report(report: Dictionary) -> void:

@@ -26,6 +26,8 @@ func _init() -> void:
 	test_h_mob_multiple()
 	test_p_survie_ligne()
 	test_p_survie_forced()
+	test_beta_for_elo()
+	test_wdl_of_line()
 	test_bait_semantics()
 	test_viable_ignores_unknown()
 	test_horizon_no_regime_jump()
@@ -191,11 +193,34 @@ func test_surprise_classification() -> void:
 	print("test_surprise_classification: ok")
 
 func test_p_survie_forced() -> void:
-	assert(abs(CliffMath.p_survie(false, 0.6) - 0.6) < 0.0001, "non-forced: raw viable mass")
-	var pf = CliffMath.p_survie(true, 0.6)
-	assert(abs(pf - 0.8) < 0.0001, "forced: miss probability halved (0.4 -> 0.2)")
-	assert(CliffMath.p_survie(true, 1.0) == 1.0, "forced never lowers survival")
+	assert(abs(CliffMath.p_survie(0.6) - 0.6) < 0.0001, "survie = masse viable brute")
+	assert(CliffMath.p_survie(1.4) == 1.0 and CliffMath.p_survie(-0.1) == 0.0, "survie bornée à [0, 1]")
 	print("test_p_survie_forced: ok")
+
+func test_beta_for_elo() -> void:
+	assert(CliffMath.beta_for_elo(0) == CliffTypes.BETA, "Élo inconnu : β par défaut")
+	assert(CliffMath.beta_for_elo(1000) < CliffMath.beta_for_elo(1600), "β croissant avec l'Élo")
+	assert(CliffMath.beta_for_elo(1600) < CliffMath.beta_for_elo(2400), "β croissant avec l'Élo (2)")
+	assert(CliffMath.beta_for_elo(9999) == CliffTypes.BETA_MAX, "β plafonné")
+	# Un joueur plus fort concentre davantage sa probabilité sur le meilleur coup perçu.
+	var v := [0.60, 0.50, 0.45]
+	var weak := CliffMath.p_humain_distribution(v, CliffMath.beta_for_elo(1000))
+	var strong := CliffMath.p_humain_distribution(v, CliffMath.beta_for_elo(2400))
+	assert(strong[0] > weak[0], "le fort joue plus souvent le coup le mieux perçu")
+	print("test_beta_for_elo: ok")
+
+func test_wdl_of_line() -> void:
+	# WDL natif (point de vue Blancs) : 600‰ gain, 300‰ nulle, 100‰ perte.
+	var line := {"score_cp": 80, "mate_in": 0, "wdl": [600, 300, 100]}
+	assert(abs(CliffMath.wdl_of_line(line, 1) - 0.75) < 0.0001, "Blancs : W + D/2")
+	assert(abs(CliffMath.wdl_of_line(line, -1) - 0.25) < 0.0001, "Noirs : L + D/2")
+	# Sans WDL : repli sur la courbe cp.
+	assert(abs(CliffMath.wdl_of_line({"score_cp": 80}, 1) - CliffMath.wdl(80)) < 0.0001, "repli cp")
+	# Les mats gardent l'échelle stricte (le WDL natif 1000/0/0 ne les distingue pas).
+	var m1 := CliffMath.wdl_of_line({"score_cp": 10000, "mate_in": 1, "wdl": [1000, 0, 0]}, 1)
+	var m5 := CliffMath.wdl_of_line({"score_cp": 10000, "mate_in": 5, "wdl": [1000, 0, 0]}, 1)
+	assert(m1 > m5 and m5 > CliffTypes.WDL_CP_CEIL, "mat court > mat long > toute éval cp")
+	print("test_wdl_of_line: ok")
 
 func test_bait_semantics() -> void:
 	assert(CliffMath.bait(0.70, 0.70) == 0.0, "tempting move = best move -> no bait")

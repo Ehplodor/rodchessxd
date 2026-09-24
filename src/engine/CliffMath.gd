@@ -19,6 +19,28 @@ static func wdl(score_cp: int, mate_in: int = 0) -> float:
 	var cp_ceil := CliffTypes.WDL_CP_CEIL
 	return clampf(MoveQualityService.win_percentage(score_cp) / 100.0, 1.0 - cp_ceil, cp_ceil)
 
+## 1b. WDL d'une ligne moteur du point de vue du camp au trait (`sign` = +1 Blancs, -1 Noirs).
+## Préfère le WDL natif du moteur (W + D/2, sensible au matériel et à la phase) ; les mats
+## gardent l'échelle stricte de wdl() pour que « mat plus court » reste meilleur.
+static func wdl_of_line(line: Dictionary, sign: int) -> float:
+	var mate := sign * int(line.get("mate_in", 0))
+	var w = line.get("wdl", null)
+	if mate == 0 and w is Array and (w as Array).size() == 3:
+		var a: Array = w
+		var total := float(int(a[0]) + int(a[1]) + int(a[2]))
+		if total > 0.0:
+			var win := float(int(a[0]) if sign > 0 else int(a[2]))
+			var cp_ceil := CliffTypes.WDL_CP_CEIL
+			return clampf((win + 0.5 * float(int(a[1]))) / total, 1.0 - cp_ceil, cp_ceil)
+	return wdl(sign * int(line.get("score_cp", 0)), mate)
+
+## 1c. Température cognitive inverse selon le niveau du joueur (Élo ≤ 0 : défaut).
+static func beta_for_elo(elo: int) -> float:
+	if elo <= 0:
+		return CliffTypes.BETA
+	return clampf(CliffTypes.BETA + float(elo - CliffTypes.BETA_ELO_REF) * CliffTypes.BETA_PER_ELO,
+			CliffTypes.BETA_MIN, CliffTypes.BETA_MAX)
+
 ## Valeur en points d'une pièce pour le calcul du ratio de capture.
 static func piece_point_value(piece_type: int) -> float:
 	match piece_type:
@@ -86,7 +108,7 @@ static func bait(wdl_best: float, wdl_deep_tempting: float) -> float:
 
 ## 5. Distribution Boltzmann P_humain(m) = exp(β·V_i) / Σ exp(β·V_j).
 ## Protégé contre les overflows numériques par soustraction du maximum.
-static func p_humain_distribution(v_percu_all: Array) -> Array[float]:
+static func p_humain_distribution(v_percu_all: Array, beta: float = CliffTypes.BETA) -> Array[float]:
 	var result: Array[float] = []
 	var n := v_percu_all.size()
 	if n == 0:
@@ -104,7 +126,7 @@ static func p_humain_distribution(v_percu_all: Array) -> Array[float]:
 	var exp_vals: Array[float] = []
 	var sum_exp := 0.0
 	for v in v_percu_all:
-		var e := exp(CliffTypes.BETA * (float(v) - max_v))
+		var e := exp(beta * (float(v) - max_v))
 		exp_vals.append(e)
 		sum_exp += e
 
@@ -119,17 +141,14 @@ static func p_humain_distribution(v_percu_all: Array) -> Array[float]:
 	return result
 
 ## 6. Suite tactiquement forcée : échec à parer, reprise disponible ou gain matériel sûr.
+## Sert d'ÉTIQUETTE (nature FORCED) : la saillance modélise déjà l'évidence d'une
+## prise ou d'un échec, la survie n'est donc pas retouchée.
 static func is_suite_forcee(in_check: bool, is_recapture: bool, material_en_prise: bool) -> bool:
 	return in_check or is_recapture or material_en_prise
 
 ## 7. Probabilité de survie sur un demi-coup = somme des P_humain des coups viables.
-## Dans une suite forcée, la probabilité de rater est atténuée (FORCED_MISS_FACTOR),
-## sans jamais écraser la mesure Boltzmann par une constante.
-static func p_survie(is_forcee: bool, viable_p_sum: float) -> float:
-	var p := clampf(viable_p_sum, 0.0, 1.0)
-	if is_forcee:
-		p = 1.0 - (1.0 - p) * CliffTypes.FORCED_MISS_FACTOR
-	return p
+static func p_survie(viable_p_sum: float) -> float:
+	return clampf(viable_p_sum, 0.0, 1.0)
 
 ## 7b. Retourne les indices des coups viables (écart WDL <= seuil tolérance).
 ## `known` (optionnel, parallèle à wdl_all) : un coup dont la valeur profonde

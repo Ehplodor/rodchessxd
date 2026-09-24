@@ -1,5 +1,5 @@
 extends SceneTree
-## tests/test_cliff_live_dock.gd — Cockpit Super Live : jauges, ruban, profil, récit.
+## tests/test_cliff_live_dock.gd — Cockpit Super Live : ruban, synthèse, récit.
 
 const CliffLiveDock = preload("res://src/ui/components/CliffLiveDock.gd")
 const CliffTypes = preload("res://src/engine/CliffTypes.gd")
@@ -46,30 +46,11 @@ func _init() -> void:
 
 	_check(dock.visible, "dock visible après rapport")
 	_check(dock._chips.size() == 3, "ruban : 3 pastilles")
-	_check(dock._tunnel != null and dock._tunnel.plies_data.size() == 3, "tunnel de survie : 3 demi-coups")
-	_check(dock._phase_space != null and dock._phase_space.plies_data.size() == 3, "espace des phases 2D : 3 demi-coups")
-	_check(dock._gauge_white.indice_d == 43, "jauge Blancs D=43")
-	_check(dock._gauge_black.indice_d == 20, "jauge Noirs D=20")
+	_check(dock._summary_label.text.contains("D=43") and dock._summary_label.text.contains("D=20"),
+			"synthèse une ligne par camp")
 	_check(dock._narrative.text != "", "récit rempli")
 	_check(dock.get_combined_minimum_size().x <= 450.0,
 			"pas de largeur minimale > 450 px (obtenu %.0f)" % dock.get_combined_minimum_size().x)
-
-	# Test des modes de l'Espace des Phases 2D (5 modes)
-	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.COUP_COMPLET, "mode par défaut : Coup Complet")
-	var full_moves = dock._phase_space._build_full_moves()
-	_check(full_moves.size() == 2, "3 demi-coups regroupés en 2 tours de jeu")
-	_check(full_moves[0]["move_num"] == 1 and full_moves[0]["white_ply"] == 0 and full_moves[0]["black_ply"] == 1, "tour #1 : plies 0 et 1")
-
-	dock._btn_mode_latent.pressed.emit()
-	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.TENSION_LATENTE, "bascule mode Tension Latente")
-	dock._btn_mode_equateur.pressed.emit()
-	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.EQUATEUR, "bascule mode Équateur")
-	dock._btn_mode_ravin.pressed.emit()
-	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.RAVIN_VECTOR, "bascule mode Ravin Vectoriel")
-	dock._btn_mode_bras.pressed.emit()
-	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.BRAS_DE_FER, "bascule mode Bras de Fer Interpolé")
-	dock._btn_mode_coup.pressed.emit()
-	_check(dock._phase_space.mode == dock._phase_space.PhaseMode.COUP_COMPLET, "bascule retour mode Coup Complet")
 
 	# Interaction : un tap sur une pastille émet step_selected(idx, fen, uci).
 	var captured := []
@@ -81,28 +62,16 @@ func _init() -> void:
 	if captured.size() == 1:
 		_check(str(captured[0][1]) == "FEN_1", "tap pastille émet le FEN")
 		_check(str(captured[0][2]) == "e2e4", "tap pastille émet l'UCI")
-
-	# Interaction tunnel : un clic sur le tunnel sélectionne le pas
-	dock._tunnel.step_clicked.emit(2)
-	_check(captured.size() == 2 and int(captured[1][0]) == 2, "clic tunnel émet le pas #2")
-
-	# Interaction espace des phases : un clic sur un nœud sélectionne le pas
-	dock._phase_space.step_clicked.emit(0)
-	_check(captured.size() == 3 and int(captured[2][0]) == 0, "clic espace des phases émet le pas #0")
-
-	dock.highlight_step(1)
-	_check(dock._current_step == 1 and dock._tunnel.current == 1, "pas courant mis en évidence dans le tunnel")
-	_check(dock._phase_space.current == 1, "pas courant mis en évidence dans l'espace des phases")
+	_check(dock._current_step == 1 and dock._narrative.text.begins_with("👉"), "pas courant expliqué")
 
 	dock.show_computing(2, 5)
-	_check(dock._progress.visible and int(dock._progress.value) == 2, "progression n/N")
+	_check(dock._progress.visible and int(dock._progress.value) == 2 and dock._btn_stop.visible, "progression n/N + Stop visible")
 
 	dock.set_step(_fake_step(3, CliffTypes.Piste.FIL_DU_RASOIR))
 	_check(dock._chips.size() == 4, "pastille ajoutée en direct")
-	_check(dock._phase_space.plies_data.size() == 4, "nœud ajouté en direct dans l'espace des phases")
 
 	dock.clear()
-	_check(not dock.visible and dock._chips.is_empty() and dock._tunnel.plies_data.is_empty() and dock._phase_space.plies_data.is_empty(), "clear remet à zéro ruban, tunnel et espace des phases")
+	_check(not dock.visible and dock._chips.is_empty() and not dock._btn_stop.visible, "clear remet à zéro")
 
 	dock.queue_free()
 	print("--- CliffLiveDock : %d échec(s) ---" % _failures)

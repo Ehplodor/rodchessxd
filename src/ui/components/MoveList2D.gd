@@ -469,7 +469,8 @@ func _build_cliff_card() -> void:
 		return
 	if _cliff_report.is_empty() and _analysis_report.has("cliff_data"):
 		_cliff_report = _analysis_report["cliff_data"]
-	if _cliff_report.is_empty():
+	# Rapport « Moments clés » (v3) : pas de synthèse par pistes, les moments ont leur panneau.
+	if _cliff_report.is_empty() or int(_cliff_report.get("cliff_version", 2)) >= 3:
 		return
 	var panel := CliffSummaryPanel.new()
 	panel.set_report_data(_cliff_report)

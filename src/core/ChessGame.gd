@@ -526,6 +526,50 @@ func _is_move_legal(move: ChessMove, color: int) -> bool:
 
 	return not in_check
 
+## Vrai si le coup (légal) du camp au trait met le roi adverse en échec.
+## Simulation en place puis restauration, sans reconstruire de ChessGame.
+func gives_check(move: ChessMove) -> bool:
+	var color := active_color
+	var empty := {"type": ChessPiece.Type.NONE, "color": ChessPiece.PieceColor.NONE}
+	var orig_from: Dictionary = board[move.from_sq]
+	var orig_to: Dictionary = board[move.to_sq]
+	var moved := orig_from
+	if move.promotion != ChessPiece.Type.NONE:
+		moved = {"type": move.promotion, "color": color}
+	board[move.to_sq] = moved
+	board[move.from_sq] = empty
+
+	var ep_sq := -1
+	var orig_ep: Dictionary = {}
+	if move.is_en_passant:
+		ep_sq = move.to_sq - (8 if color == ChessPiece.PieceColor.WHITE else -8)
+		orig_ep = board[ep_sq]
+		board[ep_sq] = empty
+
+	var rook_from := -1
+	var rook_to := -1
+	var orig_rook: Dictionary = {}
+	var orig_rook_to: Dictionary = {}
+	if move.is_castling:
+		var kingside := move.to_sq % 8 == 6
+		rook_from = move.to_sq + 1 if kingside else move.to_sq - 2
+		rook_to = move.to_sq - 1 if kingside else move.to_sq + 1
+		orig_rook = board[rook_from]
+		orig_rook_to = board[rook_to]
+		board[rook_to] = orig_rook
+		board[rook_from] = empty
+
+	var check := is_in_check(1 - color)
+
+	if move.is_castling:
+		board[rook_from] = orig_rook
+		board[rook_to] = orig_rook_to
+	if ep_sq != -1:
+		board[ep_sq] = orig_ep
+	board[move.from_sq] = orig_from
+	board[move.to_sq] = orig_to
+	return check
+
 ## Sortie précoce O(1) : vrai dès qu'au moins UN coup légal existe.
 ## Évite la génération complète de tous les coups pseudo-légaux et leurs calculs de SAN.
 func has_any_legal_move(for_color: int = -1) -> bool:

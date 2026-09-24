@@ -9,6 +9,8 @@ var evaluations: Array = []
 var active_ply: int = -1
 ## T2.3 — Bornes de phase (plies) à matérialiser par des traits verticaux.
 var phase_boundaries: Array = []
+## Moments clés CHESS-CLIFF : [{ply, success}] dessinés en fanions au sommet du graphe.
+var moment_markers: Array = []
 
 var max_eval_cp: float = 500.0 # Plafond visuel à ±5 pions
 var depth_badge: PanelContainer
@@ -266,12 +268,19 @@ func update_live_ply(ply_idx: int, record: Dictionary) -> void:
 
 func set_evaluations(eval_data: Array) -> void:
 	evaluations.clear()
+	if eval_data.is_empty():
+		moment_markers.clear()
 	for item in eval_data:
 		if item is Dictionary:
 			evaluations.append(item)
 	if not evaluations.is_empty() and (active_ply < 0 or active_ply >= evaluations.size()):
 		active_ply = evaluations.size() - 1
 	_geom_dirty = true
+	queue_redraw()
+
+## Moments clés : `markers` = [{ply, success}] (réussite verte, échec rouge).
+func set_moment_markers(markers: Array) -> void:
+	moment_markers = markers.duplicate(true)
 	queue_redraw()
 
 ## T2.3 — Définit les plies de séparation de phases à afficher sur le graphe.
@@ -484,6 +493,17 @@ func _draw() -> void:
 		draw_circle(pt, mr, marker["color"], true, -1.0, true)
 		if float(marker["ring"]) > 0.0:
 			draw_arc(pt, mr, 0, TAU, DesignTokens.arc_segments(mr), DesignTokens.TEXT_PRIMARY, float(marker["ring"]), true)
+
+	# 8b. Fanions des moments clés : triangle au sommet + trait discret jusqu'à la courbe.
+	for mk in moment_markers:
+		var mp := int(mk.get("ply", -1))
+		if mp < 0 or mp >= evaluations.size():
+			continue
+		var mcol: Color = DesignTokens.SUCCESS if bool(mk.get("success", false)) else DesignTokens.DANGER
+		var mx := _ply_to_x(mp)
+		var top := r.position.y + 1.0
+		draw_line(Vector2(mx, top + 6.0), _cached_points[mp + 1], Color(mcol, 0.35), DesignTokens.STROKE_HAIR)
+		draw_colored_polygon(PackedVector2Array([Vector2(mx - 5.0, top), Vector2(mx + 5.0, top), Vector2(mx, top + 7.0)]), mcol)
 
 	# 9. Curseur actif (-1 = position de départ).
 	var cur := clampi(active_ply, -1, evaluations.size() - 1)

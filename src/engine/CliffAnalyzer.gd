@@ -1,8 +1,9 @@
 class_name CliffAnalyzer
 extends RefCounted
 ## CliffAnalyzer.gd — Orchestrateur moteur pour l'analyse cognitive CHESS-CLIFF.
-## Pilote Stockfish pour extraire la vérité profonde (Oracle MultiPV) et l'évaluation intuitive
-## (depth 1), puis calcule chute, appât, mobilité et piste pour chaque demi-coup.
+## Trois recherches Stockfish par position (voir _evaluate_root) : intuition de TOUS les coups
+## légaux (une MultiPV superficielle), oracle MultiPV profond, vérification groupée des coups
+## humains probables hors MultiPV ; puis chute, appât, mobilité, survie et piste.
 ##
 ## Principes :
 ## - Aucune valeur inventée : un coup hors MultiPV non sondé n'a qu'une BORNE supérieure
@@ -31,6 +32,9 @@ const ATTACK_LEVERAGE := 25
 var engine_manager: Node = null
 var is_analyzing: bool = false
 var cancel_requested: bool = false
+## Mémo des mesures de position par FEN, vidé à chaque analyse de premier niveau
+## (une comparaison Méso le partage entre ses lignes).
+var _pos_cache: Dictionary = {}
 
 func _init(p_engine: Node = null) -> void:
 	engine_manager = p_engine
@@ -44,6 +48,7 @@ func cancel() -> void:
 func analyze_game(game: ChessGame, options: Dictionary = {}) -> Dictionary:
 	is_analyzing = true
 	cancel_requested = false
+	_pos_cache.clear()
 
 	var em = _resolve_engine()
 	if em == null:
@@ -54,13 +59,10 @@ func analyze_game(game: ChessGame, options: Dictionary = {}) -> Dictionary:
 		return _finish(_empty_report({}))
 
 	var is_mobile := OS.has_feature("android") or OS.has_feature("ios")
-	var cfg := _read_config(options, 14 if is_mobile else 18, false, 4000)
+	var cfg := _read_config(options, 14 if is_mobile else 18, 4000)
 	var theory_plies: int = int(options.get("theory_plies", 0))
 
-	var start_fen := ChessGame.INITIAL_FEN
-	if game.pgn_headers.has("FEN") and str(game.pgn_headers["FEN"]).strip_edges() != "":
-		start_fen = str(game.pgn_headers["FEN"]).strip_edges()
-	var vgame := ChessGame.new(start_fen)
+	var vgame := ChessGame.new(_start_fen(game))
 	var plies_data: Array = []
 	var total_plies := moves.size()
 
@@ -79,6 +81,79 @@ func analyze_game(game: ChessGame, options: Dictionary = {}) -> Dictionary:
 
 	return _finish(_build_report(plies_data, vgame, cfg.source_meta, {}))
 
+## Criblage des moments clés : une MultiPV 2 peu profonde par demi-coup hors théorie.
+## Retourne { ply -> écart WDL entre 1re et 2e ligne } (point de vue du camp au trait) ;
+## un demi-coup à coup légal unique ou sans 2e ligne mesurée est absent.
+func screen_plies(game: ChessGame, theory_plies: int = 0, options: Dictionary = {}) -> Dictionary:
+	is_analyzing = true
+	cancel_requested = false
+	var gaps := {}
+	var em = _resolve_engine()
+	if em == null:
+		is_analyzing = false
+		return gaps
+	var depth := int(options.get("screen_depth", CliffTypes.SCREEN_DEPTH))
+	var vgame := ChessGame.new(_start_fen(game))
+	var moves: Array = game.move_history
+	for t in range(moves.size()):
+		if cancel_requested:
+			break
+		progress.emit(t + 1, moves.size())
+		if t >= theory_plies and vgame.get_legal_moves().size() > 1:
+			var sign := 1 if vgame.active_color == ChessPiece.PieceColor.WHITE else -1
+			var res: Dictionary = em.search_sync(vgame.get_fen(), {"depth": depth, "multipv": 2,
+					"timeout_ms": CliffTypes.SCREEN_TIMEOUT_MS, "use_cache": false})
+			var lines: Array = res.get("multipv_lines", [])
+			if _engine_ok(res) and lines.size() >= 2:
+				gaps[t] = CliffMath.delta_chute(CliffMath.wdl_of_line(lines[0], sign), CliffMath.wdl_of_line(lines[1], sign))
+		vgame.make_move(moves[t])
+	is_analyzing = false
+	return gaps
+
+## Analyse Cliff complète sur les seuls demi-coups `ply_indices` de la partie (moments clés).
+## Retourne { ply -> données Cliff du demi-coup } ; émet ply_cliff_computed à chaque demi-coup.
+func analyze_plies(game: ChessGame, ply_indices: Array, options: Dictionary = {}) -> Dictionary:
+	is_analyzing = true
+	cancel_requested = false
+	_pos_cache.clear()
+	var out := {}
+	var em = _resolve_engine()
+	if em == null:
+		is_analyzing = false
+		return out
+	var is_mobile := OS.has_feature("android") or OS.has_feature("ios")
+	var cfg := _read_config(options, 14 if is_mobile else 18, 4000)
+	var wanted := {}
+	for p in ply_indices:
+		wanted[int(p)] = true
+	var vgame := ChessGame.new(_start_fen(game))
+	var moves: Array = game.move_history
+	var done := 0
+	for t in range(moves.size()):
+		if cancel_requested or done >= wanted.size():
+			break
+		var move_t: ChessMove = moves[t]
+		if wanted.has(t):
+			done += 1
+			progress.emit(done, wanted.size())
+			var prev: ChessMove = moves[t - 1] if t > 0 else null
+			var ply := _analyze_position(em, vgame, move_t, move_t.uci, str(move_t.san), prev, false, cfg)
+			ply["ply"] = t
+			ply["step"] = t
+			vgame.make_move(move_t)
+			ply["fen_after"] = vgame.get_fen()
+			out[t] = ply
+			ply_cliff_computed.emit(t, ply)
+		else:
+			vgame.make_move(move_t)
+	is_analyzing = false
+	return out
+
+static func _start_fen(game: ChessGame) -> String:
+	if game.pgn_headers.has("FEN") and str(game.pgn_headers["FEN"]).strip_edges() != "":
+		return str(game.pgn_headers["FEN"]).strip_edges()
+	return ChessGame.INITIAL_FEN
+
 ## Analyse la difficulté cognitive d'une ligne de coups (PV) depuis une FEN de départ.
 ## Émet `step_analyzed` à chaque coup (mode Super Live). Un coup illégal interrompt
 ## la ligne (`truncated_at`) : les demi-coups suivants seraient calculés sur une fausse position.
@@ -86,13 +161,14 @@ func analyze_pv_line(start_fen: String, pv_moves: Array, options: Dictionary = {
 	is_analyzing = true
 	if reset_cancel:
 		cancel_requested = false
+		_pos_cache.clear()
 
 	var em = _resolve_engine()
 	if em == null:
 		return _finish({"error": "EngineManager non disponible", "cliff_version": 2})
 
 	var is_mobile := OS.has_feature("android") or OS.has_feature("ios")
-	var cfg := _read_config(options, 12 if is_mobile else 16, true, 3500)
+	var cfg := _read_config(options, 12 if is_mobile else 16, 3500)
 	var max_plies: int = int(options.get("max_plies", 8))
 	var line_meta := {"is_pv_line": true, "start_fen": start_fen}
 
@@ -129,6 +205,7 @@ func analyze_pv_line(start_fen: String, pv_moves: Array, options: Dictionary = {
 ## Une annulation interrompt l'ensemble : aucune ligne partielle n'est publiée.
 func analyze_multiple_lines_sync(start_fen: String, lines_array: Array, options: Dictionary = {}) -> Dictionary:
 	cancel_requested = false
+	_pos_cache.clear()
 	var results: Dictionary = {}
 	var max_lines: int = mini(lines_array.size(), int(options.get("max_lines", 5)))
 	var line_plies: int = int(options.get("line_plies", 4))
@@ -145,9 +222,6 @@ func analyze_multiple_lines_sync(start_fen: String, lines_array: Array, options:
 
 		var opts := options.duplicate()
 		opts["max_plies"] = line_plies
-		opts["fast_mode"] = true
-		if not opts.has("probe_count"):
-			opts["probe_count"] = 1
 
 		var rep: Dictionary = analyze_pv_line(start_fen, pv, opts, false)
 		if bool(rep.get("cancelled", false)):
@@ -174,51 +248,31 @@ func analyze_multiple_lines_sync(start_fen: String, lines_array: Array, options:
 
 ## Analyse le dilemme du camp au trait dans `vgame` (non modifié) avant le coup `played`.
 ## `prev` : coup adverse précédent (détection de reprise), null au premier demi-coup.
+## La partie « position » (indépendante du coup joué) est mémorisée par FEN : plusieurs
+## lignes partageant une racine (comparaison Méso) ne la paient qu'une fois.
 func _analyze_position(em, vgame: ChessGame, played: ChessMove, played_uci: String, san_move: String,
 		prev: ChessMove, in_theory: bool, cfg: Dictionary) -> Dictionary:
 	var fen_before := vgame.get_fen()
 	var is_white_turn := vgame.active_color == ChessPiece.PieceColor.WHITE
-	var sign := 1 if is_white_turn else -1
-
-	# ── ORACLE : MultiPV profond dans fen_before ────────────────────────
-	var deep_res: Dictionary = em.evaluate_deep_multipv_sync(fen_before, cfg.deep_depth, cfg.multipv, cfg.timeout_ms)
-	var reliable := _engine_ok(deep_res)
-	var deep_score_cp: int = int(deep_res.get("score_cp", 0))
-	var deep_mate_in: int = int(deep_res.get("mate_in", 0))
-	var best_move_uci: String = str(deep_res.get("best_move", ""))
-
-	var mpv_lines: Array = deep_res.get("multipv_lines", [])
-	var deep_by_uci := _deep_wdl_map(mpv_lines, is_white_turn)
-	var wdl_best := CliffMath.wdl(sign * deep_score_cp, sign * deep_mate_in)
-	if deep_by_uci.has(best_move_uci):
-		wdl_best = float(deep_by_uci[best_move_uci])
-	elif best_move_uci != "":
-		deep_by_uci[best_move_uci] = wdl_best
-
-	# Deuxième ligne réellement mesurée ? Sinon Δ reste inconnu (0) et aucun « coup vital ».
-	var second_best_uci := ""
-	var wdl_second := wdl_best
-	var second_measured := false
-	if mpv_lines.size() > 1 and mpv_lines[1] is Dictionary:
-		second_best_uci = str((mpv_lines[1] as Dictionary).get("best_move", ""))
-		if deep_by_uci.has(second_best_uci):
-			wdl_second = float(deep_by_uci[second_best_uci])
-			second_measured = true
-	# Borne supérieure des coups hors MultiPV : la pire ligne rapportée.
-	var wdl_unknown_bound := wdl_second
-	for v in deep_by_uci.values():
-		wdl_unknown_bound = minf(wdl_unknown_bound, float(v))
-	var delta_t := CliffMath.delta_chute(wdl_best, wdl_second) if second_measured else 0.0
-
-	# ── Contexte tactique ───────────────────────────────────────────────
 	var legal_moves: Array[ChessMove] = vgame.get_legal_moves()
-	var n_legal := legal_moves.size()
-	var side_in_check := vgame.is_in_check(vgame.active_color)
+
+	var key := "%s|%d" % [fen_before, 1 if in_theory else 0]
+	var pos: Dictionary
+	if _pos_cache.has(key):
+		pos = _pos_cache[key]
+	else:
+		pos = _evaluate_root(em, vgame, legal_moves, fen_before, is_white_turn, in_theory, cfg)
+		if bool(pos["reliable"]):
+			_pos_cache[key] = pos
+
+	# Étiquette « suite forcée » : n'influence plus la survie (la saillance modélise déjà
+	# l'évidence d'une prise ou d'un échec), elle qualifie seulement la nature du coup.
 	var is_recap := prev != null and prev.captured_piece != ChessPiece.Type.NONE \
 			and _is_recapture_available(legal_moves, prev.to_sq)
-	var is_forced := n_legal == 1 or CliffMath.is_suite_forcee(side_in_check, is_recap,
-			_has_winning_capture(vgame, legal_moves))
+	var is_forced := legal_moves.size() == 1 or CliffMath.is_suite_forcee(
+			vgame.is_in_check(vgame.active_color), is_recap, _has_winning_capture(vgame, legal_moves))
 
+	var best_move_uci := str(pos["best_move"])
 	var ply := {
 		"san": san_move,
 		"move_uci": played_uci,
@@ -227,118 +281,38 @@ func _analyze_position(em, vgame: ChessGame, played: ChessMove, played_uci: Stri
 		"fen": fen_before,
 		"side_to_move": "white" if is_white_turn else "black",
 		"is_white": is_white_turn,
-		"reliable": reliable,
+		"reliable": pos["reliable"],
 		"in_theory": in_theory,
 		"best_move": best_move_uci,
-		"second_best_move": second_best_uci,
-		"score_cp": deep_score_cp,
-		"mate_in": deep_mate_in,
-		"depth": int(deep_res.get("depth", cfg.deep_depth)),
-		"oracle_timed_out": bool(deep_res.get("timed_out", false)),
+		"second_best_move": pos["second_best_move"],
+		"score_cp": pos["score_cp"],
+		"mate_in": pos["mate_in"],
+		"depth": pos["depth"],
+		"oracle_timed_out": pos["oracle_timed_out"],
 		"pv_line": [best_move_uci] if best_move_uci != "" else [],
-		"multipv_lines": mpv_lines,
-		"wdl_deep": wdl_best,
-		"legal_moves_count": n_legal,
+		"multipv_lines": (pos["multipv_lines"] as Array).duplicate(true),
+		"wdl_deep": pos["wdl_best"],
+		"legal_moves_count": legal_moves.size(),
 		"is_forced": is_forced,
 	}
 
-	if in_theory or not reliable:
+	var wdl_best := float(pos["wdl_best"])
+	if in_theory or not bool(pos["reliable"]):
 		_fill_neutral(ply, wdl_best, in_theory)
 		return ply
 
-	# ── Candidats : perception intuitive (depth 1 + saillance) ──────────
-	var moves_to_eval: Array = legal_moves
-	if cfg.fast_mode and cfg.top_k > 0 and n_legal > cfg.top_k:
-		moves_to_eval = _filter_top_salient(vgame, legal_moves, best_move_uci, cfg.top_k, played_uci)
-
-	var cands: Array = []
-	var v_percu_all: Array[float] = []
-	var first_shallow := true
-	for idx in range(moves_to_eval.size()):
-		var lm: ChessMove = moves_to_eval[idx]
-		var child := ChessGame.new(fen_before)
-		child.make_move(lm)
-		var is_check := child.is_in_check(child.active_color)
-
-		var deep_known := deep_by_uci.has(lm.uci)
-		var d_m: float = float(deep_by_uci[lm.uci]) if deep_known else wdl_unknown_bound
-
-		var wdl_shallow_m := wdl_best - CliffTypes.SHALLOW_PLACEHOLDER_PENALTY
-		var shallow_known := false
-		if not child.has_any_legal_move():
-			# Position terminale : valeur exacte, inutile d'interroger le moteur.
-			wdl_shallow_m = 1.0 if is_check else 0.5
-			shallow_known = true
-		elif not cfg.fast_mode or lm.uci == best_move_uci or lm.uci == played_uci or idx < 3:
-			# Un seul ucinewgame par position suffit : il purge la TT de la recherche
-			# profonde ; la contamination entre coups frères à depth 1 est négligeable.
-			var shallow_res: Dictionary = em.evaluate_shallow_sync(child.get_fen(),
-					CliffTypes.SHALLOW_TIMEOUT_MS, cfg.shallow_depth, cfg.ucinewgame and first_shallow)
-			first_shallow = false
-			if _engine_ok(shallow_res, false):
-				wdl_shallow_m = CliffMath.wdl(sign * int(shallow_res.get("score_cp", 0)),
-						sign * int(shallow_res.get("mate_in", 0)))
-				shallow_known = true
-			elif deep_known:
-				wdl_shallow_m = d_m
-
-		var s_m := CliffMath.saillance({
-			"is_check": is_check,
-			"captured_piece": lm.captured_piece,
-			"piece": lm.piece,
-			"from_sq": lm.from_sq,
-			"to_sq": lm.to_sq,
-			"color": lm.color
-		})
-		var v_m := CliffMath.v_percu(wdl_shallow_m, s_m)
-		v_percu_all.append(v_m)
-		cands.append({
-			"uci": lm.uci, "san": str(lm.san), "from_sq": lm.from_sq, "to_sq": lm.to_sq,
-			"v_percu": v_m, "wdl_deep": d_m, "wdl_static": wdl_shallow_m,
-			"is_check": is_check, "deep_known": deep_known, "shallow_known": shallow_known
-		})
-
-	var p_humain_dist := CliffMath.p_humain_distribution(v_percu_all)
-
-	# ── RADAR DE PIÈGES : sonde les coups humainement probables hors MultiPV ──
-	_probe_unknown_candidates(em, fen_before, cands, p_humain_dist, best_move_uci, sign, cfg.probe_count)
-
-	var wdl_deep_all: Array[float] = []
-	var known_all: Array = []
-	var max_cand_idx := -1
-	var max_v_percu := -INF
-	var best_idx := -1
-	for i in range(cands.size()):
-		var c: Dictionary = cands[i]
-		wdl_deep_all.append(float(c["wdl_deep"]))
-		known_all.append(bool(c["deep_known"]))
-		if float(c["v_percu"]) > max_v_percu:
-			max_v_percu = float(c["v_percu"])
-			max_cand_idx = i
-		if str(c["uci"]) == best_move_uci:
-			best_idx = i
-
-	var viable_indices := CliffMath.get_viable_indices(wdl_deep_all, wdl_best, known_all)
-	var viable_p_sum := 0.0
-	for v_idx in viable_indices:
-		viable_p_sum += float(p_humain_dist[v_idx])
-
-	var bait_t := 0.0
-	if max_cand_idx >= 0 and bool(cands[max_cand_idx]["deep_known"]):
-		bait_t = CliffMath.bait(wdl_best, float(cands[max_cand_idx]["wdl_deep"]))
-	var h_mob_t := CliffMath.h_mob(wdl_deep_all, wdl_best, p_humain_dist, known_all)
-	var p_surv_t := CliffMath.p_survie(is_forced, viable_p_sum)
-	var indice_d_t := CliffMath.indice_d([delta_t], [p_surv_t], [bait_t], h_mob_t)
-	var extra := _build_visual_info(cands, p_humain_dist, max_v_percu, wdl_best)
+	var cands: Array = (pos["cands"] as Array).duplicate(true)
+	var p_dist: Array = pos["p_dist"]
+	var delta_t := float(pos["delta_chute"])
+	var indice_d_t := int(pos["indice_d"])
 
 	# ── Nature cognitive et cases interdites ───────────────────────────
 	var nature := CliffTypes.MoveNature.SAFE
 	var poisoned_sqs: Array[int] = []
 	var expl := ""
-	var only_move := second_measured and viable_indices.size() == 1 \
-			and delta_t >= CliffTypes.DELTA_VITAL - 0.0001
-	if only_move:
+	if bool(pos["only_move"]):
 		nature = CliffTypes.MoveNature.VITAL
+		var best_idx := int(pos["best_idx"])
 		var best_c: Dictionary = cands[best_idx] if best_idx >= 0 else {}
 		var best_san := str(best_c.get("san", best_move_uci))
 		if played_uci == best_move_uci:
@@ -366,23 +340,29 @@ func _analyze_position(em, vgame: ChessGame, played: ChessMove, played_uci: Stri
 			played_idx = i
 			break
 
+	var extra := _build_visual_info(cands, p_dist, float(pos["max_v_percu"]), wdl_best)
 	ply.merge({
 		"effort_d": indice_d_t,
 		"indice_d": indice_d_t,
 		"piste": CliffMath.classify_piste_by_d(indice_d_t),
 		"delta_chute": delta_t,
-		"delta_measured": second_measured,
-		"bait": bait_t,
-		"p_survie": p_surv_t,
-		"h_mob": h_mob_t,
+		"delta_measured": pos["delta_measured"],
+		"bait": pos["bait"],
+		"p_survie": pos["p_survie"],
+		"p_survie_lo": pos["p_survie_lo"],
+		"p_survie_hi": pos["p_survie_hi"],
+		"p_survie_exact": pos["p_survie_exact"],
+		"probed_mass": pos["probed_mass"],
+		"h_mob": pos["h_mob"],
 		"move_nature": nature,
 		"is_vital": nature == CliffTypes.MoveNature.VITAL,
+		"only_move": pos["only_move"],
 		"poisoned_squares": poisoned_sqs,
 		"explanation": expl,
 		"v_percu": float(cands[played_idx]["v_percu"]) if played_idx >= 0 else wdl_best,
 		"wdl_static": float(cands[played_idx]["wdl_static"]) if played_idx >= 0 else wdl_best,
-		"p_humain": float(p_humain_dist[played_idx]) if played_idx >= 0 else 0.0,
-		"threat": _threat(cands, p_humain_dist),
+		"p_humain": float(p_dist[played_idx]) if played_idx >= 0 else 0.0,
+		"threat": _threat(cands, p_dist),
 		"bait_move_uci": extra.get("bait_move_uci", ""),
 		"bait_from": extra.get("bait_from", -1),
 		"bait_to": extra.get("bait_to", -1),
@@ -391,13 +371,182 @@ func _analyze_position(em, vgame: ChessGame, played: ChessMove, played_uci: Stri
 	}, true)
 	return ply
 
+## Mesures de la position (indépendantes du coup joué), en trois requêtes moteur :
+## 1. Intuition : MultiPV = tous les coups légaux à faible profondeur (TT isolée).
+## 2. Oracle : MultiPV K profond (vérité, Δ, meilleur coup).
+## 3. Vérification : UNE recherche « searchmoves » sur les coups hors MultiPV les plus
+##    probables pour un humain, jusqu'à couvrir PROBE_MASS de la masse P_humain.
+## Aucune valeur inventée : un coup jamais mesuré en profondeur n'a qu'une borne.
+func _evaluate_root(em, vgame: ChessGame, legal_moves: Array[ChessMove], fen: String,
+		is_white_turn: bool, in_theory: bool, cfg: Dictionary) -> Dictionary:
+	var sign := 1 if is_white_turn else -1
+	var n_legal := legal_moves.size()
+
+	# ── 1. INTUITION (d'abord : l'isolation TT ne doit pas effacer l'oracle) ──
+	var shallow_by_uci := {}
+	var intuition_ok := true
+	if not in_theory and n_legal > 0:
+		var ires: Dictionary = em.search_sync(fen, {
+			"depth": cfg.shallow_depth + 1, "multipv": n_legal, "clear_tt": cfg.isolate_intuition,
+			"timeout_ms": CliffTypes.INTUITION_TIMEOUT_MS, "use_cache": false})
+		intuition_ok = _engine_ok(ires, false)
+		for l in ires.get("multipv_lines", []):
+			var u := str(l.get("best_move", ""))
+			if u != "" and not shallow_by_uci.has(u):
+				shallow_by_uci[u] = CliffMath.wdl_of_line(l, sign)
+
+	# ── 2. ORACLE ─────────────────────────────────────────────────────────
+	var k := maxi(1, mini(cfg.multipv, n_legal))
+	var deep_res: Dictionary = em.search_sync(fen, {
+		"depth": cfg.deep_depth, "multipv": k, "timeout_ms": cfg.timeout_ms})
+	var reliable := _engine_ok(deep_res) and (in_theory or (intuition_ok and not shallow_by_uci.is_empty()))
+	var mpv_lines: Array = deep_res.get("multipv_lines", [])
+	var deep_by_uci := {}
+	for l in mpv_lines:
+		var u := str(l.get("best_move", ""))
+		if u != "" and not deep_by_uci.has(u):
+			deep_by_uci[u] = CliffMath.wdl_of_line(l, sign)
+	var best_move_uci := str(deep_res.get("best_move", ""))
+	var wdl_best := CliffMath.wdl(sign * int(deep_res.get("score_cp", 0)), sign * int(deep_res.get("mate_in", 0)))
+	if deep_by_uci.has(best_move_uci):
+		wdl_best = float(deep_by_uci[best_move_uci])
+	elif best_move_uci != "":
+		deep_by_uci[best_move_uci] = wdl_best
+
+	var pos := {
+		"reliable": reliable,
+		"best_move": best_move_uci,
+		"second_best_move": "",
+		"score_cp": int(deep_res.get("score_cp", 0)),
+		"mate_in": int(deep_res.get("mate_in", 0)),
+		"depth": int(deep_res.get("depth", cfg.deep_depth)),
+		"oracle_timed_out": bool(deep_res.get("timed_out", false)),
+		"multipv_lines": mpv_lines,
+		"wdl_best": wdl_best,
+	}
+	if in_theory or not reliable:
+		return pos
+
+	# Deuxième ligne réellement mesurée ? Sinon Δ reste inconnu (0) et aucun « coup vital ».
+	var second_measured := false
+	var wdl_second := wdl_best
+	if mpv_lines.size() > 1:
+		pos["second_best_move"] = str(mpv_lines[1].get("best_move", ""))
+		if deep_by_uci.has(pos["second_best_move"]):
+			wdl_second = float(deep_by_uci[pos["second_best_move"]])
+			second_measured = true
+	# Borne supérieure des coups hors MultiPV : la pire ligne rapportée (valable seulement
+	# si le moteur a rendu les K lignes demandées ; sinon tous les coups sont déjà connus).
+	var wdl_unknown_bound := wdl_best
+	for v in deep_by_uci.values():
+		wdl_unknown_bound = minf(wdl_unknown_bound, float(v))
+	var delta_t := CliffMath.delta_chute(wdl_best, wdl_second) if second_measured else 0.0
+
+	# ── Perception : saillance + valeur intuitive de CHAQUE coup légal ──
+	var lowest_shallow := 1.0
+	for v in shallow_by_uci.values():
+		lowest_shallow = minf(lowest_shallow, float(v))
+	var cands: Array = []
+	var v_percu_all: Array[float] = []
+	for lm in legal_moves:
+		var is_check := vgame.gives_check(lm)
+		var shallow_known := shallow_by_uci.has(lm.uci)
+		# Coup absent de la recherche intuitive (interrompue) : le moins visible des coups mesurés.
+		var w_s: float = float(shallow_by_uci[lm.uci]) if shallow_known else lowest_shallow
+		var deep_known := deep_by_uci.has(lm.uci)
+		var s_m := CliffMath.saillance({
+			"is_check": is_check, "captured_piece": lm.captured_piece, "piece": lm.piece,
+			"from_sq": lm.from_sq, "to_sq": lm.to_sq, "color": lm.color})
+		var v_m := CliffMath.v_percu(w_s, s_m)
+		v_percu_all.append(v_m)
+		cands.append({
+			"uci": lm.uci, "san": str(lm.san), "from_sq": lm.from_sq, "to_sq": lm.to_sq,
+			"v_percu": v_m, "wdl_deep": float(deep_by_uci[lm.uci]) if deep_known else wdl_unknown_bound,
+			"wdl_static": w_s, "is_check": is_check, "deep_known": deep_known,
+			"shallow_known": shallow_known, "probed": false
+		})
+	var p_dist := CliffMath.p_humain_distribution(v_percu_all, cfg.beta)
+
+	# ── 3. VÉRIFICATION groupée des coups humains probables hors MultiPV ──
+	var probed_mass := _probe_unknown_candidates(em, fen, cands, p_dist, sign, cfg)
+
+	# ── Viabilité (≤ WDL_MOK_TOLERANCE : mobilité, coup unique) et survie (perte
+	# < WDL_FALL_TOLERANCE : pas de chute). Un coup jamais mesuré en profondeur n'est
+	# admissible que si la borne (pire ligne MultiPV) l'autorise ; on l'estime alors
+	# admissible si son évaluation intuitive vaut celle du meilleur coup.
+	var tol := CliffTypes.WDL_MOK_TOLERANCE + 0.0001
+	var fall_tol := CliffTypes.WDL_FALL_TOLERANCE + 0.0001
+	var best_static := wdl_best
+	for c in cands:
+		if str(c["uci"]) == best_move_uci:
+			best_static = float(c["wdl_static"])
+	var wdl_eff: Array[float] = []
+	var known_eff: Array = []
+	var p_lo := 0.0
+	var p_hi := 0.0
+	var p_point := 0.0
+	var max_v := -INF
+	var max_idx := -1
+	var best_idx := -1
+	for i in range(cands.size()):
+		var c: Dictionary = cands[i]
+		var p := float(p_dist[i])
+		var w := float(c["wdl_deep"])
+		wdl_eff.append(w)
+		if bool(c["deep_known"]):
+			known_eff.append(true)
+			if wdl_best - w < fall_tol:
+				p_lo += p
+				p_hi += p
+				p_point += p
+		else:
+			var gap_static := best_static - float(c["wdl_static"])
+			var bound_gap := wdl_best - wdl_unknown_bound
+			known_eff.append(bound_gap <= tol and gap_static <= tol)
+			if bound_gap < fall_tol:
+				p_hi += p
+				if gap_static < fall_tol:
+					p_point += p
+		if float(c["v_percu"]) > max_v:
+			max_v = float(c["v_percu"])
+			max_idx = i
+		if str(c["uci"]) == best_move_uci:
+			best_idx = i
+
+	var viable := CliffMath.get_viable_indices(wdl_eff, wdl_best, known_eff)
+	var bait_t := 0.0
+	if max_idx >= 0 and bool(cands[max_idx]["deep_known"]):
+		bait_t = CliffMath.bait(wdl_best, float(cands[max_idx]["wdl_deep"]))
+	var h_mob_t := CliffMath.h_mob(wdl_eff, wdl_best, p_dist, known_eff)
+	var p_surv_t := CliffMath.p_survie(p_point)
+	var indice_d_t := CliffMath.indice_d([delta_t], [p_surv_t], [bait_t], h_mob_t)
+
+	pos.merge({
+		"cands": cands,
+		"p_dist": p_dist,
+		"max_v_percu": max_v,
+		"best_idx": best_idx,
+		"delta_chute": delta_t,
+		"delta_measured": second_measured,
+		"only_move": second_measured and viable.size() == 1 and delta_t >= CliffTypes.DELTA_VITAL - 0.0001,
+		"bait": bait_t,
+		"h_mob": h_mob_t,
+		"p_survie": p_surv_t,
+		"p_survie_lo": clampf(p_lo, 0.0, 1.0),
+		"p_survie_hi": clampf(p_hi, 0.0, 1.0),
+		"p_survie_exact": p_hi - p_lo < 0.005,
+		"probed_mass": probed_mass,
+		"indice_d": indice_d_t,
+	}, true)
+	return pos
+
 ## Métriques neutres (théorie ou moteur défaillant) : aucune charge attribuée.
 func _fill_neutral(ply: Dictionary, wdl_best: float, in_theory: bool) -> void:
 	var san := str(ply.get("san", ""))
 	ply.merge({
 		"effort_d": 0, "indice_d": 0, "piste": CliffTypes.Piste.AUTOROUTE,
 		"delta_chute": 0.0, "delta_measured": false, "bait": 0.0, "p_survie": 1.0, "h_mob": 0.0,
-		"move_nature": CliffTypes.MoveNature.SAFE, "is_vital": false, "poisoned_squares": [] as Array[int],
+		"move_nature": CliffTypes.MoveNature.SAFE, "is_vital": false, "only_move": false, "poisoned_squares": [] as Array[int],
 		"explanation": ("📖 Théorie (%s)." % san) if in_theory else ("⚠️ Analyse moteur indisponible (%s)." % san),
 		"v_percu": wdl_best, "wdl_static": wdl_best, "p_humain": 0.0,
 		"threat": clampf((wdl_best - 0.5) * 200.0, 0.0, 100.0),
@@ -427,26 +576,49 @@ static func _threat(cands: Array, p_dist: Array) -> float:
 		threat += float(p_dist[i]) * clampf((w_a - 0.50) * 200.0, 0.0, 100.0)
 	return threat
 
-## Sonde (searchmoves) les coups hors MultiPV les plus probables pour un humain,
-## dans l'ordre décroissant de P_humain. Une sonde en échec laisse la borne en place.
-func _probe_unknown_candidates(em, fen: String, cands: Array, p_dist: Array, best_uci: String,
-		sign: int, budget: int) -> void:
-	if budget <= 0 or not em.has_method("probe_suspect_move_fast"):
-		return
+## Vérifie en UNE recherche « searchmoves » (MultiPV = nb de coups) les coups hors MultiPV
+## les plus probables pour un humain, par P_humain décroissante, jusqu'à ce que la masse
+## mesurée atteigne cfg.probe_mass (au plus cfg.probe_max coups). Retourne la masse
+## P_humain dont la valeur profonde est connue. Une recherche en échec laisse les bornes.
+func _probe_unknown_candidates(em, fen: String, cands: Array, p_dist: Array, sign: int, cfg: Dictionary) -> float:
+	var known_mass := 0.0
 	var order: Array = []
 	for i in range(cands.size()):
-		if not bool(cands[i]["deep_known"]) and str(cands[i]["uci"]) != best_uci:
+		if bool(cands[i]["deep_known"]):
+			known_mass += float(p_dist[i])
+		else:
 			order.append(i)
 	order.sort_custom(func(a, b): return float(p_dist[a]) > float(p_dist[b]))
-	for i in order.slice(0, budget):
+	var picked: Array = []
+	var ucis: Array = []
+	var target_mass := known_mass
+	for i in order:
+		if target_mass >= cfg.probe_mass or picked.size() >= cfg.probe_max:
+			break
+		picked.append(i)
+		ucis.append(str(cands[i]["uci"]))
+		target_mass += float(p_dist[i])
+	if picked.is_empty():
+		return known_mass
+
+	var res: Dictionary = em.search_sync(fen, {
+		"depth": maxi(CliffTypes.PROBE_DEPTH, cfg.deep_depth / 2), "multipv": picked.size(),
+		"searchmoves": ucis, "timeout_ms": CliffTypes.PROBE_TIMEOUT_MS, "use_cache": false})
+	if not _engine_ok(res):
+		return known_mass
+	var by_uci := {}
+	for l in res.get("multipv_lines", []):
+		var u := str(l.get("best_move", ""))
+		if u != "" and not by_uci.has(u):
+			by_uci[u] = CliffMath.wdl_of_line(l, sign)
+	for i in picked:
 		var c: Dictionary = cands[i]
-		var probe: Dictionary = em.probe_suspect_move_fast(fen, str(c["uci"]),
-				CliffTypes.PROBE_DEPTH, CliffTypes.PROBE_TIMEOUT_MS)
-		if not _engine_ok(probe):
-			continue
-		c["wdl_deep"] = CliffMath.wdl(sign * int(probe.get("score_cp", 0)), sign * int(probe.get("mate_in", 0)))
-		c["deep_known"] = true
-		c["probed"] = true
+		if by_uci.has(c["uci"]):
+			c["wdl_deep"] = float(by_uci[c["uci"]])
+			c["deep_known"] = true
+			c["probed"] = true
+			known_mass += float(p_dist[i])
+	return known_mass
 
 # ─────────────────────────────────────────────────────────────────────────
 # Rapport
@@ -549,10 +721,13 @@ func _compute_side_summary(plies: Array) -> Dictionary:
 	var p_ligne := CliffMath.p_survie_horizon_min(survies, CliffTypes.HORIZON_PLIES)
 
 	var d_score := CliffMath.indice_d(deltas, survies, baits, avg_h)
-	# Règle de l'Abysse : un ravin ou un effondrement de survie ne peut pas être
-	# dilué par les coups triviaux voisins. Échelle pleine : Δ=0.9 → D=90 (Champ de mines).
-	if max_delta >= CliffTypes.DELTA_CORNICHE:
-		d_score = maxi(d_score, int(round(max_delta * 100.0)))
+	# Règle de l'Abysse : le demi-coup le plus exigeant ne peut pas être dilué par les
+	# coups triviaux voisins. On retient son D (qui combine Δ, survie et appât) plutôt
+	# que Δ seul : un ravin que tout le monde évite (repli évident) n'est pas un piège.
+	var worst_ply_d := 0
+	for p in plies:
+		worst_ply_d = maxi(worst_ply_d, int(p.get("effort_d", 0)))
+	d_score = maxi(d_score, worst_ply_d)
 	if p_ligne < CliffTypes.P_CHEMIN_LO:
 		d_score = maxi(d_score, int(round((1.0 - p_ligne) * 100.0 * 0.75)))
 
@@ -575,16 +750,18 @@ func _resolve_engine():
 		return engine_manager
 	return Engine.get_main_loop().root.get_node_or_null("/root/EngineManager")
 
-func _read_config(options: Dictionary, default_depth: int, default_fast: bool, default_timeout: int) -> Dictionary:
+func _read_config(options: Dictionary, default_depth: int, default_timeout: int) -> Dictionary:
 	return {
 		"deep_depth": int(options.get("deep_depth", default_depth)),
-		"fast_mode": bool(options.get("fast_mode", default_fast)),
 		"shallow_depth": maxi(1, int(options.get("shallow_depth", 1))),
-		"top_k": int(options.get("top_k", 5)),
-		"ucinewgame": bool(options.get("ucinewgame", true)),
+		# Isolation de l'intuition : ucinewgame avant la recherche superficielle, pour
+		# qu'elle ne profite pas de la TT remplie par les recherches profondes.
+		"isolate_intuition": bool(options.get("isolate_intuition", true)),
 		"timeout_ms": int(options.get("timeout_ms", default_timeout)),
 		"multipv": maxi(2, int(options.get("multipv", 3))),
-		"probe_count": maxi(0, int(options.get("probe_count", CliffTypes.PROBE_COUNT))),
+		"probe_mass": clampf(float(options.get("probe_mass", CliffTypes.PROBE_MASS)), 0.0, 1.0),
+		"probe_max": maxi(0, int(options.get("probe_max", CliffTypes.PROBE_MAX))),
+		"beta": CliffMath.beta_for_elo(int(options.get("player_elo", 0))),
 		"source_meta": options.get("source_meta", {}),
 	}
 
@@ -597,20 +774,6 @@ static func _engine_ok(res: Dictionary, need_move: bool = true) -> bool:
 	if need_move and str(res.get("best_move", "")) == "":
 		return false
 	return int(res.get("depth", 1)) > 0 or int(res.get("mate_in", 0)) != 0
-
-## Construit la correspondance UCI -> WDL profond réel depuis les lignes MultiPV.
-func _deep_wdl_map(mpv_lines: Array, is_white_turn: bool) -> Dictionary:
-	var map := {}
-	var sign := 1 if is_white_turn else -1
-	for l in mpv_lines:
-		if not (l is Dictionary):
-			continue
-		var uci := str((l as Dictionary).get("best_move", ""))
-		if uci == "" or map.has(uci):
-			continue
-		map[uci] = CliffMath.wdl(sign * int((l as Dictionary).get("score_cp", 0)),
-				sign * int((l as Dictionary).get("mate_in", 0)))
-	return map
 
 ## Informations visuelles (Rayons X) : coup le plus séduisant (appât), cases-mines, top candidats.
 ## Une mine est un coup quasi aussi séduisant que l'appât, dont la valeur profonde est CONNUE
@@ -671,33 +834,3 @@ static func _is_recapture_available(legal_moves: Array, target_sq: int) -> bool:
 		if int(m.to_sq) == target_sq and m.captured_piece != ChessPiece.Type.NONE:
 			return true
 	return false
-
-## Filtre les coups légaux par saillance cognitive en priorisant le best_move et le coup joué.
-func _filter_top_salient(vgame: ChessGame, legal_moves: Array, best_move_uci: String, limit: int, priority_uci: String = "") -> Array:
-	var scored: Array = []
-	var fen_curr := vgame.get_fen()
-	for m in legal_moves:
-		var s := 0.0
-		if m.uci == best_move_uci:
-			s = 100.0
-		elif priority_uci != "" and m.uci == priority_uci:
-			s = 90.0
-		else:
-			var ch := ChessGame.new(fen_curr)
-			ch.make_move(m)
-			var gives_check := ch.is_in_check(ch.active_color)
-			s = CliffMath.saillance({
-				"is_check": gives_check,
-				"captured_piece": m.captured_piece,
-				"piece": m.piece,
-				"from_sq": m.from_sq,
-				"to_sq": m.to_sq,
-				"color": m.color
-			})
-		scored.append({"move": m, "score": s})
-
-	scored.sort_custom(func(a, b): return float(a["score"]) > float(b["score"]))
-	var result: Array = []
-	for i in range(mini(limit, scored.size())):
-		result.append(scored[i]["move"])
-	return result

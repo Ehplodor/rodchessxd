@@ -20,10 +20,13 @@ const W_FORWARD := 0.05    # Biais vers l'offensive
 const W_BACKWARD := 0.10   # Recul = angle mort cognitif
 
 ## ── Boltzmann ─────────────────────────────────────────────────────────
-const BETA := 12.0          # Température cognitive inverse (constante, difficulté intrinsèque)
-## Dans une suite forcée (échec, reprise, gain matériel), la probabilité de rater
-## le bon coup est multipliée par ce facteur : l'humain y est guidé, pas infaillible.
-const FORCED_MISS_FACTOR := 0.5
+const BETA := 12.0          # Température cognitive inverse par défaut (joueur ≈ 1600 Élo)
+## β dépend du niveau : un joueur fort discrimine mieux les coups (β plus grand).
+## β(Élo) = BETA + (Élo - BETA_ELO_REF) · BETA_PER_ELO, borné à [BETA_MIN, BETA_MAX].
+const BETA_ELO_REF := 1600
+const BETA_PER_ELO := 0.01
+const BETA_MIN := 4.0
+const BETA_MAX := 24.0
 
 ## ── Seuils de classification par piste ─────────────────────────────────
 const P_AUTOROUTE := 0.65     # P_survie_ligne ≥ 0.65
@@ -35,6 +38,9 @@ const P_FIL_LO := 0.03        # P_survie_ligne ∈ [0.03, 0.15)
 const DELTA_CORNICHE := 0.30  # Δ_chute ≥ 0.30 → ravin (règle de l'Abysse)
 const BAIT_THRESHOLD := 0.25  # Bait ≥ 0.25 → piège naturel
 const WDL_MOK_TOLERANCE := 0.05 # Écart WDL max pour qu'un coup soit « viable » (H_mob)
+## Perte WDL à partir de laquelle un coup « chute » (seuil d'erreur, 10 points de gain) :
+## la survie mesure le risque d'erreur, pas celui d'une simple imprécision (5 points).
+const WDL_FALL_TOLERANCE := 0.10
 const DELTA_VITAL := 0.20       # Δ mesuré ≥ 0.20 avec un seul coup viable → coup unique vital
 
 ## ── Bornes WDL : les mats restent toujours au-delà de toute évaluation en cp ──
@@ -42,12 +48,16 @@ const WDL_CP_CEIL := 0.98       # Plafond d'une évaluation en centipions
 const WDL_MATE_FLOOR := 0.985   # Mat gagnant le plus lointain (mat en MATE_HORIZON)
 const MATE_HORIZON := 50        # Au-delà, tous les mats se valent
 
-## ── Sondes et approximations du moteur ────────────────────────────────
-const PROBE_DEPTH := 6          # Profondeur des sondes « searchmoves » (coups hors MultiPV)
-const PROBE_TIMEOUT_MS := 250
-const PROBE_COUNT := 3          # Nb max de coups humains probables sondés hors MultiPV
-const SHALLOW_TIMEOUT_MS := 250
-const SHALLOW_PLACEHOLDER_PENALTY := 0.10 # Coups non évalués en mode rapide : WDL_best - pénalité
+## ── Recherches moteur (3 requêtes par demi-coup) ────────────────────────
+## Intuition : une recherche MultiPV couvrant TOUS les coups légaux à faible profondeur.
+const INTUITION_TIMEOUT_MS := 600
+## Vérification : les coups hors MultiPV sont sondés en UNE recherche « searchmoves »,
+## par P_humain décroissante, jusqu'à couvrir PROBE_MASS de la masse humaine
+## (au plus PROBE_MAX coups). Profondeur : max(PROBE_DEPTH, profondeur oracle / 2).
+const PROBE_DEPTH := 8
+const PROBE_MASS := 0.90
+const PROBE_MAX := 8
+const PROBE_TIMEOUT_MS := 1200
 
 ## ── Indice composite D ────────────────────────────────────────────────
 const D_WEIGHT_CHUTE := 35.0
@@ -178,6 +188,51 @@ static func get_nature_icon(nature: int) -> String:
 
 static func get_nature_label(nature: int) -> String:
 	return NATURE_LABELS.get(nature, "Libre")
+
+## ── Moments clés (Super-Analyse V3) ──────────────────────────────────
+## Cliff n'est lancé que sur les demi-coups candidats, puis juge chaque moment.
+enum MomentKind {
+	ONLY_FOUND,   # 🧗 Seul coup tenable, trouvé, et difficile à voir
+	ONLY_MISSED,  # 🧗 Seul coup tenable, manqué
+	BAIT_TAKEN,   # 🍬 Le coup le plus tentant était le piège, et il a été joué
+	CARELESS,     # 😴 Erreur dans une position facile (inattention)
+	HARD_ERROR,   # ⚠️ Erreur dans une position exigeante
+}
+
+const MOMENT_ICONS := {
+	MomentKind.ONLY_FOUND:  "🧗",
+	MomentKind.ONLY_MISSED: "🧗",
+	MomentKind.BAIT_TAKEN:  "🍬",
+	MomentKind.CARELESS:    "😴",
+	MomentKind.HARD_ERROR:  "⚠️",
+}
+
+const MOMENT_TITLES := {
+	MomentKind.ONLY_FOUND:  "Coup unique trouvé",
+	MomentKind.ONLY_MISSED: "Coup unique manqué",
+	MomentKind.BAIT_TAKEN:  "Appât mordu",
+	MomentKind.CARELESS:    "Inattention",
+	MomentKind.HARD_ERROR:  "Position exigeante",
+}
+
+## Réussite (vert) ou échec (rouge) du camp qui jouait le moment.
+static func moment_is_success(kind: int) -> bool:
+	return kind == MomentKind.ONLY_FOUND
+
+## Criblage : MultiPV 2 peu profonde sur chaque demi-coup hors théorie.
+const SCREEN_DEPTH := 10
+const SCREEN_TIMEOUT_MS := 800
+## Candidat si perte ≥ MOMENT_LOSS_MIN points de gain, ou chemin étroit (écart 1re/2e ≥ DELTA_VITAL).
+const MOMENT_LOSS_MIN := 5.0
+const MOMENT_MAX_CANDIDATES := 12
+## Erreur (≥ 10 points de gain perdus) : facile si survie ≥ MOMENT_EASY_SURVIVAL.
+const MOMENT_ERROR_LOSS := 10.0
+const MOMENT_EASY_SURVIVAL := 0.80
+## Coup unique trouvé : n'est un « test réussi » que si la survie était < ce seuil.
+const MOMENT_OBVIOUS_SURVIVAL := 0.70
+## Coup unique manqué : « trouvable » si la survie était ≥ ce seuil.
+const MOMENT_FINDABLE_SURVIVAL := 0.50
+const MOMENT_BAIT_MIN := 0.10
 
 ## ── Indice de Surprise & Soulagement (V3.0) ──────────────────────────
 ## S = D_réel(t+1) - D_latent(t)

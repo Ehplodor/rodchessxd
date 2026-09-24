@@ -28,8 +28,8 @@ const PROFILES := [
 		"budget_base_depth": 6, "budget_deep_depth": 10, "budget_max_deep": 3,
 		"live_depth": 8, "live_multipv": 2,
 		"oracle_depth": 10, "oracle_timeout": 1500, "oracle_multipv": 2,
-		"shallow_depth": 1, "shallow_top_k": 4, "shallow_ucinewgame": false,
-		"pv_max_plies": 4, "pv_fast_mode": true,
+		"shallow_depth": 1,
+		"pv_max_plies": 4,
 		"game_theory_plies": 12,
 	},
 	# 1 Rapide
@@ -38,8 +38,8 @@ const PROFILES := [
 		"budget_base_depth": 8, "budget_deep_depth": 12, "budget_max_deep": 4,
 		"live_depth": 10, "live_multipv": 2,
 		"oracle_depth": 12, "oracle_timeout": 2000, "oracle_multipv": 2,
-		"shallow_depth": 1, "shallow_top_k": 6, "shallow_ucinewgame": false,
-		"pv_max_plies": 6, "pv_fast_mode": true,
+		"shallow_depth": 1,
+		"pv_max_plies": 6,
 		"game_theory_plies": 10,
 	},
 	# 2 Équilibré (défaut mobile)
@@ -48,8 +48,8 @@ const PROFILES := [
 		"budget_base_depth": 10, "budget_deep_depth": 14, "budget_max_deep": 6,
 		"live_depth": 12, "live_multipv": 3,
 		"oracle_depth": 14, "oracle_timeout": 3000, "oracle_multipv": 3,
-		"shallow_depth": 2, "shallow_top_k": 8, "shallow_ucinewgame": true,
-		"pv_max_plies": 8, "pv_fast_mode": true,
+		"shallow_depth": 2,
+		"pv_max_plies": 8,
 		"game_theory_plies": 8,
 	},
 	# 3 Approfondi (défaut PC)
@@ -58,8 +58,8 @@ const PROFILES := [
 		"budget_base_depth": 12, "budget_deep_depth": 18, "budget_max_deep": 8,
 		"live_depth": 14, "live_multipv": 3,
 		"oracle_depth": 18, "oracle_timeout": 4000, "oracle_multipv": 3,
-		"shallow_depth": 2, "shallow_top_k": 0, "shallow_ucinewgame": true,
-		"pv_max_plies": 10, "pv_fast_mode": false,
+		"shallow_depth": 2,
+		"pv_max_plies": 10,
 		"game_theory_plies": 6,
 	},
 	# 4 Maximum
@@ -68,8 +68,8 @@ const PROFILES := [
 		"budget_base_depth": 14, "budget_deep_depth": 22, "budget_max_deep": 12,
 		"live_depth": 16, "live_multipv": 4,
 		"oracle_depth": 22, "oracle_timeout": 6000, "oracle_multipv": 4,
-		"shallow_depth": 3, "shallow_top_k": 0, "shallow_ucinewgame": true,
-		"pv_max_plies": 12, "pv_fast_mode": false,
+		"shallow_depth": 3,
+		"pv_max_plies": 12,
 		"game_theory_plies": 4,
 	},
 ]
@@ -126,19 +126,15 @@ static func cliff_oracle_opts(t: int) -> Dictionary:
 	return {"deep_depth": p["oracle_depth"], "timeout_ms": p["oracle_timeout"],
 			"multipv": p["oracle_multipv"]}
 
-## E4 — Intuition Cliff (regard depth 1 par coup légal).
+## E4 — Intuition Cliff (une recherche MultiPV superficielle couvrant tous les coups légaux).
 static func cliff_intuition_opts(t: int) -> Dictionary:
 	var p := profile(t)
-	return {
-		"shallow_depth": p["shallow_depth"],
-		"top_k": p["shallow_top_k"],
-		"ucinewgame": p["shallow_ucinewgame"],
-	}
+	return {"shallow_depth": p["shallow_depth"]}
 
-## E5 — Enveloppe de ligne Cliff (longueur + mode).
+## E5 — Enveloppe de ligne Cliff (longueur).
 static func cliff_envelope_opts(t: int) -> Dictionary:
 	var p := profile(t)
-	return {"max_plies": p["pv_max_plies"], "fast_mode": p["pv_fast_mode"]}
+	return {"max_plies": p["pv_max_plies"]}
 
 ## Applique le palier à SettingsManager (les clés deviennent les overrides experts).
 static func apply_to_settings(sm: Node, t: int) -> void:
@@ -158,10 +154,10 @@ static func apply_to_settings(sm: Node, t: int) -> void:
 static func estimate_seconds(t: int, plies: int, mobile: bool) -> Vector2i:
 	var p := profile(t)
 	var n := maxi(1, plies)
-	var oracle := float(p["oracle_timeout"]) / 1000.0 + 0.25
-	var shallow_calls := float(p["shallow_top_k"]) if int(p["shallow_top_k"]) > 0 else 18.0
-	var shallow := shallow_calls * 0.03
-	var per_ply := oracle + shallow
+	# Oracle (borné par son délai, souvent atteint bien avant) + intuition et vérification
+	# groupées (deux recherches courtes).
+	var oracle := float(p["oracle_timeout"]) / 1000.0 * 0.35
+	var per_ply := oracle + 0.08
 	var total := per_ply * float(n) * (1.35 if mobile else 1.0)
 	return Vector2i(int(maxf(2.0, total * 0.6)), int(maxf(5.0, total * 1.5)))
 
